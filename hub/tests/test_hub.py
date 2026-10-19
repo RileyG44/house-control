@@ -289,18 +289,25 @@ def test_editor_saves_the_plan_for_every_screen(tmp_path, monkeypatch):
              "rooms": [{"id": "studio", "rect": [0, 0, 6, 7]}, {"id": "bath", "rect": [6, 4, 2.4, 3]}],
              "lights": [{"id": "bath.light", "room": "bath", "type": "ceiling", "pos": [7, 5],
                          "link": {"service": "aidot", "id": "dc0675863854"}}]}
-    assert hub.save_plan(drawn) == {"ok": True}
+    rev = hub.plan_rev
+    assert hub.save_plan(drawn, by="page-a") == {"ok": True, "rev": rev + 1}
     # The hub's plan and the Mac app's file are the same bytes, so neither adopts the other.
     assert (conf / "plan.json").read_bytes() == panel.read_bytes()
     assert not hub._adopt_panel_plan()
     saved = json.loads(panel.read_text())
     assert saved["name"] == "Rearranged" and "generatedBy" not in saved  # hand-drawn from now on
     assert hub.plan["rooms"][1]["id"] == "bath" and hub.links["bath.light"] == ("aidot", "dc0675863854")
-    assert heard.get_nowait() == {"reload": True}
+    # Every screen hears which plan this is and who saved it (that one ignores its own echo).
+    assert heard.get_nowait() == {"reload": True, "rev": rev + 1, "by": "page-a"}
+    # Saving the same plan again changes nothing: no event, and the reply has the current rev.
+    assert hub.save_plan(drawn) == {"ok": True, "rev": rev + 1} and heard.empty()
+    # A change from elsewhere (the Mac app's file, a rescan) has nobody to name.
+    hub.save_plan({**drawn, "name": "Again"})
+    assert heard.get_nowait() == {"reload": True, "rev": rev + 2, "by": None}
     # Something that is not a floor plan is refused and changes nothing.
     assert "error" in hub.save_plan({"rooms": []})
     assert "error" in hub.save_plan({"rooms": [{"id": "x", "rect": [0, 0, "wide", 2]}]})
-    assert json.loads((conf / "plan.json").read_text())["name"] == "Rearranged"
+    assert json.loads((conf / "plan.json").read_text())["name"] == "Again" and hub.plan_rev == rev + 2
 
 
 def test_plan_from_devices():
@@ -391,11 +398,18 @@ def test_hub_serves_panel_and_sends_commands(tmp_path, monkeypatch):
             catalog = await (await client.post("/api/call", json={"type": "devices.all"})).json()
             assert {(d["service"], d["kind"]) for d in catalog["devices"]} == {("wiz", "light"), ("mrcool", "ac")}
             assert {d["name"] for d in catalog["devices"] if d["kind"] == "light"} == {"Edison Bulb", "Counter Light", "Window Light"}
-            moved = await (await client.get("/api/plan")).json()
+            r = await client.get("/api/plan")
+            moved, rev = await r.json(), int(r.headers["X-Plan-Rev"])
+            if (house.WEB / "index.html").is_file():
+                assert f'"rev": {rev}' in page
             moved["rooms"][0]["rect"] = [1, 1, 5, 5]
-            r = await client.post("/api/call", json={"type": "savePlan", "config": moved})
-            assert await r.json() == {"ok": True}
-            assert (await (await client.get("/api/plan")).json())["rooms"][0]["rect"] == [1, 1, 5, 5]
+            heard: asyncio.Queue = asyncio.Queue()
+            hub.listeners.add(heard)
+            r = await client.post("/api/call", json={"type": "savePlan", "config": moved, "client": "tab-1"})
+            assert await r.json() == {"ok": True, "rev": rev + 1}
+            assert heard.get_nowait() == {"reload": True, "rev": rev + 1, "by": "tab-1"}
+            r = await client.get("/api/plan")
+            assert (await r.json())["rooms"][0]["rect"] == [1, 1, 5, 5] and r.headers["X-Plan-Rev"] == str(rev + 1)
         finally:
             await client.close()
             await server.close()

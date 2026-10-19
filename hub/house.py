@@ -77,6 +77,7 @@ class Hub:
         self.mrcool: MrcoolClient | None = None
         self.aidot: AidotLanClient | None = None
         self.plan: dict = {}
+        self.plan_rev = 0  # bumped whenever the plan changes, so a screen knows which one it shows
         self.links: dict[str, tuple[str, str]] = {}   # plan id -> (service, device id)
         self.state: dict = {"lights": {}, "acs": {}, "features": {}, "offline": []}
         self.listeners: set[asyncio.Queue] = set()
@@ -216,7 +217,8 @@ class Hub:
         if self._adopt_panel_plan():
             self._rebuild_plan()
 
-    def _rebuild_plan(self) -> None:
+    def _rebuild_plan(self, by: str | None = None) -> None:
+        """Reloads the plan; when it changed, every panel is told (`by`: the screen that saved it)."""
         self._adopt_panel_plan()
         custom = read_json(self.conf / "plan.json", None)
         if custom and custom.get("generatedBy") != "hub":
@@ -229,11 +231,14 @@ class Hub:
             new = plans.build(self.names, lights, acs)
             (self.conf / "plan.json").write_text(json.dumps(new, indent=2))
         changed = bool(self.plan) and new != self.plan
+        if new != self.plan:
+            self.plan_rev += 1
         self.plan = new
         self.links = {d["id"]: (d["link"]["service"], d["link"]["id"])
                       for d in [*new.get("lights", []), *new.get("acs", [])] if (d.get("link") or {}).get("id")}
         if changed:
-            self._publish({"reload": True})
+            # The screen that saved it ignores its own echo; the others take the new plan in place.
+            self._publish({"reload": True, "rev": self.plan_rev, "by": by})
 
     def _plan_ids(self, service: str, device: str) -> list[str]:
         return [pid for pid, (s, d) in self.links.items() if s == service and d == device]
@@ -340,12 +345,13 @@ class Hub:
 
     # ---------- the floor plan, edited from any panel ----------
 
-    def save_plan(self, config) -> dict:
+    def save_plan(self, config, by: str | None = None) -> dict:
         """Stores a plan drawn in the editor as the home's plan.
 
         The hub's plan.json is what the site serves; the Mac app's own plan file, when it
         has one, gets the same bytes (and mtime), so the menu bar panel and the island
-        show the same home and neither copy looks newer than the other."""
+        show the same home and neither copy looks newer than the other. `by` is the saving
+        screen's client id, passed on in the reload event; the reply carries the plan's rev."""
         if not isinstance(config, dict):
             return {"error": "The plan must be a JSON object"}
         rooms = config.get("rooms")
@@ -369,8 +375,8 @@ class Hub:
             os.replace(tmp, path)
             os.utime(path, ns=(now, now))
         log.info("Saved the floor plan from the editor (%d rooms)", len(rooms))
-        self._rebuild_plan()
-        return {"ok": True}
+        self._rebuild_plan(by=by if isinstance(by, str) and by else None)
+        return {"ok": True, "rev": self.plan_rev}
 
     def services_info(self) -> dict:
         """The platforms the hub drives, in the shape the editor's Connections take."""
@@ -474,7 +480,7 @@ def make_app(hub: Hub) -> web.Application:
             return web.Response(status=503, content_type="text/html", text=(
                 "<h1>The panel is not built yet</h1><p>Run <code>./setup.sh</code> in the hub folder, "
                 "or <code>npm --prefix web ci && npm --prefix web run build</code>.</p>"))
-        boot = {"hub": True, "config": hub.plan}
+        boot = {"hub": True, "config": hub.plan, "rev": hub.plan_rev}
         html = page.read_text().replace(
             "<head>", "<head><script>window.__HOUSE_BOOT__=" + json.dumps(boot).replace("</", "<\\/") + "</script>", 1)
         return web.Response(text=html, content_type="text/html", headers={"Cache-Control": "no-store"})
@@ -505,7 +511,7 @@ def make_app(hub: Hub) -> web.Application:
         if kind == "command":
             return web.json_response(await hub.command(body))
         if kind == "savePlan":
-            return web.json_response(hub.save_plan(body.get("config")))
+            return web.json_response(hub.save_plan(body.get("config"), by=body.get("client")))
         if kind == "services.info":
             return web.json_response(hub.services_info())
         if kind == "devices.all":
@@ -516,7 +522,7 @@ def make_app(hub: Hub) -> web.Application:
         return web.json_response(hub.devices())
 
     async def plan(_):
-        return web.json_response(hub.plan, headers={"Cache-Control": "no-store"})
+        return web.json_response(hub.plan, headers={"Cache-Control": "no-store", "X-Plan-Rev": str(hub.plan_rev)})
 
     async def rescan(_):
         await hub.discover()
