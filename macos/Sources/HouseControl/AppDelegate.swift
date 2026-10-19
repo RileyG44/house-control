@@ -7,7 +7,7 @@ import HouseSmartLife
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let plans = PlanStore()
     /// The Smart Life / Tuya side: device links, commands and state.
-    private lazy var hub = DeviceHub(directory: plans.directory, cloud: SmartLifePlatform.init)
+    private lazy var hub = DeviceHub(directory: plans.directory, cloud: SmartLifePlatform.init, localHub: .local)
     /// Smart Life is always part of the Mac app.
     private var smartLife: SmartLifePlatform { hub.smartLife! }
     /// Hands the floor plan to paired iPhones on the local network.
@@ -278,7 +278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func revealPlan() {
-        let url = plans.hasCustomPlan ? plans.customPlanURL : WebHost.assetRoot.appendingPathComponent("plans/\(plans.activePlan).json")
+        let url = plans.hasCustomPlan ? plans.effectiveCustomPlanURL : WebHost.assetRoot.appendingPathComponent("plans/\(plans.activePlan).json")
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
@@ -595,7 +595,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sync.snapshot = { [unowned self] in
             SyncState(macName: self.computerName,
                       revision: self.plans.customPlanRevision ?? "",
-                      plan: try? Data(contentsOf: self.plans.customPlanURL),
+                      plan: try? Data(contentsOf: self.plans.effectiveCustomPlanURL),
                       userCode: self.smartLife.userCode,
                       smartLifeConnected: self.smartLife.isSmartLifeConnected,
                       connections: self.hub.shareableConnections)

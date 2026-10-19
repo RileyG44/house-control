@@ -10,7 +10,10 @@ html.mode-island #app { display: block; padding: 0; height: 100%; }
   --ear: 64px;
   --mood: #17274f;
   --w: calc(var(--notch-w) + var(--ear) * 2);
-  --h: var(--notch-h);
+  /* The menu bar covers exactly --notch-h, so the rounded bottom has to hang past it
+     or the chin sits inside the bar and the island reads as a flat strip. */
+  --drop: 10px;
+  --h: calc(var(--notch-h) + var(--drop));
   --r: 13px;
   /* Springs sampled from a damped oscillator, the way SwiftUI animates: opening is
      response 0.5 s with damping 0.74 (overshoots 3 %), closing response 0.34 s, no bounce. */

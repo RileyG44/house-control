@@ -31,12 +31,17 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import plan as plans  # noqa: E402
+from aidot_lan import AidotError, AidotLanClient  # noqa: E402
 from mrcool import MrcoolClient, MrcoolError  # noqa: E402
 from wiz import Light, WizClient, WizError  # noqa: E402
 
 PORT = int(os.environ.get("HOUSE_HUB_PORT", "8766"))
 CONF = Path(os.environ.get("HOUSE_HUB_DIR", Path.home() / ".house-hub"))
 WEB = Path(os.environ.get("HOUSE_HUB_WEB", HERE.parent / "web" / "dist"))
+# The Mac app's editor writes here. The site serves CONF/plan.json, so a newer panel file is copied across.
+PANEL_PLAN = Path(os.environ.get(
+    "HOUSE_PANEL_PLAN",
+    Path.home() / "Library/Application Support/HouseControl/plan.json"))
 LABEL = "local.househub"
 
 LIGHT_POLL = 2.0     # seconds between reads of every light (local, cheap)
@@ -70,6 +75,7 @@ class Hub:
                              port=int(os.environ.get("HOUSE_HUB_WIZ_PORT", "38899")))
         self.http: aiohttp.ClientSession | None = None
         self.mrcool: MrcoolClient | None = None
+        self.aidot: AidotLanClient | None = None
         self.plan: dict = {}
         self.links: dict[str, tuple[str, str]] = {}   # plan id -> (service, device id)
         self.state: dict = {"lights": {}, "acs": {}, "features": {}, "offline": []}
@@ -100,25 +106,37 @@ class Hub:
     async def start(self) -> None:
         self.http = aiohttp.ClientSession()
         self.mrcool = MrcoolClient(self.conf / "mrcool.json", self.http)
+        self.aidot = AidotLanClient(self.conf / "aidot.json", self.http)
         self._recall_lights()
         await self.wiz.start()
         await self.discover()
         if self.mrcool.configured:
             with contextlib.suppress(Exception):
                 await self._read_acs()
+        if self.aidot.configured:
+            try:
+                await self.aidot.connect()
+                self.aidot.set_known_ips(self._aidot_addresses())
+            except AidotError as e:
+                log.warning("AiDot: %s", e)
         self._rebuild_plan()
         # The first panel to connect gets the real state, not the panel's defaults.
         await self._poll_lights()
+        self._poll_aidot()
         if self.mrcool.devices:
             self._publish_acs()
         self._tasks = [asyncio.create_task(self._loop(self._poll_lights, LIGHT_POLL)),
+                       asyncio.create_task(self._loop(self._poll_aidot_loop, LIGHT_POLL)),
                        asyncio.create_task(self._loop(self._poll_acs, 15.0)),
+                       asyncio.create_task(self._loop(self._sync_panel_plan, 5.0)),
                        asyncio.create_task(self._loop(self.discover, DISCOVER_EVERY))]
 
     async def stop(self) -> None:
         for t in self._tasks:
             t.cancel()
         self.wiz.close()
+        if self.aidot:
+            await self.aidot.close()
         if self.http:
             await self.http.close()
 
@@ -155,12 +173,58 @@ class Hub:
         if set(self.mrcool.devices) != before and self.plan:
             self._rebuild_plan()
 
+    def _aidot_addresses(self) -> dict[str, str]:
+        """Addresses written in devices.json for AiDot bulbs, by device key."""
+        out: dict[str, str] = {}
+        for key, v in (self.names.get("lights") or {}).items():
+            if isinstance(v, dict) and v.get("ip") and (v.get("service") == "aidot" or key in (self.aidot.devices if self.aidot else {})):
+                out[key] = v["ip"]
+        if self.aidot:
+            for key in self.aidot.devices:
+                for v in (self.names.get("lights") or {}).values():
+                    props = self.aidot.devices[key].get("properties") or {}
+                    if isinstance(v, dict) and v.get("ip") and props.get("ipAddress") == v["ip"]:
+                        out[key] = v["ip"]
+        return out
+
+    def _adopt_panel_plan(self) -> bool:
+        """Copies the Mac panel's floor plan over the hub's when the panel's file is newer.
+
+        The editor saves beside the app, and the site only reads the hub's plan.json.
+        Returns whether the hub file's contents changed."""
+        panel, hub_plan = PANEL_PLAN, self.conf / "plan.json"
+        try:
+            if not panel.is_file() or panel.resolve() == hub_plan.resolve():
+                return False
+            if hub_plan.is_file() and panel.stat().st_mtime_ns <= hub_plan.stat().st_mtime_ns:
+                return False
+            data = json.loads(panel.read_text())
+        except (OSError, ValueError):
+            return False
+        if not isinstance(data, dict) or not isinstance(data.get("rooms"), list):
+            return False
+        raw = panel.read_bytes()
+        if hub_plan.is_file() and hub_plan.read_bytes() == raw:
+            os.utime(hub_plan, ns=(panel.stat().st_mtime_ns, panel.stat().st_mtime_ns))
+            return False
+        hub_plan.write_bytes(raw)
+        os.utime(hub_plan, ns=(panel.stat().st_mtime_ns, panel.stat().st_mtime_ns))
+        log.info("Adopted the Mac panel's floor plan")
+        return True
+
+    async def _sync_panel_plan(self) -> None:
+        if self._adopt_panel_plan():
+            self._rebuild_plan()
+
     def _rebuild_plan(self) -> None:
+        self._adopt_panel_plan()
         custom = read_json(self.conf / "plan.json", None)
         if custom and custom.get("generatedBy") != "hub":
             new = custom
         else:
             lights = [l.describe() for l in self.wiz.lights.values()]
+            if self.aidot:
+                lights += self.aidot.describe_all()
             acs = [self.mrcool.describe(m) for m in self.mrcool.devices] if self.mrcool else []
             new = plans.build(self.names, lights, acs)
             (self.conf / "plan.json").write_text(json.dumps(new, indent=2))
@@ -184,6 +248,27 @@ class Hub:
             for pid in self._plan_ids("wiz", mac):
                 update["lights"][pid] = result
         self._apply(update)
+
+    def _poll_aidot(self) -> None:
+        """AiDot bulbs report their own state over their LAN connection; this
+        only copies the latest report into the panel state."""
+        if not self.aidot:
+            return
+        update: dict = {"lights": {}}
+        for key in list(self.aidot.devices):
+            pids = self._plan_ids("aidot", key)
+            if not pids:
+                continue
+            try:
+                reading = self.aidot.read(key)
+            except AidotError:
+                continue
+            for pid in pids:
+                update["lights"][pid] = reading
+        self._apply(update)
+
+    async def _poll_aidot_loop(self) -> None:
+        self._poll_aidot()
 
     async def _poll_acs(self) -> None:
         if not self.mrcool or not self.mrcool.configured or time.time() < self._ac_due:
@@ -236,12 +321,18 @@ class Hub:
                 # Other panels hear it now rather than at the next read.
                 light = self.wiz.lights[device]
                 self._apply({"lights": {other: dict(light.state) for other in self._plan_ids("wiz", device)}})
+            elif service == "aidot":
+                if self.aidot is None:
+                    return {"error": "AiDot is not signed in yet: see hub/README.md"}
+                await self.aidot.send(device, patch, state)
+                self._apply({"lights": {other: dict(self.aidot.state.get(device, {}))
+                                         for other in self._plan_ids("aidot", device)}})
             elif service == "mrcool":
                 await self.mrcool.send(device, patch)
                 self._publish_acs()
             else:
                 return {"error": f"Unknown platform {service}"}
-        except (WizError, MrcoolError, aiohttp.ClientError, asyncio.TimeoutError) as e:
+        except (WizError, MrcoolError, AidotError, aiohttp.ClientError, asyncio.TimeoutError) as e:
             log.warning("%s %s %s: %s", pid, service, patch, e)
             return {"error": str(e) or e.__class__.__name__}
         log.info("%s [%s] %s → ok", pid, service, " ".join(f"{k}={v}" for k, v in sorted(patch.items())))
@@ -249,16 +340,61 @@ class Hub:
 
     def devices(self) -> dict:
         names = self.names
+        lights = [{**l.describe(), **(names.get("lights") or {}).get(m, {}), "linked": self._plan_ids("wiz", m)}
+                  for m, l in self.wiz.lights.items()]
+        if self.aidot:
+            lights += [{**d, **(names.get("lights") or {}).get(d["id"], {}),
+                        "linked": self._plan_ids("aidot", d["id"])} for d in self.aidot.describe_all()]
         return {
-            "lights": [{**l.describe(), **(names.get("lights") or {}).get(m, {}), "linked": self._plan_ids("wiz", m)}
-                       for m, l in self.wiz.lights.items()],
+            "lights": lights,
             "acs": [{**self.mrcool.describe(m), "linked": self._plan_ids("mrcool", m)} for m in self.mrcool.devices]
             if self.mrcool else [],
             "mrcool": {"configured": bool(self.mrcool and self.mrcool.configured)},
+            "aidot": {"configured": bool(self.aidot and self.aidot.configured)},
         }
 
 
 # ---------- web ----------
+
+def _loopback(peer: str | None) -> bool:
+    if not peer:
+        return False
+    if peer.startswith("::ffff:"):
+        peer = peer[7:]
+    return peer == "::1" or peer.startswith("127.")
+
+
+def _local_backend(host: str) -> bool:
+    """True when Host is the loopback address Tailscale dials, not the public name."""
+    name = host
+    if name.startswith("["):
+        name = name[1:].split("]", 1)[0]
+    elif name.count(":") == 1:
+        name = name.split(":", 1)[0]
+    return name in {"127.0.0.1", "localhost", "::1"}
+
+
+def panel_origin_ok(request) -> bool:
+    """The panel this hub served may send commands. Another site on the LAN may not.
+
+    Tailscale Serve presents the panel at https://<machine>.ts.net and forwards
+    plain HTTP from loopback. The browser's origin is that HTTPS URL; the
+    connection here is HTTP, so the scheme has to come from X-Forwarded-Proto.
+    Forwarded headers are believed only from that local proxy.
+    """
+    origin = request.headers.get("Origin")
+    if not origin:
+        return True
+    origins = {f"{request.scheme}://{request.host}"}
+    if _loopback(request.remote):
+        proto = (request.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip().lower()
+        if proto in {"http", "https"}:
+            origins.add(f"{proto}://{request.host}")
+            forwarded = (request.headers.get("X-Forwarded-Host") or "").split(",")[0].strip()
+            if forwarded and _local_backend(request.host):
+                origins.add(f"{proto}://{forwarded}")
+    return origin in origins
+
 
 def make_app(hub: Hub) -> web.Application:
     app = web.Application(client_max_size=64 * 1024)
@@ -309,14 +445,45 @@ def make_app(hub: Hub) -> web.Application:
         if hub.mrcool and hub.mrcool.configured:
             with contextlib.suppress(MrcoolError):
                 await hub._read_acs()
+        if hub.aidot and hub.aidot.configured:
+            with contextlib.suppress(AidotError):
+                await hub.aidot.refresh()
+                hub.aidot.set_known_ips(hub._aidot_addresses())
         hub._rebuild_plan()
         return web.json_response(hub.devices())
 
+    async def aidot_login(request):
+        body = await request.json()
+        email = str(body.get("email") or body.get("username") or "").strip()
+        password = str(body.get("password") or "")
+        if not email or not password:
+            return web.json_response({"error": "Give the email and password of the AiDot app"}, status=400)
+        hub.aidot.save_credentials(email, password, str(body.get("country_code") or "US"))
+        try:
+            await hub.aidot.connect()
+        except AidotError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        hub.aidot.set_known_ips(hub._aidot_addresses())
+        hub._rebuild_plan()
+        hub._poll_aidot()
+        return web.json_response(hub.devices())
+
     async def mrcool_key(request):
-        key = str((await request.json()).get("api_key", "")).strip()
-        if not key:
-            return web.json_response({"error": "Paste the API key from Cielo's web portal"}, status=400)
-        hub.mrcool.save_key(key)
+        body = await request.json()
+        email = str(body.get("email") or body.get("username") or "").strip()
+        password = str(body.get("password") or "")
+        try:
+            if email and password:
+                await hub.mrcool.login(email, password)
+            elif body.get("access_token"):
+                hub.mrcool.save_web_tokens(body)
+            else:
+                key = str(body.get("api_key", "")).strip()
+                if not key:
+                    return web.json_response({"error": "Give the MRCOOL app email and password"}, status=400)
+                hub.mrcool.save_key(key)
+        except MrcoolError as e:
+            return web.json_response({"error": str(e)}, status=400)
         try:
             await hub._read_acs()
         except MrcoolError as e:
@@ -328,10 +495,8 @@ def make_app(hub: Hub) -> web.Application:
     @web.middleware
     async def same_origin(request, handler):
         # Only the panel this hub serves may send commands (no drive-by pages on the LAN).
-        if request.method == "POST":
-            origin = request.headers.get("Origin")
-            if origin and origin != f"{request.scheme}://{request.host}":
-                return web.json_response({"error": "Open the panel from the hub itself"}, status=403)
+        if request.method == "POST" and not panel_origin_ok(request):
+            return web.json_response({"error": "Open the panel from the hub itself"}, status=403)
             if request.content_type != "application/json":
                 return web.json_response({"error": "Send JSON"}, status=415)
         return await handler(request)
@@ -344,6 +509,7 @@ def make_app(hub: Hub) -> web.Application:
     app.router.add_get("/api/devices", devices)
     app.router.add_post("/api/rescan", rescan)
     app.router.add_post("/api/mrcool", mrcool_key)
+    app.router.add_post("/api/aidot", aidot_login)
     if WEB.is_dir():
         app.router.add_static("/", WEB, show_index=False)
 
@@ -392,6 +558,7 @@ async def scan() -> None:
     hub = Hub()
     hub.http = aiohttp.ClientSession()
     hub.mrcool = MrcoolClient(hub.conf / "mrcool.json", hub.http)
+    hub.aidot = AidotLanClient(hub.conf / "aidot.json", hub.http)
     hub._recall_lights()
     await hub.wiz.start()
     try:
@@ -402,10 +569,19 @@ async def scan() -> None:
             except MrcoolError as e:
                 print("MRCOOL:", e)
         else:
-            print("MRCOOL: no Cielo API key yet (see README.md)")
+            print("MRCOOL: no sign-in yet (see README.md)")
+        if hub.aidot.configured:
+            try:
+                await hub.aidot.connect()
+            except AidotError as e:
+                print("AiDot:", e)
+        else:
+            print("AiDot: no sign-in yet (see README.md)")
         print(json.dumps(hub.devices(), indent=2))
     finally:
         hub.wiz.close()
+        if hub.aidot:
+            await hub.aidot.close()
         await hub.http.close()
 
 

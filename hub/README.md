@@ -7,7 +7,8 @@ no bridge, and no phone in the loop.
 | Platform | How it is reached | What you need |
 |---|---|---|
 | **WiZ** (Philips WiZ bulbs, strips, plugs) | Directly over the home network: UDP port 38899, the same local API the WiZ app uses | Nothing. Lights are found by themselves |
-| **MRCOOL SmartHVAC** | Cielo's cloud (the SmartHVAC controller is a Cielo Breez inside), through Cielo's Open API | A Cielo API key, made once |
+| **AiDot / Linkind** (AiDot Wi-Fi bulbs) | Locally over the home network: TCP port 10000 (UDP 6666 finds them); the cloud is used once to sign in and learn each bulb's LAN key | The AiDot app sign-in, given once — see below |
+| **MRCOOL SmartHVAC** | Cielo's cloud (the SmartHVAC controller is a Cielo Breez inside), the same account Alexa uses | The MRCOOL app email and password, given once |
 
 ## Set up
 
@@ -38,27 +39,51 @@ it under a light's Settings → Device info):
 ```
 
 A light may also have `"ip"` for a network that drops broadcasts, and `"type"` (`ceiling`,
-`pendant`, `spots`, `floor`, `table`, `strip`) for how it looks in the 3D model. The hub
+`pendant`, `spots`, `floor`, `table`, `strip`) for how it looks in the 3D model. AiDot
+bulbs also carry `"service": "aidot"`; they are matched by MAC address, or by `"ip"` or
+`"name"` when AiDot has given the bulb a new device id. The hub
 makes a simple floor plan from this file (a box per room) until the real one is drawn.
 A `~/.house-hub/plan.json` without `"generatedBy": "hub"` is your own plan and is used as
-it is; link its lamps with `"link": {"service": "wiz", "id": "<mac>"}` and its ACs with
-`"link": {"service": "mrcool", "id": "<mac>"}`.
+it is; link its lamps with `"link": {"service": "wiz", "id": "<mac>"}` (or `"aidot"`) and
+its ACs with `"link": {"service": "mrcool", "id": "<mac>"}`. The Mac app's editor saves to
+`~/Library/Application Support/HouseControl/plan.json`. When that file is newer, the hub
+copies it here, so the site shows the layout you just saved.
 
 `python house.py scan` lists every light and AC the hub can find, with its MAC address.
 
+### Connect the AiDot bulbs
+
+AiDot bulbs keep their LAN key in AiDot's cloud, so the hub signs in once to learn it
+and drives the bulbs locally from then on (the `python-aidot` library, the one Home
+Assistant's AiDot integration uses):
+
+```sh
+curl -X POST http://localhost:8766/api/aidot -H 'Content-Type: application/json' -d '{"email": "YOU@EXAMPLE.COM", "password": "PASTE-IT-HERE"}'
+```
+
+Run it from this Mac (Terminal), not from a phone on the LAN. The sign-in is kept in
+`~/.house-hub/aidot.json`, readable by you only, and sent to AiDot only. Name each bulb
+in `devices.json` as above (`"service": "aidot"`, its MAC address without colons, its
+room, and its `"ip"` if your network drops broadcasts). A change made in the AiDot app
+shows in the panel from the bulb's own reports; white-vs-colour mode is remembered
+from the last change the hub sent, because the bulb does not report it.
+
 ### Connect the MRCOOL air conditioner
 
-1. Open [home.cielowigle.com](https://home.cielowigle.com) and sign in with the email and
-   password of the MRCOOL SmartHVAC app.
-2. Open the menu at the top left, choose **Home Assistant** and copy the API key (a new one
-   can take a minute to appear). Each key can be used once, and Cielo allows three a month.
-3. Give it to the hub:
+The SmartHVAC controller is an older Cielo Breez. Cielo will not make a Home Assistant
+API key for it, which is why Alexa can still control it: Alexa uses the account, not
+that key. Give the hub the same email and password as the MRCOOL app:
 
-   ```sh
-   curl -X POST http://localhost:8766/api/mrcool -H 'Content-Type: application/json' -d '{"api_key": "PASTE-IT-HERE"}'
-   ```
+```sh
+curl -X POST http://localhost:8766/api/mrcool -H 'Content-Type: application/json' -d '{"email": "YOU@EXAMPLE.COM", "password": "PASTE-IT-HERE"}'
+```
 
-   It is kept in `~/.house-hub/mrcool.json`, readable by you only, and sent to Cielo only.
+Run it from this Mac (Terminal), not from a phone on the LAN. The sign-in is kept in
+`~/.house-hub/mrcool.json`, readable by you only, and sent to Cielo only. The hub
+refreshes the session itself.
+
+A newer thermostat or Breez Edge Pro/Max can instead take the one-time key from the
+portal's Home Assistant page: `{"api_key": "PASTE-IT-HERE"}` to the same address.
 
 Cielo's cloud is rate limited, so the hub reads the AC every 90 seconds; a change made in
 the panel shows at once.
@@ -67,13 +92,14 @@ the panel shows at once.
 
 ```
 iPhone / Mac browser ── HTTP ──▶ hub (house.py, port 8766) ── UDP 38899 ──▶ WiZ lights
-        ▲                          │
+        ▲                          ├ ── TCP 10000 ──▶ AiDot bulbs (key learned once from AiDot's cloud)
         └── server-sent events ────┤ ── HTTPS ──▶ Cielo cloud ──▶ MRCOOL SmartHVAC
 ```
 
 - `house.py` — the web server, the device state, the login item.
 - `wiz.py` — WiZ discovery and control.
-- `mrcool.py` — the Cielo Open API client.
+- `aidot_lan.py` — AiDot sign-in and local control, over `python-aidot`.
+- `mrcool.py` — the Cielo client (Open API key, or the MRCOOL account Alexa uses).
 - `plan.py` — the floor plan made from `devices.json`.
 
 The panel is the same web UI the Mac and iPhone apps use (`../web`). Served by the hub it

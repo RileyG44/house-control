@@ -44,6 +44,18 @@ def build(names: dict, lights: list[dict], acs: list[dict]) -> dict:
 
     def entry(kind: str, dev: dict) -> dict:
         given = (names.get(kind) or {}).get(dev["id"], {})
+        if not given and kind == "lights":
+            # A driver may learn a bulb under a new id (AiDot reissues device
+            # ids): the address or the app name in devices.json still matches.
+            for candidate in (names.get(kind) or {}).values():
+                if not isinstance(candidate, dict):
+                    continue
+                if candidate.get("ip") and candidate["ip"] == dev.get("ip"):
+                    given = candidate
+                    break
+                if candidate.get("name") and candidate["name"] == dev.get("name"):
+                    given = candidate
+                    break
         room = given.get("room") or "Home"
         if room not in rooms:
             rooms.append(room)
@@ -101,7 +113,7 @@ def build(names: dict, lights: list[dict], acs: list[dict]) -> dict:
 def _light(l: dict, lid: str, room: str, kind: str, pos: list, **extra) -> dict:
     out = {"id": lid, "name": l.get("name") or l["id"], "room": room, "type": kind, "pos": pos,
            "capabilities": l.get("capabilities", ["brightness"]),
-           "link": {"service": "wiz", "id": l["id"]}, **extra}
+           "link": {"service": l.get("service") or "wiz", "id": l["id"]}, **extra}
     if kind == "pendant":
         out["y"] = 1.9
     return out

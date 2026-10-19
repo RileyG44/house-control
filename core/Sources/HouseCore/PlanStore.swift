@@ -9,34 +9,75 @@ public final class PlanStore {
     public let directory: URL
     public var customPlanURL: URL { directory.appendingPathComponent("plan.json") }
     private var settingsURL: URL { directory.appendingPathComponent("settings.json") }
+    /// The Mac hub's own plan (hub/house.py reads ~/.house-hub), when this store adopted it.
+    private let hubPlanURL: URL?
 
     /// "home" / "studio" for the bundled demos, or "custom" for plan.json.
     public private(set) var activePlan = "home"
 
-    public init() {
+    /// `hubDirectory` is the Mac hub's folder (~/.house-hub by default on the machine that
+    /// runs it). When the native store has no plan and no plan was ever chosen here, the
+    /// hub's plan becomes this store's home, so the menu bar panel and the hub's web panel
+    /// show the same house. A plan chosen or saved here always wins over the hub's.
+    public init(directory: URL? = nil, hubDirectory: URL? = nil) {
         // HOUSE_DATA_DIR points the app at another folder: a throw-away one for testing or
         // screenshots leaves the real plan and the Smart Life session alone.
-        if let custom = ProcessInfo.processInfo.environment["HOUSE_DATA_DIR"], !custom.isEmpty {
-            directory = URL(fileURLWithPath: (custom as NSString).expandingTildeInPath, isDirectory: true)
+        var adoptedHub = false
+        if let directory {
+            self.directory = directory
+            adoptedHub = hubDirectory != nil
+        } else if let custom = ProcessInfo.processInfo.environment["HOUSE_DATA_DIR"], !custom.isEmpty {
+            self.directory = URL(fileURLWithPath: (custom as NSString).expandingTildeInPath, isDirectory: true)
         } else {
             let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            directory = base.appendingPathComponent("HouseControl", isDirectory: true)
+            self.directory = base.appendingPathComponent("HouseControl", isDirectory: true)
+            adoptedHub = true
         }
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        if let hubDirectory {
+            hubPlanURL = hubDirectory.appendingPathComponent("plan.json")
+        } else if adoptedHub {
+            let env = ProcessInfo.processInfo.environment["HOUSE_HUB_DIR"]
+            let base = env.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
+                ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".house-hub", isDirectory: true)
+            hubPlanURL = base.appendingPathComponent("plan.json")
+        } else {
+            hubPlanURL = nil
+        }
+        try? FileManager.default.createDirectory(at: self.directory, withIntermediateDirectories: true)
+        var chosePlan = false
         if let data = try? Data(contentsOf: settingsURL),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let plan = json["plan"] as? String {
             activePlan = plan
+            chosePlan = true
+        }
+        if !chosePlan, !FileManager.default.fileExists(atPath: customPlanURL.path), hubPlan() != nil {
+            activePlan = "custom"
         }
         if activePlan == "custom", customPlan() == nil { activePlan = "home" }
     }
 
-    public func customPlan() -> [String: Any]? {
-        guard let data = try? Data(contentsOf: customPlanURL) else { return nil }
+    /// The file the active custom plan is read from: this store's own, or the hub's when adopted.
+    public var effectiveCustomPlanURL: URL {
+        if FileManager.default.fileExists(atPath: customPlanURL.path) { return customPlanURL }
+        return hubPlanURL ?? customPlanURL
+    }
+
+    /// The hub's own plan file, when this store adopted the hub's home.
+    public func hubPlan() -> [String: Any]? {
+        guard let hubPlanURL, let data = try? Data(contentsOf: hubPlanURL) else { return nil }
         return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     }
 
-    public var hasCustomPlan: Bool { FileManager.default.fileExists(atPath: customPlanURL.path) }
+    public func customPlan() -> [String: Any]? {
+        if let data = try? Data(contentsOf: customPlanURL),
+           let plan = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return plan
+        }
+        return hubPlan()
+    }
+
+    public var hasCustomPlan: Bool { customPlan() != nil }
 
     /// The name the user gave their home, for menus.
     public var customPlanName: String? { customPlan()?["name"] as? String }
@@ -44,7 +85,9 @@ public final class PlanStore {
     /// Fingerprint of the user's plan as stored; two devices holding the same revision
     /// have nothing to exchange.
     public var customPlanRevision: String? {
-        (try? Data(contentsOf: customPlanURL)).map(Self.revision(of:))
+        if let data = try? Data(contentsOf: customPlanURL) { return Self.revision(of: data) }
+        guard let hubPlanURL, let data = try? Data(contentsOf: hubPlanURL) else { return nil }
+        return Self.revision(of: data)
     }
 
     public static func revision(of data: Data) -> String {

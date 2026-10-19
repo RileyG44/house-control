@@ -28,6 +28,7 @@ export const SERVICES = {
   hue: { name: 'Philips Hue', short: 'Hue' },
   homekit: { name: 'Apple Home', short: 'Apple Home' },
   wiz: { name: 'WiZ', short: 'WiZ' },
+  aidot: { name: 'AiDot', short: 'AiDot' },
   mrcool: { name: 'MRCOOL SmartHVAC', short: 'MRCOOL' },
 };
 export const FLOOR_KINDS = ['oak', 'walnut', 'tile', 'stone'];

@@ -15,6 +15,14 @@ public final class DeviceHub {
     public let homeKit: DeviceService
     /// The platforms other than Smart Life, by the id a plan's `link.service` uses.
     public var services: [DeviceService] { [homeAssistant, hue, homeKit] }
+    /// The Mac hub (hub/house.py), when this device runs it: it drives the plan's WiZ,
+    /// AiDot and MRCOOL links. Nil away from the hub's Mac, where those links stay simulated.
+    public let localHub: LocalHubClient?
+    /// The link services the Mac hub drives (hub/house.py: wiz, aidot, mrcool).
+    public static let hubServices: Set<String> = ["wiz", "aidot", "mrcool"]
+    private var hasHubLinks: Bool {
+        localHub != nil && serviceLinks.values.contains { Self.hubServices.contains($0.service) && !$0.id.isEmpty }
+    }
     private func service(_ id: String) -> DeviceService? { services.first { $0.id == id } }
     /// Smart Life when it is part of this build and signed in.
     private var connectedCloud: LinkedCloud? { cloud?.isConnected == true ? cloud : nil }
@@ -44,7 +52,9 @@ public final class DeviceHub {
     /// is HomeKit on the iPhone; without one, Apple Home is the catalog a paired iPhone sent.
     /// `cloud` makes the Smart Life client (`SmartLifePlatform.init` where it is built in).
     public init(directory: URL, secret: ((String) -> SecretStore)? = nil, homeKit: DeviceService? = nil,
-                cloud: (@MainActor (URL, (String) -> SecretStore) -> LinkedCloud)? = nil) {
+                cloud: (@MainActor (URL, (String) -> SecretStore) -> LinkedCloud)? = nil,
+                localHub: LocalHubClient? = nil) {
+        self.localHub = localHub
         let vault = secret ?? { FileSecretStore(url: directory.appendingPathComponent("\($0).json")) }
         log = EventLog(directory: directory)
         stampsURL = directory.appendingPathComponent("connections-sync.json")
@@ -70,11 +80,12 @@ public final class DeviceHub {
 
     // MARK: - Links
 
-    public var isConnected: Bool { connectedCloud != nil || services.contains { $0.isConnected && $0.controlsDevices } }
+    public var isConnected: Bool { connectedCloud != nil || hasHubLinks || services.contains { $0.isConnected && $0.controlsDevices } }
     public var hasLinks: Bool { !links.isEmpty || !serviceLinks.isEmpty }
     /// True when there is something to read at all.
     public var canPoll: Bool {
         (connectedCloud != nil && !links.isEmpty)
+            || hasHubLinks
             || serviceLinks.values.contains { service($0.service).map { $0.isConnected && $0.controlsDevices } ?? false }
     }
     public var linkedDeviceCount: Int { links.count + serviceLinks.values.filter { !$0.id.isEmpty }.count }
@@ -129,6 +140,18 @@ public final class DeviceHub {
     /// so a rejected change can be rolled back there. Commands to one device run strictly
     /// one after another, in the order this is called.
     public func command(_ message: [String: Any], reply: @escaping ([String: Any]) -> Void) {
+        if let id = message["id"] as? String, let link = serviceLinks[id], !link.id.isEmpty,
+           Self.hubServices.contains(link.service), let localHub {
+            // The hub answers by the plan's own device id and drives the real device.
+            let patch = message["patch"] as? [String: Any] ?? [:]
+            let state = message["state"] as? [String: Any] ?? [:]
+            Task { @MainActor in
+                let result = await localHub.command(planId: id, patch: patch, state: state)
+                if result["error"] != nil { onStale?() }
+                reply(result)
+            }
+            return
+        }
         if let id = message["id"] as? String, let link = serviceLinks[id], !link.id.isEmpty {
             commandService(link, appId: id, message, reply: reply)
             return
@@ -187,11 +210,15 @@ public final class DeviceHub {
     public func poll() async -> [String: Any]? {
         async let tuyaPart = pollCloud()
         async let servicePart = pollServices()
-        let (fromTuya, fromServices) = await (tuyaPart, servicePart)
-        guard fromTuya != nil || fromServices != nil else { return nil }
+        async let hubPart = pollHub()
+        let (fromTuya, fromServices, fromHub) = await (tuyaPart, servicePart, hubPart)
+        guard fromTuya != nil || fromServices != nil || fromHub != nil else { return nil }
         var merged: [String: Any] = [:]
         for key in ["lights", "acs", "features"] {
             var section = fromTuya?[key] as? [String: Any] ?? [:]
+            for (id, value) in fromHub?[key] as? [String: Any] ?? [:] {
+                section[id] = value
+            }
             for (id, value) in fromServices?[key] as? [String: Any] ?? [:] {
                 if var existing = section[id] as? [String: Any], let more = value as? [String: Any] {
                     existing.merge(more) { $1 }
@@ -239,6 +266,12 @@ public final class DeviceHub {
         return ["lights": lights, "acs": acs, "features": features]
     }
 
+    /// State from the Mac hub, already keyed by the plan's device ids.
+    private func pollHub() async -> [String: Any]? {
+        guard hasHubLinks else { return nil }
+        return await localHub?.state()
+    }
+
     private func pollCloud() async -> [String: Any]? {
         guard let cloud = connectedCloud, !links.isEmpty else { return nil }
         return await cloud.poll(links)
@@ -271,6 +304,9 @@ public final class DeviceHub {
         var out: [String: Any] = [:]
         if let cloud { out["smartlife"] = cloud.info }
         for service in services { out[service.id] = service.info }
+        if localHub != nil {
+            for id in Self.hubServices { out[id] = ["connected": hasHubLinks, "name": "House Control hub"] }
+        }
         return out
     }
 
