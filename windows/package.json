@@ -1,7 +1,7 @@
 {
   "name": "house-control-windows",
   "productName": "House Control",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "The House Control tile as a Windows desktop app",
   "main": "src/main.js",
   "private": true,
@@ -40,10 +40,19 @@
     "portable": {
       "artifactName": "HouseControl-${version}-portable.${ext}"
     },
-    "publish": null
+    "publish": {
+      "provider": "github",
+      "owner": "RileyG44",
+      "repo": "house-control",
+      "tagNamePrefix": "win-v",
+      "releaseType": "release"
+    }
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/RileyG44/house-control.git"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9"
   }
 }

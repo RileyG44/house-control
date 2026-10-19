@@ -6,10 +6,20 @@ serves, so it controls the same lights and AC, live.
 
 ## Install
 
-Download `HouseControl-Setup-<version>.exe` (installs for you, adds a Start menu entry) or
-`HouseControl-<version>-portable.exe` (runs from anywhere) from the **Windows app** workflow's
-run in the Actions tab, or from a `win-v*` release. Windows SmartScreen asks once for an unsigned
-app: **More info → Run anyway**.
+Download `HouseControl-Setup-<version>.exe` from the latest `win-v*` release and run it. Windows
+SmartScreen asks once for an unsigned app: **More info → Run anyway**. The portable .exe runs
+without installing but can't update itself.
+
+## Updates
+
+The installed app checks the releases at start and every 4 hours, downloads a new version in the
+background and swaps it in the next time the tile is hidden or loses focus. The tray menu shows the
+version and the update status; click it to check now.
+
+Most changes don't need a new app at all: the panel itself comes from the hub, so updating the
+hub on the Mac updates the tile. A new app version is only for changes under `windows/`: bump
+`version` in `windows/package.json` and push, and the **Windows app** workflow publishes the
+release `win-v<version>` that installed copies pick up.
 
 ## Use
 

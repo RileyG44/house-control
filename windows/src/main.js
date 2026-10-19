@@ -5,6 +5,7 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, globalShortcut, nativeImage } = require('electron');
 const fs = require('fs');
 const path = require('path');
+const { setupUpdates, describe } = require('./updates');
 
 const HUBS = {
   tailscale: 'https://rileys-macbook-air.tail946e94.ts.net:8451',
@@ -27,6 +28,7 @@ let win = null;
 let tray = null;
 let quitting = false;
 let retryTimer = null;
+let updates = { state: { status: 'idle' }, check: () => {} };
 
 // Fills the window with the card and gives it what a browser tab would not: an opaque
 // enough tint (a transparent window has no desktop behind it to blur) and a header to drag by.
@@ -171,6 +173,9 @@ function buildTrayMenu() {
     { label: 'Start with Windows', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin,
       click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked, args: ['--hidden'] }) },
     { type: 'separator' },
+    { label: `Version ${app.getVersion()} · ${describe(updates.state)}`, enabled: ['idle', 'current', 'error'].includes(updates.state.status),
+      click: () => updates.check() },
+    { type: 'separator' },
     { label: 'Quit', click: () => { quitting = true; app.quit(); } },
   ]));
 }
@@ -190,6 +195,7 @@ if (!app.requestSingleInstanceLock()) {
     tray.on('click', toggle);
     buildTrayMenu();
     globalShortcut.register(SHORTCUT, toggle);
+    updates = setupUpdates({ win, onChange: buildTrayMenu });
 
     ipcMain.on('house:retry', load);
     ipcMain.on('house:hide', () => win.hide());
@@ -199,6 +205,7 @@ if (!app.requestSingleInstanceLock()) {
     screen.on('display-metrics-changed', () => win.setBounds({ ...win.getBounds(), ...size() }));
   });
   app.on('before-quit', () => { quitting = true; });
+  app.on('house:quitting', () => { quitting = true; });
   app.on('will-quit', () => globalShortcut.unregisterAll());
   app.on('window-all-closed', () => {}); // lives in the tray
 }

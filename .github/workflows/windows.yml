@@ -1,9 +1,11 @@
-# Builds the Windows widget (windows/) on GitHub's machines: an installer and a portable .exe.
+# Builds the Windows widget (windows/) on GitHub's machines and publishes each new version.
 #
-#   Run it from the Actions tab, or push a change under windows/ → both files as a downloadable artifact.
-#   Push a tag win-v<version> → the same files on a draft release.
+#   Push a change under windows/ → the installer and the portable .exe as a downloadable artifact.
+#   If windows/package.json has a version with no release yet, it is also published as the
+#   release win-v<version> with latest.yml, which installed copies of the app check for and
+#   update themselves from. Bump the version to ship an update; other pushes just build.
 #
-# Unsigned: Windows SmartScreen asks once ("More info" → "Run anyway").
+# Unsigned: Windows SmartScreen asks once at install ("More info" → "Run anyway").
 
 name: Windows app
 
@@ -11,10 +13,13 @@ on:
   push:
     branches: ["**"]
     paths: ["windows/**", ".github/workflows/windows.yml"]
-    tags: ["win-v*"]
   workflow_dispatch:
 
 permissions: {}
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   windows:
@@ -22,10 +27,11 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     permissions:
-      contents: write  # the draft release, on a tag
+      contents: write  # publish the release
     defaults:
       run:
         working-directory: windows
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -52,9 +58,18 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      - name: Create a draft release
-        if: startsWith(github.ref, 'refs/tags/win-v')
-        shell: bash
+      - name: Publish a new version
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "House Control for Windows ${GITHUB_REF_NAME#win-v}" --generate-notes dist/*.exe
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          tag="win-v$version"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$tag is already released; bump the version in windows/package.json to ship an update."
+            exit 0
+          fi
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest \
+            --title "House Control for Windows $version" \
+            --notes "Installed copies update themselves. New install: download **HouseControl-Setup-$version.exe** below (Windows asks once: More info → Run anyway)." \
+            "dist/HouseControl-Setup-$version.exe" "dist/HouseControl-Setup-$version.exe.blockmap" \
+            "dist/HouseControl-$version-portable.exe" dist/latest.yml
