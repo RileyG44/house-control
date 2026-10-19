@@ -42,3 +42,6 @@ widgets/Config/Info-*.plist
 widgets/Config/*.entitlements
 widgets/build/
 widgets/.build/
+
+# Windows app
+windows/dist/

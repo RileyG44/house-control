@@ -1,0 +1,60 @@
+# Builds the Windows widget (windows/) on GitHub's machines: an installer and a portable .exe.
+#
+#   Run it from the Actions tab, or push a change under windows/ → both files as a downloadable artifact.
+#   Push a tag win-v<version> → the same files on a draft release.
+#
+# Unsigned: Windows SmartScreen asks once ("More info" → "Run anyway").
+
+name: Windows app
+
+on:
+  push:
+    branches: ["**"]
+    paths: ["windows/**", ".github/workflows/windows.yml"]
+    tags: ["win-v*"]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  windows:
+    name: Windows app
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write  # the draft release, on a tag
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: windows/package-lock.json
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Build the installer and the portable .exe
+        run: npx electron-builder --win nsis portable --x64 --publish never
+
+      - name: Keep the files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: HouseControl-Windows
+          path: |
+            windows/dist/*.exe
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Create a draft release
+        if: startsWith(github.ref, 'refs/tags/win-v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "House Control for Windows ${GITHUB_REF_NAME#win-v}" --generate-notes dist/*.exe

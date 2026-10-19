@@ -1,0 +1,49 @@
+{
+  "name": "house-control-windows",
+  "productName": "House Control",
+  "version": "1.0.0",
+  "description": "The House Control tile as a Windows desktop app",
+  "main": "src/main.js",
+  "private": true,
+  "author": "House Control",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis portable --x64"
+  },
+  "devDependencies": {
+    "electron": "44.7.2",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "local.housecontrol.windows",
+    "productName": "House Control",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**",
+      "assets/**"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "artifactName": "HouseControl-${version}-${arch}-${target}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "House Control",
+      "artifactName": "HouseControl-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "HouseControl-${version}-portable.${ext}"
+    },
+    "publish": null
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RileyG44/house-control.git"
+  }
+}
