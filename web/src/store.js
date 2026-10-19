@@ -45,13 +45,15 @@ export function createStore(config) {
   } catch { /* storage unavailable: start from defaults */ }
 
   let saveTimer = 0;
+  const write = () => {
+    saveTimer = 0;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ home: config.name, ...state, features }));
+    } catch { /* ignore */ }
+  };
   function persist() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ home: config.name, ...state, features }));
-      } catch { /* ignore */ }
-    }, 200);
+    saveTimer = setTimeout(write, 200);
   }
 
   function emit(change) {
@@ -233,6 +235,44 @@ export function createStore(config) {
       if (any) emit({ type: 'bulk', remote: true, adopted: true, source: other.source || null });
     },
 
+    /** Everything a fresh store of the same home needs to carry on where this one is. */
+    exportState() {
+      const units = Object.fromEntries(config.acs.map((a) => [a.id, a.unit]));
+      return structuredClone({ lights: state.lights, acs: state.acs, scene: state.scene, features, units });
+    },
+
+    // The state of the store this one replaces (the plan was edited or swapped): taken
+    // like a device report, so nothing is sent to the devices. Unknown ids are skipped.
+    importState(s) {
+      if (!s) return;
+      let any = false;
+      for (const [id, l] of Object.entries(s.lights || {})) {
+        if (!state.lights[id]) continue;
+        // The new plan may give a lamp other capabilities: copy the raw values, not a patch.
+        Object.assign(state.lights[id], l);
+        any = true;
+      }
+      for (const [id, a] of Object.entries(s.acs || {})) {
+        if (!state.acs[id]) continue;
+        const cfg = acCfg.get(id);
+        // An AC switched between °F and °C keeps its mode and power, not its numbers.
+        const same = (s.units?.[id] || cfg.unit) === cfg.unit;
+        Object.assign(state.acs[id], same ? a : { ...a, target: state.acs[id].target, roomTemp: state.acs[id].roomTemp });
+        state.acs[id].target = clamp(state.acs[id].target, cfg.min, cfg.max);
+        any = true;
+      }
+      for (const [id, f] of Object.entries(s.features || {})) if (state.acs[id]) features[id] = f;
+      if ('scene' in s) state.scene = config.scenes.some((x) => x.id === s.scene) ? s.scene : null;
+      if (any) emit({ type: 'bulk', remote: true, adopted: true });
+    },
+
+    /** Stops the simulation and writes what is pending; the store is not used afterwards. */
+    dispose() {
+      clearInterval(ticker);
+      listeners.clear();
+      if (saveTimer) { clearTimeout(saveTimer); write(); }
+    },
+
     // State reported by real devices (native provider). Never echoed back as a command.
     applyRemote(update) {
       let any = false;
@@ -249,7 +289,7 @@ export function createStore(config) {
 
   // Without real sensors the room temperature is simulated: it drifts towards the
   // set-point while an AC runs and back towards the outdoor-ish ambient when it is off.
-  setInterval(() => {
+  const ticker = setInterval(() => {
     let any = false;
     for (const [id, a] of Object.entries(state.acs)) {
       const cfg = acCfg.get(id);

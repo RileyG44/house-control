@@ -6,7 +6,7 @@ import { icon } from './icons.js';
 import { lightColor } from '../three/lights.js';
 import { MODE_COLORS } from '../three/ac.js';
 import { AC_SWINGS } from '../store.js';
-import { haptic, isPhone } from '../bridge.js';
+import { haptic, isPhone, isHub } from '../bridge.js';
 
 const MODE_LABEL = { cool: 'Cool', heat: 'Heat', dry: 'Dry', fan: 'Fan', auto: 'Auto' };
 const FAN_LABEL = { auto: 'Auto', low: 'Low', medium: 'Medium', high: 'High', turbo: 'Turbo' };
@@ -31,7 +31,7 @@ function acTemperatureColor(target, cfg) {
   return tmp.set('#1c4fc0').lerp(new THREE.Color('#8a3d12'), t).clone();
 }
 
-export function createPanel(root, config, store, { onFocus, onMenu }) {
+export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEditPrefetch, editing = false, grown = false }) {
   const { state } = store;
   const ui = { room: 'all', sheet: null };
   let world = null;
@@ -43,7 +43,10 @@ export function createPanel(root, config, store, { onFocus, onMenu }) {
   const tooltip = h('div.tooltip');
   const homeSub = h('div.home-sub');
   const power = h('button.round.power', { title: 'Everything on / off', 'aria-label': 'Toggle everything', onclick: toggleEverything }, icon('power', 21, 2.2));
-  const gear = h('button.round', { title: 'Floor plan', 'aria-label': 'Floor plan menu', onclick: () => onMenu(gear) }, icon('settings', 17));
+  // The hub has nothing else to put in the menu: the editor finds new devices itself.
+  const gear = isHub ? null : h('button.round', { title: 'Floor plan', 'aria-label': 'Floor plan menu', onclick: () => onMenu(gear) }, icon('settings', 17));
+  // Starting to load the editor on press means it is ready when the camera lands.
+  const pencil = h('button.round.edit', { title: 'Edit home', 'aria-label': 'Edit home', onpointerdown: () => onEditPrefetch?.(), onclick: () => onEdit?.() }, icon('pencil', 17, 2));
   // Shown while an AI assistant has a link to this home (AI Access on the Mac).
   const aiBadge = h('button.ai-badge', { hidden: true, title: 'An AI assistant has access — click to manage', 'aria-label': 'AI access',
     onclick: () => onMenu(aiBadge, 'agent') }, icon('sparkles', 13, 2.2), h('span', 'AI'));
@@ -68,10 +71,12 @@ export function createPanel(root, config, store, { onFocus, onMenu }) {
     h('header.top',
       h('div.home', h('div.home-badge', icon('home', 17)),
         h('div', h('div.home-name', config.name), homeSub)),
-      aiBadge, gear, power),
+      aiBadge, gear, pencil, power),
     tooltip, panel, sheet, toastEl);
-  const card = h('div.card.booting', h('div.notch'), clip);
-  root.replaceChildren(card);
+  // Built under an open editor: already in its editing shape, so nothing animates into it.
+  const card = h(`div.card.booting${editing ? '.editing.faded' : ''}${grown ? '.grow' : ''}`, h('div.notch'), clip);
+  // Appended: while the plan is swapped, the new card fades in over the old one.
+  root.append(card);
 
   /* ---------- scenes ---------- */
 
@@ -545,10 +550,13 @@ export function createPanel(root, config, store, { onFocus, onMenu }) {
     card.style.setProperty('--mood', m);
   }
 
-  store.on(() => update());
-  window.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape' && !closeSheet()) onMenu(null, 'escape');
-  });
+  const unsubscribe = store.on(() => update());
+  const onKey = (ev) => {
+    // While the home is being edited, Esc belongs to the editor.
+    if (ev.key !== 'Escape' || card.classList.contains('editing')) return;
+    if (!closeSheet()) onMenu(null, 'escape');
+  };
+  window.addEventListener('keydown', onKey);
 
   layoutTiles();
   update();
@@ -574,5 +582,12 @@ export function createPanel(root, config, store, { onFocus, onMenu }) {
       toastEl.timer = setTimeout(() => toastEl.classList.remove('show'), 3200);
     },
     anchorMenu: clip,
+    clip,
+    /** Stops listening; the card is removed by whoever replaces it. */
+    dispose() {
+      window.removeEventListener('keydown', onKey);
+      unsubscribe();
+      clearTimeout(toastEl.timer);
+    },
   };
 }

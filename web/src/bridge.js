@@ -68,16 +68,22 @@ async function hubCall(type, payload) {
   return result;
 }
 
+// This page, as the hub's reload events name it: a plan this page saved comes back as an
+// event `by` this id, which the page ignores (it already shows that plan).
+export const CLIENT_ID = (crypto.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
+
 // Device state from the hub, for incoming.applyRemote. Reconnects by itself (EventSource
-// does) and reloads when the hub's floor plan changed, e.g. a new light was found or the
-// plan was saved from an editor. An open editor takes the new plan itself (planChanged),
-// so its unsaved changes are not thrown away.
+// does). When the hub's floor plan changed (a new light was found, a plan was saved on
+// another screen) the page takes it in place (planChanged: the panel swaps itself, an open
+// editor merges it); a page without that handler reloads.
 if (isHub) {
   const events = new EventSource('./api/events');
   events.onmessage = (ev) => {
     let update;
     try { update = JSON.parse(ev.data); } catch { return; }
-    if (update.reload) (incoming.planChanged || (() => location.reload()))();
-    else incoming.applyRemote?.(update);
+    if (update.reload) {
+      if (incoming.planChanged) incoming.planChanged(update);
+      else location.reload();
+    } else incoming.applyRemote?.(update);
   };
 }

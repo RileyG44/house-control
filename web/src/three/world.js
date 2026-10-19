@@ -130,11 +130,18 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     return { dist, center: c };
   }
 
+  // Editing: the camera looks straight down at the whole floor (north up, like the plan).
+  let topView = false;
+  let tween = null; // a timed camera move: { from, t0, dur, resolve }
+
   function frameGoal() {
     const f = rig.focus;
     let box;
     let fill = 0.96;
-    if (f?.kind === 'room') {
+    if (topView) {
+      box = new THREE.Box3(new THREE.Vector3(minX, 0, minZ), new THREE.Vector3(maxX, 0.02, maxZ));
+      fill = 0.9;
+    } else if (f?.kind === 'room') {
       const r = config.rooms.find((x) => x.id === f.id);
       box = new THREE.Box3(new THREE.Vector3(r.x, 0, r.z), new THREE.Vector3(r.x + r.w, H * 0.75, r.z + r.d));
       fill = 0.84;
@@ -153,6 +160,14 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     rig.goal.target.copy(c);
   }
 
+  function placeCamera() {
+    basis(rig.az, rig.el);
+    camera.position.copy(rig.target).addScaledVector(fwd, -rig.dist);
+    // Straight down, "up" is ambiguous: the screen's up is north (-z), as on the plan.
+    if (rig.el > 80) camera.up.copy(up); else camera.up.set(0, 1, 0);
+    camera.lookAt(rig.target);
+  }
+
   function updateRig(dt, instant = false) {
     const k = instant ? 1 : 1 - Math.exp(-dt * 5.5);
     const g = rig.goal;
@@ -162,11 +177,36 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     rig.el += (g.el - rig.el) * k;
     rig.dist += (g.dist - rig.dist) * k;
     rig.target.lerp(g.target, k);
-    basis(rig.az, rig.el);
-    camera.position.copy(rig.target).addScaledVector(fwd, -rig.dist);
-    camera.up.set(0, 1, 0);
-    camera.lookAt(rig.target);
+    placeCamera();
     return delta > 0.002;
+  }
+
+  // Eased in and out over a fixed time, so the editor knows when the camera lands. The
+  // goal may still move meanwhile (the stage is growing): the camera heads for it anyway.
+  function stepTween(now) {
+    const p = clamp((now - tween.t0) / tween.dur, 0, 1);
+    const e = p < 0.5 ? 4 * p * p * p : 1 - (-2 * p + 2) ** 3 / 2;
+    const { from } = tween;
+    const g = rig.goal;
+    rig.az = from.az + (g.az - from.az) * e;
+    rig.el = from.el + (g.el - from.el) * e;
+    rig.dist = from.dist + (g.dist - from.dist) * e;
+    rig.target.copy(from.target).lerp(g.target, e);
+    placeCamera();
+    if (p >= 1) {
+      const { resolve } = tween;
+      tween = null;
+      settleAzimuth();
+      resolve();
+    }
+  }
+
+  // Back at the usual view, the azimuth returns to its own range (the orbit is clamped around it).
+  function settleAzimuth() {
+    if (topView) return;
+    const turns = Math.round((rig.az - baseAz) / 360) * 360;
+    rig.az -= turns;
+    rig.goal.az -= turns;
   }
 
   /* ---------- state sync ---------- */
@@ -320,7 +360,8 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     raf = 0;
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
-    let active = updateRig(dt);
+    let active;
+    if (tween) { stepTween(now); active = true; } else active = updateRig(dt);
     for (const unit of lights.values()) active = unit.update(dt) || active;
     for (const unit of acs.values()) active = unit.update(dt) || active;
     if (shadowFrames > 0) { renderer.shadowMap.needsUpdate = true; shadowFrames--; active = true; }
@@ -358,6 +399,7 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     resize,
 
     focus(next) {
+      topView = false;
       rig.focus = next;
       rig.zoom = 1;
       rig.goal.az = baseAz + (next?.kind === 'ac' ? (WALL_SIDE[acs.get(next.id).cfg.wall] ?? 0) : 0);
@@ -366,12 +408,48 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
       wake();
     },
 
-    // Camera sweep + staggered light-up, played whenever the panel appears.
-    intro() {
+    /**
+     * Straight down at the whole home (on) or back to the plan's own view (off), as a timed
+     * ease-in-out move. Resolves when the camera lands. `instant` jumps there.
+     */
+    topDown(on, { duration = 650, instant = false } = {}) {
+      topView = on;
+      rig.focus = null;
+      rig.zoom = 1;
+      // The shortest way round to north-up, and back.
+      const turns = Math.round((rig.az - (on ? 0 : baseAz)) / 360) * 360;
+      rig.goal.az = (on ? 0 : baseAz) + turns;
+      rig.goal.el = on ? 89.5 : config.camera.elevation;
+      frameGoal();
+      tween?.resolve();
+      tween = null;
+      if (instant || !running) {
+        updateRig(0, true);
+        settleAzimuth();
+        wake(3);
+        return Promise.resolve();
+      }
+      return new Promise((resolve) => {
+        tween = { from: { az: rig.az, el: rig.el, dist: rig.dist, target: rig.target.clone() }, t0: performance.now(), dur: duration, resolve };
+        wake(3);
+      });
+    },
+
+    /** Where a point of the floor (y = 0) is on the canvas, in CSS pixels. */
+    projectFloor(x, z) {
+      camera.updateMatrixWorld();
+      v.set(x, 0, z).project(camera);
+      return { x: (v.x * 0.5 + 0.5) * width, y: (-v.y * 0.5 + 0.5) * height };
+    },
+
+    // Camera sweep + staggered light-up, played whenever the panel appears. `camera: false`
+    // only lights the lamps (the editor's lift-off moves the camera itself).
+    intro({ camera: sweep = true } = {}) {
       syncAll({ instant: true });
       for (const unit of lights.values()) { unit.level = 0; unit.write(); }
       for (const unit of acs.values()) unit.power = 0;
       syncAll({ stagger: true });
+      if (!sweep) { wake(4); return; }
       frameGoal();
       rig.az = rig.goal.az - 16;
       rig.el = rig.goal.el + 9;
@@ -383,11 +461,17 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     setRunning(on) {
       running = on;
       if (on) wake(4);
-      else if (raf) { cancelAnimationFrame(raf); raf = 0; }
+      else {
+        if (raf) { cancelAnimationFrame(raf); raf = 0; }
+        // A move that cannot play out lands at once.
+        if (tween) { const { resolve } = tween; tween = null; updateRig(0, true); settleAzimuth(); resolve(); }
+      }
     },
 
     dispose() {
       unsubscribe();
+      tween?.resolve();
+      tween = null;
       running = false;
       if (raf) cancelAnimationFrame(raf);
       raf = 0;

@@ -11,8 +11,9 @@ const key = (v) => Math.round(v * 1000);
 const inside = (r, x, z) => x > r.x && x < r.x + r.w && z > r.z && z < r.z + r.d;
 
 // Splits every room edge into wall segments, classifying each as exterior / interior
-// and attaching the opening (door, window, ...) that covers it, if any.
-function wallSegments(config) {
+// and attaching the opening (door, window, ...) that covers it, if any. The editor's 2D
+// plan draws the same walls from it.
+export function wallSegments(config) {
   const lines = new Map();
   const line = (axis, c) => {
     const k = `${axis}:${key(c)}`;

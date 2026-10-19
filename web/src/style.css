@@ -67,9 +67,13 @@ html.native #app { padding: 13px 24px 34px; place-items: stretch; }
   box-shadow:
     0 30px 70px -18px rgba(0, 0, 0, 0.7),
     0 10px 24px -8px rgba(0, 0, 0, 0.5);
-  transition: --mood 900ms ease;
+  transition: --mood 900ms ease, width 450ms var(--ease), height 450ms var(--ease), opacity 260ms ease;
   isolation: isolate;
 }
+/* Two cards share the spot while a saved plan swaps in (main.js swapHome). */
+#app > .card { grid-area: 1 / 1; }
+.card.swap-in { opacity: 0; transition: none; }
+.card.swap-out { opacity: 0; pointer-events: none; }
 
 html.native .card { width: auto; height: auto; box-shadow:
     0 18px 30px -12px rgba(0, 0, 0, 0.55),
@@ -97,7 +101,6 @@ html.glass .card-clip {
 html.glass:not(.native) .card-clip {
   background: rgba(12, 16, 30, 0.58);
   backdrop-filter: blur(40px) saturate(1.7);
-  -webkit-backdrop-filter: blur(40px) saturate(1.7);
 }
 html.glass.native .card-clip { background: rgba(8, 11, 22, 0.42); }
 html.glass.native .card { box-shadow: none; }
@@ -175,7 +178,6 @@ html.glass .stage::after {
   background: rgba(16, 21, 36, 0.82);
   border: 1px solid var(--line);
   backdrop-filter: blur(14px) saturate(1.4);
-  -webkit-backdrop-filter: blur(14px) saturate(1.4);
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
   pointer-events: none;
   opacity: 0;
@@ -276,7 +278,6 @@ html.glass .stage::after {
   background: var(--glass);
   border: 1px solid var(--line);
   backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
   transition: transform 300ms var(--spring), background 220ms, color 220ms, border-color 220ms, box-shadow 300ms;
 }
 @media (hover: hover) { .scene:hover { background: var(--glass-hi); color: var(--text); } }
@@ -489,7 +490,7 @@ html.glass .stage::after {
   padding: 11px 14px; border-radius: 16px;
   font-size: 12.5px; font-weight: 600; line-height: 1.4; color: #ffd9d2;
   background: rgba(60, 20, 22, 0.92); border: 1px solid rgba(255, 120, 110, 0.5);
-  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
   opacity: 0; transform: translateY(12px); pointer-events: none;
   transition: opacity 220ms, transform 360ms var(--ease);
 }
@@ -660,7 +661,6 @@ html.glass .stage::after {
   background: rgba(15, 21, 38, 0.86);
   border: 1px solid var(--line);
   backdrop-filter: blur(26px) saturate(1.5);
-  -webkit-backdrop-filter: blur(26px) saturate(1.5);
   box-shadow: 0 24px 50px -10px rgba(0, 0, 0, 0.7);
   transform-origin: var(--origin, bottom right);
   animation: menu-in 260ms var(--ease);
@@ -818,6 +818,24 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
 }
 .fatal h1 { margin: 0 0 8px; font-size: 16px; color: var(--text); }
 .fatal code { display: block; margin-top: 12px; padding: 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.06); color: #ffb4a8; white-space: pre-wrap; font: 12px ui-monospace, 'SF Mono', monospace; }
+
+/* ---------- editing the home in place (edit/editor.js covers the card) ---------- */
+
+/* A desktop browser window: the card grows into an editing table. */
+.card.grow { width: min(1280px, calc(100vw - 36px)); height: min(880px, calc(100vh - 36px)); }
+.top, .tint, .stage::after { transition: opacity 260ms ease; }
+.card.editing .top, .card.editing .panel, .card.editing .sheet, .card.editing .tint,
+.card.editing .tooltip, .card.editing .panel-toast, .card.editing .stage::after {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+}
+/* Gone once faded: a hidden header is still a window-drag region in the Windows widget. */
+.card.editing.faded .top { display: none; }
+.card.editing .stage { height: 100%; }
+.card.editing .stage canvas { -webkit-mask-image: none; mask-image: none; }
+.card.covered .stage canvas { opacity: 0; transition: opacity 240ms ease; }
+.stage { transition: height 450ms var(--ease); }
 
 .card.booting .stage canvas { opacity: 0; }
 .stage canvas { transition: opacity 500ms ease; }
