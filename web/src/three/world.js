@@ -19,8 +19,9 @@ const EL_MAX = 70;
 const ZOOM_MIN = 0.55;     // closest
 const ZOOM_MAX = 1.2;
 
+// `background: null` leaves the stage see-through, for a panel drawn on glass.
 export function createWorld(canvas, config, store, { onHover, onPick, background = STAGE_BG }) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: background === null, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
@@ -29,7 +30,7 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
   renderer.shadowMap.autoUpdate = false; // the model is static: shadow maps are rendered once
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(background);
+  scene.background = background === null ? null : new THREE.Color(background);
 
   const camera = new THREE.PerspectiveCamera(24, 1, 0.5, 120);
 

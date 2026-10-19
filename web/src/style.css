@@ -85,6 +85,27 @@ html.native .card { width: auto; height: auto; box-shadow:
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.07) inset;
 }
 
+/* Glass: the card lets the desktop through. In the Mac app a native Liquid Glass view
+   sits behind the transparent web view, so the card only adds a dark tint for contrast;
+   in a browser the card blurs what is behind it itself. */
+html.glass .card-clip {
+  background: rgba(10, 14, 26, 0.5);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset,
+    0 1px 0 0 rgba(255, 255, 255, 0.14) inset;
+}
+html.glass:not(.native) .card-clip {
+  background: rgba(12, 16, 30, 0.58);
+  backdrop-filter: blur(40px) saturate(1.7);
+  -webkit-backdrop-filter: blur(40px) saturate(1.7);
+}
+html.glass.native .card-clip { background: rgba(8, 11, 22, 0.42); }
+html.glass.native .card { box-shadow: none; }
+html.glass .notch { display: none; }
+html.glass .stage::after {
+  background: linear-gradient(180deg, rgba(10, 14, 26, 0.5) 0%, rgba(10, 14, 26, 0.2) 55%, transparent 100%);
+}
+
 .notch {
   position: absolute;
   top: -9px;
@@ -208,12 +229,11 @@ html.native .card { width: auto; height: auto; box-shadow:
   color: var(--muted);
 }
 .power.on {
-  background: linear-gradient(180deg, #5aa2ff, #2f7bf2);
-  border-color: rgba(255, 255, 255, 0.28);
+  background: #3a82f0;
+  border-color: rgba(255, 255, 255, 0.14);
   color: #fff;
-  box-shadow: 0 8px 22px -4px rgba(61, 139, 255, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.12) inset;
 }
-@media (hover: hover) { .power.on:hover { background: linear-gradient(180deg, #6aacff, #3a85f8); } }
+@media (hover: hover) { .power.on:hover { background: #4a8ef5; } }
 
 .top .round { transition: transform 260ms var(--spring), background 200ms, color 200ms, box-shadow 300ms, opacity 220ms; }
 .card.detail .top .round { opacity: 0; transform: scale(0.8); pointer-events: none; }
@@ -263,9 +283,8 @@ html.native .card { width: auto; height: auto; box-shadow:
 .scene:active { transform: scale(0.94); }
 .scene.active {
   color: #fff;
-  background: linear-gradient(180deg, rgba(88, 150, 255, 0.34), rgba(61, 139, 255, 0.14));
-  border-color: rgba(120, 175, 255, 0.55);
-  box-shadow: 0 10px 24px -10px rgba(61, 139, 255, 0.8);
+  background: rgba(61, 139, 255, 0.18);
+  border-color: rgba(120, 175, 255, 0.34);
 }
 .scene.active .icon { color: #a9cbff; }
 
@@ -302,7 +321,6 @@ html.native .card { width: auto; height: auto; box-shadow:
   display: grid; place-items: center;
   font-size: 10.5px; font-weight: 700;
   color: #2a1a05; background: var(--warm);
-  box-shadow: 0 0 12px -2px var(--warm);
   transition: transform 260ms var(--spring), opacity 200ms;
 }
 .room .count.zero { transform: scale(0); opacity: 0; min-width: 0; width: 0; padding: 0; margin-left: -7px; }
@@ -377,9 +395,12 @@ html.native .card { width: auto; height: auto; box-shadow:
 @media (hover: hover) { .tile:hover { background: var(--glass-hi); } }
 .tile.pressed { transform: scale(0.96); }
 .tile.on {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--c) 26%, transparent), color-mix(in srgb, var(--c) 8%, transparent));
-  border-color: color-mix(in srgb, var(--c) 42%, transparent);
-  box-shadow: 0 12px 26px -16px var(--c);
+  /* Matte: one flat tint, no sheen or outer halo. The glow is light the lamp casts
+     inside the tile, spreading from its icon, and it grows with the brightness. */
+  background:
+    radial-gradient(150px 110px at 31px 50%, color-mix(in srgb, var(--c) calc(8% + var(--level, 1) * 16%), transparent), transparent 75%),
+    color-mix(in srgb, var(--c) 7%, rgba(255, 255, 255, 0.04));
+  border-color: color-mix(in srgb, var(--c) 24%, var(--line));
 }
 
 .bubble {
@@ -392,8 +413,7 @@ html.native .card { width: auto; height: auto; box-shadow:
 }
 .tile.on .bubble {
   color: #241503;
-  background: var(--c);
-  box-shadow: 0 0 22px -3px var(--c);
+  background: color-mix(in srgb, var(--c) 88%, #1a1d26);
 }
 .tile.ac.on .bubble { color: #06162c; }
 
@@ -416,17 +436,27 @@ html.native .card { width: auto; height: auto; box-shadow:
 
 .tile-level {
   position: absolute;
-  left: 0; bottom: 0;
+  left: 14px; right: 14px; bottom: 7px;
   height: 3px;
-  width: 100%;
+  border-radius: 2px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.07);
+  opacity: 0;
+  transition: opacity 260ms, height 200ms;
+}
+.tile-level::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
   transform-origin: left;
   transform: scaleX(var(--level, 0));
   background: var(--c);
-  opacity: 0;
-  transition: transform 260ms var(--ease), opacity 260ms;
+  transition: transform 260ms var(--ease);
 }
-.tile.on.dimmable .tile-level { opacity: 0.9; }
-.tile.dragging .tile-level { transition: opacity 200ms; height: 4px; }
+.tile.on.dimmable .tile-level { opacity: 1; }
+.tile.dragging .tile-level::after { transition: none; }
+.tile.dragging .tile-level { height: 4px; }
 .tile.dimmable { cursor: ew-resize; }
 
 .tile.ac { grid-column: 1 / -1; cursor: pointer; }
@@ -450,7 +480,7 @@ html.native .card { width: auto; height: auto; box-shadow:
 }
 @media (hover: hover) { .mini-power:hover { background: rgba(255, 255, 255, 0.16); color: var(--text); } }
 .mini-power:active { transform: scale(0.88); }
-.tile.ac.on .mini-power { background: var(--c); color: #06162c; box-shadow: 0 0 18px -4px var(--c); }
+.tile.ac.on .mini-power { background: color-mix(in srgb, var(--c) 88%, #1a1d26); color: #06162c; }
 
 .tile:focus-visible { outline: none; border-color: rgba(120, 175, 255, 0.8); }
 

@@ -8,6 +8,7 @@ const CURB = 0.14;   // height of the cut-away walls on the camera side
 const EPS = 1e-4;
 
 const key = (v) => Math.round(v * 1000);
+const inside = (r, x, z) => x > r.x && x < r.x + r.w && z > r.z && z < r.z + r.d;
 
 // Splits every room edge into wall segments, classifying each as exterior / interior
 // and attaching the opening (door, window, ...) that covers it, if any.
@@ -43,9 +44,15 @@ function wallSegments(config) {
       const mid = (pts[i] + pts[i + 1]) / 2;
       const covering = l.edges.filter((e) => e.a < mid && mid < e.b);
       if (!covering.length) continue;
+      // Two rooms meeting here face each other across the wall. A room drawn inside
+      // another (a bathroom carved out of a studio) shares the outer walls on the same
+      // side, and its own walls stand inside the bigger room: both cases are decided
+      // by whether there is room on each side of the wall, not by how many edges meet.
+      const [px, pz] = l.axis === 'x' ? [mid, l.c] : [l.c, mid];
+      const side = (d) => config.rooms.some((r) => inside(r, px + (l.axis === 'z' ? d : 0), pz + (l.axis === 'x' ? d : 0)));
       const seg = {
         axis: l.axis, c: l.c, a: pts[i], b: pts[i + 1],
-        kind: covering.length > 1 ? 'interior' : 'exterior',
+        kind: side(-0.05) && side(0.05) ? 'interior' : 'exterior',
         inside: covering[0].inside,
         opening: l.openings.find((o) => o.a < mid && mid < o.b) || null,
       };
@@ -77,8 +84,18 @@ export function buildHouse(config, camDir) {
   plinth.receiveShadow = true;
   group.add(plinth);
 
+  // Rooms may overlap (a bathroom drawn inside a studio). Floors in the same plane
+  // fight over the same pixels, so the smaller room's floor is laid on top: lifted a
+  // hair and pulled forward in the depth buffer, which keeps it stable at any zoom.
+  const bySize = [...config.rooms].sort((p, q) => q.w * q.d - p.w * p.d);
   for (const room of config.rooms) {
     const floor = floorMesh(room, room.floor);
+    const layer = bySize.indexOf(room);
+    if (layer > 0) {
+      floor.position.y = layer * 0.002;
+      floor.material = floor.material.clone();
+      Object.assign(floor.material, { polygonOffset: true, polygonOffsetFactor: -layer, polygonOffsetUnits: -layer * 4 });
+    }
     floor.userData = { kind: 'room', id: room.id };
     floors.push(floor);
     group.add(floor);

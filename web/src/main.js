@@ -17,6 +17,11 @@ const STAGE_INSETS = [62, 50]; // header above, panel overlap below
 const app = document.getElementById('app');
 if (isNative) document.documentElement.classList.add('native');
 if (isPhone) document.documentElement.classList.add('ios');
+// The panel is a sheet of glass over the desktop (Liquid Glass in the Mac app, a blur in
+// a browser); the phone layout fills the screen and stays opaque.
+const mode = window.__HOUSE_BOOT__?.mode || new URLSearchParams(location.search).get('mode') || 'panel';
+const glass = mode === 'panel' && !isPhone;
+if (glass) document.documentElement.classList.add('glass');
 
 // ?safeTop=62&safeBottom=34 stands in for a phone's safe areas when its layout is looked at in a browser.
 for (const edge of ['top', 'bottom']) {
@@ -74,6 +79,7 @@ async function boot() {
 
   try {
     world = createWorld(panel.canvas, config, store, {
+      ...(glass && { background: null }),
       onHover: panel.showTooltip,
       onPick(target) {
         if (!target) return;
@@ -232,7 +238,6 @@ async function renderShot(config, store, room) {
   }
 }
 
-const mode = window.__HOUSE_BOOT__?.mode || new URLSearchParams(location.search).get('mode') || 'panel';
 if (mode === 'editor') {
   document.documentElement.classList.add('mode-editor');
   import('./editor/editor.js').then((m) => m.bootEditor(app)).catch((e) => fatal('Editor failed to start', e));

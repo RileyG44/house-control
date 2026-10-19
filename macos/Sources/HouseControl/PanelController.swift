@@ -7,7 +7,8 @@ private final class FloatingPanel: NSPanel {
 }
 
 /// The borderless popover under the menu bar icon. The web content draws the card
-/// (rounded corners, notch, shadow) itself on a fully transparent window.
+/// itself on a fully transparent window, over a Liquid Glass sheet cut to the card's
+/// shape (a vibrant blur before macOS 26).
 final class PanelController: NSObject, NSWindowDelegate {
     private static let card = NSSize(width: 440, height: 800)
     // Transparent margin around the card, matching `html.native #app` padding in style.css.
@@ -38,8 +39,37 @@ final class PanelController: NSObject, NSWindowDelegate {
         window.hidesOnDeactivate = false
         window.animationBehavior = .none
         window.delegate = self
-        window.contentView = host.webView
+        window.contentView = Self.onGlass(host.webView, size: size)
         window.alphaValue = 0
+    }
+
+    /// The web view over a glass sheet that sits exactly behind the card (`.card` in
+    /// style.css, radius 34), inside the window's transparent margin.
+    private static func onGlass(_ webView: NSView, size: NSSize) -> NSView {
+        let root = NSView(frame: NSRect(origin: .zero, size: size))
+        let glass: NSView
+        if #available(macOS 26.0, *) {
+            let view = NSGlassEffectView()
+            view.cornerRadius = 34
+            view.tintColor = NSColor(calibratedRed: 0.03, green: 0.05, blue: 0.1, alpha: 0.3)
+            glass = view
+        } else {
+            let view = NSVisualEffectView()
+            view.material = .hudWindow
+            view.blendingMode = .behindWindow
+            view.state = .active
+            view.wantsLayer = true
+            view.layer?.cornerRadius = 34
+            view.layer?.masksToBounds = true
+            glass = view
+        }
+        glass.frame = NSRect(x: padSide, y: padBottom, width: size.width - padSide * 2, height: size.height - padTop - padBottom)
+        glass.autoresizingMask = [.width, .height]
+        webView.frame = root.bounds
+        webView.autoresizingMask = [.width, .height]
+        root.addSubview(glass)
+        root.addSubview(webView)
+        return root
     }
 
     func toggle(below button: NSStatusBarButton) {
