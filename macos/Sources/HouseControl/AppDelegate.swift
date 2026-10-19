@@ -20,6 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: PanelController!
     private var editor: EditorController?
     private var pollTimer: Timer?
+    /// Notices a plan saved outside this app (the hub's web editor, on a phone or another
+    /// computer), so the menu bar panel and the island switch to it as well.
+    private var planWatch: Timer?
+    private var seenPlanRevision: String?
     /// AI Access: the private link an AI assistant uses to run the home.
     private lazy var agent: AgentController = {
         let agent = AgentController(plans: plans, panel: { [unowned self] in self.panel.host }, reloadAll: { [unowned self] in
@@ -65,6 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         reloadLinks()
         host.load()
+        watchPlanFile()
         startSync()
         if islandEnabled { showIsland() }
         LoginItem.followMove()
@@ -253,7 +258,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sync.broadcast()
     }
 
+    /// The plan file is read every couple of seconds (a few KB): the hub writes it when its
+    /// web editor saves, and nothing tells this app otherwise.
+    private func watchPlanFile() {
+        seenPlanRevision = plans.customPlanRevision
+        planWatch = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let now = self.plans.customPlanRevision
+                guard now != self.seenPlanRevision else { return }
+                self.seenPlanRevision = now
+                guard self.plans.activePlan == "custom" else { return }
+                self.reloadAll()
+                if let editor = self.editor, let plan = self.plans.customPlan() {
+                    editor.host.call("planArrived", plan, "the hub")
+                }
+            }
+        }
+    }
+
     @objc private func reloadAll() {
+        seenPlanRevision = plans.customPlanRevision
         reloadLinks()
         widgets.isReady = false
         panel.host.load()
@@ -630,6 +655,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSLog("House Control: could not store the plan from %@: %@", phone, error.localizedDescription)
             return
         }
+        seenPlanRevision = plans.customPlanRevision
         reloadLinks()
         widgets.isReady = false
         panel.host.load()

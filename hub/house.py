@@ -338,6 +338,75 @@ class Hub:
         log.info("%s [%s] %s → ok", pid, service, " ".join(f"{k}={v}" for k, v in sorted(patch.items())))
         return {"ok": True}
 
+    # ---------- the floor plan, edited from any panel ----------
+
+    def save_plan(self, config) -> dict:
+        """Stores a plan drawn in the editor as the home's plan.
+
+        The hub's plan.json is what the site serves; the Mac app's own plan file, when it
+        has one, gets the same bytes (and mtime), so the menu bar panel and the island
+        show the same home and neither copy looks newer than the other."""
+        if not isinstance(config, dict):
+            return {"error": "The plan must be a JSON object"}
+        rooms = config.get("rooms")
+        if not isinstance(rooms, list) or not rooms:
+            return {"error": "The plan needs at least one room"}
+        for r in rooms:
+            rect = r.get("rect") if isinstance(r, dict) else None
+            if not (isinstance(r, dict) and r.get("id") and isinstance(rect, list) and len(rect) == 4
+                    and all(isinstance(v, (int, float)) for v in rect)):
+                return {"error": "Every room needs an id and a rect [x, z, width, depth]"}
+        config = {k: v for k, v in config.items() if k != "generatedBy"}  # drawn by hand now
+        data = (json.dumps(config, indent=2) + "\n").encode()
+        targets = [self.conf / "plan.json"]
+        with contextlib.suppress(OSError):
+            if PANEL_PLAN.is_file() and PANEL_PLAN.resolve() != targets[0].resolve():
+                targets.append(PANEL_PLAN)
+        now = time.time_ns()
+        for path in targets:
+            tmp = path.with_name(path.name + ".saving")
+            tmp.write_bytes(data)
+            os.replace(tmp, path)
+            os.utime(path, ns=(now, now))
+        log.info("Saved the floor plan from the editor (%d rooms)", len(rooms))
+        self._rebuild_plan()
+        return {"ok": True}
+
+    def services_info(self) -> dict:
+        """The platforms the hub drives, in the shape the editor's Connections take."""
+        return {
+            "wiz": {"connected": True, "local": True},
+            "aidot": {"connected": bool(self.aidot and self.aidot.configured), "local": True},
+            "mrcool": {"connected": bool(self.mrcool and self.mrcool.configured), "local": True},
+        }
+
+    def catalog(self) -> dict:
+        """Every device the hub can reach, for the editor's "Real device" pickers."""
+        names = self.names.get("lights") or {}
+        out = []
+        for mac, light in self.wiz.lights.items():
+            d = light.describe()
+            given = names.get(mac) or {}
+            out.append({"service": "wiz", "id": mac, "kind": "light", "name": given.get("name") or d.get("module") or mac,
+                        "room": given.get("room", ""), "detail": d.get("ip") or "", "online": d.get("online", False),
+                        "capabilities": d.get("capabilities", [])})
+        if self.aidot:
+            for d in self.aidot.describe_all():
+                given = names.get(d["id"]) or next((v for v in names.values() if isinstance(v, dict) and (
+                    (v.get("ip") and v["ip"] == d.get("ip")))), {})
+                out.append({"service": "aidot", "id": d["id"], "kind": "light", "name": given.get("name") or d.get("module") or d["id"],
+                            "room": given.get("room", ""), "detail": d.get("ip") or "", "online": d.get("online", False),
+                            "capabilities": d.get("capabilities", [])})
+        if self.mrcool:
+            acs = self.names.get("acs") or {}
+            for mac in self.mrcool.devices:
+                d = self.mrcool.describe(mac)
+                given = acs.get(mac) or {}
+                out.append({"service": "mrcool", "id": mac, "kind": "ac", "name": given.get("name") or d["name"],
+                            "room": given.get("room", ""), "detail": f"°{d['unit']}", "online": d["online"],
+                            "min": d["min"], "max": d["max"]})
+        return {"devices": out, "errors": {}}
+
     def devices(self) -> dict:
         names = self.names
         lights = [{**l.describe(), **(names.get("lights") or {}).get(m, {}), "linked": self._plan_ids("wiz", m)}
@@ -397,7 +466,7 @@ def panel_origin_ok(request) -> bool:
 
 
 def make_app(hub: Hub) -> web.Application:
-    app = web.Application(client_max_size=64 * 1024)
+    app = web.Application(client_max_size=2 * 1024 * 1024)  # a plan with lots of furniture
 
     async def index(_):
         page = WEB / "index.html"
@@ -435,10 +504,19 @@ def make_app(hub: Hub) -> web.Application:
         kind = body.get("type")
         if kind == "command":
             return web.json_response(await hub.command(body))
+        if kind == "savePlan":
+            return web.json_response(hub.save_plan(body.get("config")))
+        if kind == "services.info":
+            return web.json_response(hub.services_info())
+        if kind == "devices.all":
+            return web.json_response(hub.catalog())
         return web.json_response({"error": f"{kind} is not available from the hub"})
 
     async def devices(_):
         return web.json_response(hub.devices())
+
+    async def plan(_):
+        return web.json_response(hub.plan, headers={"Cache-Control": "no-store"})
 
     async def rescan(_):
         await hub.discover()
@@ -507,6 +585,7 @@ def make_app(hub: Hub) -> web.Application:
     app.router.add_get("/api/events", events)
     app.router.add_post("/api/call", call)
     app.router.add_get("/api/devices", devices)
+    app.router.add_get("/api/plan", plan)
     app.router.add_post("/api/rescan", rescan)
     app.router.add_post("/api/mrcool", mrcool_key)
     app.router.add_post("/api/aidot", aidot_login)

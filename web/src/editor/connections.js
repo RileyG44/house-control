@@ -3,15 +3,21 @@
 // connect each one, and the pickers that link a lamp or an AC to one of their devices.
 import { h } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
-import { isNative, call } from '../bridge.js';
+import { isNative, isHub, call } from '../bridge.js';
 import { SERVICES, linkOf } from '../config.js';
 
 const ORDER = ['smartlife', 'homeassistant', 'hue', 'homekit'];
+// What the hub on the Mac drives itself (hub/house.py), when the editor is served by it.
+const HUB_ORDER = ['wiz', 'aidot', 'mrcool'];
+const reachesDevices = isNative || isHub;
 const LOOK = {
   smartlife: { icon: 'plug', tint: '#ff7a3d', blurb: 'Tuya, Smart Life and the many brands built on them' },
   homeassistant: { icon: 'homeassistant', tint: '#18bcf2', blurb: 'Everything it runs: Zigbee, Matter, Nest, Xiaomi, Sonoff…' },
   hue: { icon: 'bulb', tint: '#c38bff', blurb: 'A Hue Bridge on this network. No account needed' },
   homekit: { icon: 'home', tint: '#ffb340', blurb: 'HomeKit and Matter accessories, through your iPhone' },
+  wiz: { icon: 'bulb', tint: '#3d8bff', blurb: 'WiZ lights, found on the home network by the hub' },
+  aidot: { icon: 'bulb', tint: '#2fc48d', blurb: 'AiDot bulbs, driven locally by the hub' },
+  mrcool: { icon: 'ac', tint: '#5ac8fa', blurb: 'MRCOOL SmartHVAC air conditioners, through Cielo' },
 };
 const KIND_TITLES = { light: 'Lights and plugs', ac: 'Air conditioners', sensor: 'Temperature sensors' };
 
@@ -29,18 +35,18 @@ export function createConnections({ rerender, toast, usedBy, onOpen }) {
 
   // The platforms this app offers: the native side lists them (the iPhone's App Store
   // edition has no Smart Life). A plain browser shows them all.
-  const offered = () => (isNative && boot.services ? ORDER.filter((id) => id in state.info) : ORDER);
+  const offered = () => (isHub ? HUB_ORDER : isNative && boot.services ? ORDER.filter((id) => id in state.info) : ORDER);
   const connected = (id) => Boolean(state.info[id]?.connected);
   const anyConnected = () => offered().some(connected);
   const devicesOf = (id) => (state.devices || []).filter((d) => d.service === id);
 
   async function refreshInfo() {
-    if (!isNative) return;
+    if (!reachesDevices) return;
     try { state.info = await call('services.info'); } catch { /* keep what we had */ }
   }
 
   async function load({ quiet = false } = {}) {
-    if (!isNative || !anyConnected()) { state.devices = null; rerender(); return; }
+    if (!reachesDevices || !anyConnected()) { state.devices = null; rerender(); return; }
     state.loading = true;
     if (!quiet) rerender();
     try {
@@ -53,6 +59,9 @@ export function createConnections({ rerender, toast, usedBy, onOpen }) {
     state.loading = false;
     rerender();
   }
+
+  // Served by the hub: ask it what it drives, then the pickers can offer its devices.
+  if (isHub) refreshInfo().then(() => load({ quiet: true }));
 
   // The Mac pushes this when the paired iPhone sent its Apple Home devices.
   window.house = window.house || {};
@@ -93,7 +102,8 @@ export function createConnections({ rerender, toast, usedBy, onOpen }) {
         h(`span.svc-status${connected(id) ? '.on' : ''}`, connected(id) ? icon('ok', 13, 2.4) : null, statusText(id)),
         icon('next', 16)))),
       h('p.note', 'Lamps and ACs stay simulated until you link them: pick one on the plan, then choose its device under “Real device”. One home can mix them all.'),
-      isNative ? null : h('p.note.bad', 'Connecting works inside the House Control app (this is the browser preview).'),
+      isHub ? h('p.note', 'The hub on your Mac drives these. AiDot and MRCOOL are signed in once on the Mac (see hub/README.md); WiZ lights are found by themselves.')
+        : isNative ? null : h('p.note.bad', 'Connecting works inside the House Control app (this is the browser preview).'),
     ];
   }
 
@@ -293,7 +303,20 @@ export function createConnections({ rerender, toast, usedBy, onOpen }) {
 
   /* ---------- detail screen ---------- */
 
+  // A platform the hub drives: nothing to connect from here, just what it found.
+  function hubService(id) {
+    if (!state.devices && !state.loading && connected(id)) setTimeout(() => load(), 0);
+    return [
+      section(SERVICES[id].name,
+        h('div.device', h(`span.dot${connected(id) ? '.on' : ''}`), h('div', h('b', connected(id) ? 'Driven by the hub' : 'Not signed in on the hub'),
+          h('span', connected(id) ? 'On your Mac' : 'Sign in on the Mac: see hub/README.md'))),
+        h('div.fields', h('button.btn', { onclick: () => load() }, 'Refresh devices'))),
+      deviceList(id),
+    ];
+  }
+
   function detail(id, smartLifePanel) {
+    if (HUB_ORDER.includes(id)) return hubService(id);
     if (id === 'smartlife') return smartLifePanel();
     if (id === 'homeassistant') return homeAssistant();
     if (id === 'hue') return hue();
@@ -335,7 +358,8 @@ export function createConnections({ rerender, toast, usedBy, onOpen }) {
     const current = link ? `${link.service}|${link.id}` : '';
     if (!anyConnected()) {
       return section('Real device',
-        h('p.note', 'Simulated. Connect Smart Life, Home Assistant, Philips Hue or Apple Home to control the real one.'),
+        h('p.note', isHub ? 'Simulated. The hub on your Mac has no WiZ, AiDot or MRCOOL device to offer yet.'
+          : 'Simulated. Connect Smart Life, Home Assistant, Philips Hue or Apple Home to control the real one.'),
         h('button.btn.wide', { onclick: () => onOpen(null) }, icon('link', 14), 'Open Connections'));
     }
     if (!state.devices && !state.loading) setTimeout(() => load({ quiet: true }), 0);

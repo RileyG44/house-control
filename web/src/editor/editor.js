@@ -8,7 +8,7 @@ import { createWorld } from '../three/world.js';
 import { FURNITURE_TYPES, footprint } from '../three/furniture.js';
 import { h, clamp } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
-import { isNative, isPhone, call, post, haptic, incoming } from '../bridge.js';
+import { isNative, isHub, isPhone, call, post, haptic, incoming } from '../bridge.js';
 import { createConnections } from './connections.js';
 
 const SVG = 'http://www.w3.org/2000/svg';
@@ -32,6 +32,18 @@ const REGIONS = [
 const round = (v, step = 0.05) => Math.round(v / step) * step;
 const fix = (v) => Math.round(v * 1000) / 1000;
 const slug = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'item';
+// Served by the hub, the editor saves to the Mac: every panel, the menu bar and the island follow.
+const saves = isNative || isHub;
+
+// Back to the panel: the native shell closes the editor's window or screen; served by the
+// hub, the editor is the panel's own page with ?mode=editor.
+function leave() {
+  if (!isHub) { post('close'); return; }
+  const url = new URL(location.href);
+  url.searchParams.delete('mode');
+  url.searchParams.delete('section');
+  location.href = url.href;
+}
 
 export async function bootEditor(root) {
   let doc = structuredClone(await loadRawConfig());
@@ -93,6 +105,7 @@ export async function bootEditor(root) {
         h('button.btn', { title: 'Redo (⇧⌘Z)', onclick: () => stepHistory(redo, undo) }, 'Redo'),
         h('button.btn', { onclick: importPlan }, 'Import…'),
         h('button.btn', { onclick: exportPlan }, 'Export…'),
+        isHub ? h('button.btn', { onclick: requestLeave }, 'Done') : null,
         saveBtn)),
     sidebar,
     h('main.canvas', plan, hint),
@@ -563,7 +576,9 @@ export async function bootEditor(root) {
           bind('Elevation, °', number(1), { ...prop(doc.camera, 'elevation', 47), parse: parseNum })),
         h('p.note', 'Walls facing the camera are cut away, so the azimuth decides which side of the home is open.')),
       section('How it works',
-        h('p.note', isPhone
+        h('p.note', isHub
+          ? `${isPhone ? 'Tap anything on the plan, or find it under Items,' : 'Pick anything on the plan or in the list'} to edit it. “Save” stores the plan on your Mac, and the panel on every phone and browser, the menu bar and the island all switch to it. Coordinates are metres: x grows to the right (east), z grows downwards (south).`
+          : isPhone
           ? 'Tap anything on the plan, or find it under Items, to edit it. “Save” keeps the plan on this iPhone and sends it to your paired Mac. Coordinates are metres: x grows to the right (east), z grows downwards (south).'
           : 'Pick anything on the plan or in the list to edit it. “Save & apply” writes the plan to disk and reloads the menu bar panel. Coordinates are metres: x grows to the right (east), z grows downwards (south).')));
     } else if (kind === 'connections') {
@@ -809,7 +824,7 @@ export async function bootEditor(root) {
 
   async function save() {
     if (!valid) return;
-    if (!isNative) {
+    if (!saves) {
       download();
       toast('Browser preview: the plan was downloaded instead of applied');
       return;
@@ -819,7 +834,8 @@ export async function bootEditor(root) {
       dirty = false;
       validate();
       haptic('success');
-      toast(isPhone ? 'Saved' : 'Saved — the menu bar panel now shows this home');
+      toast(isHub ? 'Saved on your Mac: every screen now shows this home'
+        : isPhone ? 'Saved' : 'Saved — the menu bar panel now shows this home');
     } catch (e) {
       toast(e.message, true);
     }
@@ -867,6 +883,13 @@ export async function bootEditor(root) {
       try { load(JSON.parse(await input.files[0].text())); } catch (e) { toast(`Could not read the file: ${e.message}`, true); }
     });
     input.click();
+  }
+
+  // The desktop layout's "Done" when served by the hub (the native window has its own close button).
+  function requestLeave() {
+    // eslint-disable-next-line no-alert
+    if (dirty && !window.confirm('Leave without saving your changes?')) return;
+    leave();
   }
 
   /* ---------- keyboard ---------- */
@@ -1007,7 +1030,7 @@ export async function bootEditor(root) {
     function requestClose() {
       if (dirty) openModal(confirmSheet); else close();
     }
-    function close() { post('close'); }
+    function close() { leave(); }
 
     function setShow3D(on) {
       ui.show3D = on;
@@ -1189,6 +1212,16 @@ export async function bootEditor(root) {
     dirty = false;
     validate();
     toast(`Updated from ${from || 'your other device'}`);
+  };
+
+  // Served by the hub: a plan saved anywhere else (the Mac app's editor, another phone)
+  // arrives as a reload; take it here instead, like the native shells' planArrived.
+  incoming.planChanged = async () => {
+    try {
+      const res = await fetch('./api/plan', { cache: 'no-store' });
+      const config = await res.json();
+      if (JSON.stringify(config) !== JSON.stringify(doc)) incoming.planArrived(config, 'another screen');
+    } catch { /* the hub is restarting; the next event brings it */ }
   };
 
   window.__editor = { get doc() { return doc; }, select, tuya, links, phone };

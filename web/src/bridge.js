@@ -69,13 +69,15 @@ async function hubCall(type, payload) {
 }
 
 // Device state from the hub, for incoming.applyRemote. Reconnects by itself (EventSource
-// does) and reloads when the hub's floor plan changed, e.g. a new light was found.
+// does) and reloads when the hub's floor plan changed, e.g. a new light was found or the
+// plan was saved from an editor. An open editor takes the new plan itself (planChanged),
+// so its unsaved changes are not thrown away.
 if (isHub) {
   const events = new EventSource('./api/events');
   events.onmessage = (ev) => {
     let update;
     try { update = JSON.parse(ev.data); } catch { return; }
-    if (update.reload) location.reload();
+    if (update.reload) (incoming.planChanged || (() => location.reload()))();
     else incoming.applyRemote?.(update);
   };
 }

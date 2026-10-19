@@ -170,6 +170,7 @@ async function boot() {
       openMenu(panel.anchorMenu, anchor, [
         { label: config.name, selected: true, icon: icon('check', 16, 2.4) },
         '-',
+        { label: 'Edit home…', action: openHubEditor },
         { label: 'Find new lights and ACs', action: rescan },
       ]);
       return;
@@ -217,6 +218,13 @@ async function boot() {
   post('ready', { summary: store.summary() });
   if (isNative) publishWidgets(config, store);
   window.__house = { store, world, panel, config }; // handy in the dev console
+}
+
+// The hub serves the editor on the same page: ?mode=editor, keeping ?platform= and the rest.
+function openHubEditor() {
+  const url = new URL(location.href);
+  url.searchParams.set('mode', 'editor');
+  location.href = url.href;
 }
 
 // A still of the 3D model for an AI checking its own edit: a second, off-screen world

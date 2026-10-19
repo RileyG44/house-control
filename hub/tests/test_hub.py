@@ -276,6 +276,33 @@ def test_hub_adopts_a_newer_panel_plan(tmp_path, monkeypatch):
     assert hub.plan["name"] == "From the site"
 
 
+def test_editor_saves_the_plan_for_every_screen(tmp_path, monkeypatch):
+    panel = tmp_path / "panel.json"
+    conf = tmp_path / "hub"
+    panel.write_text(json.dumps({"name": "Mac app", "rooms": [{"id": "studio", "rect": [0, 0, 4, 4]}]}))
+    monkeypatch.setattr(house, "PANEL_PLAN", panel)
+    hub = house.Hub(conf)
+    hub._rebuild_plan()
+    heard: asyncio.Queue = asyncio.Queue()
+    hub.listeners.add(heard)
+    drawn = {"name": "Rearranged", "generatedBy": "hub",
+             "rooms": [{"id": "studio", "rect": [0, 0, 6, 7]}, {"id": "bath", "rect": [6, 4, 2.4, 3]}],
+             "lights": [{"id": "bath.light", "room": "bath", "type": "ceiling", "pos": [7, 5],
+                         "link": {"service": "aidot", "id": "dc0675863854"}}]}
+    assert hub.save_plan(drawn) == {"ok": True}
+    # The hub's plan and the Mac app's file are the same bytes, so neither adopts the other.
+    assert (conf / "plan.json").read_bytes() == panel.read_bytes()
+    assert not hub._adopt_panel_plan()
+    saved = json.loads(panel.read_text())
+    assert saved["name"] == "Rearranged" and "generatedBy" not in saved  # hand-drawn from now on
+    assert hub.plan["rooms"][1]["id"] == "bath" and hub.links["bath.light"] == ("aidot", "dc0675863854")
+    assert heard.get_nowait() == {"reload": True}
+    # Something that is not a floor plan is refused and changes nothing.
+    assert "error" in hub.save_plan({"rooms": []})
+    assert "error" in hub.save_plan({"rooms": [{"id": "x", "rect": [0, 0, "wide", 2]}]})
+    assert json.loads((conf / "plan.json").read_text())["name"] == "Rearranged"
+
+
 def test_plan_from_devices():
     names = {"home": "Riley's", "lights": {
         "a": {"name": "Edison Bulb", "room": "Kitchen"}, "b": {"name": "Counter Light", "room": "Kitchen"},
@@ -334,6 +361,7 @@ def test_hub_serves_panel_and_sends_commands(tmp_path, monkeypatch):
             "acs": {"485519fb47c7": {"name": "Bedroom AC", "room": "Bedroom"}}}))
         (tmp_path / "mrcool.json").write_text(json.dumps({"api_key": "test-key"}))
         monkeypatch.setenv("HOUSE_HUB_WIZ_PORT", str(PORT))
+        monkeypatch.setattr(house, "PANEL_PLAN", tmp_path / "no-mac-app" / "plan.json")  # never the real one
         hub = house.Hub(tmp_path)
         hub.wiz.broadcast = ["127.0.0.2"]
         client = TestClient(TestServer(house.make_app(hub)))
@@ -357,6 +385,17 @@ def test_hub_serves_panel_and_sends_commands(tmp_path, monkeypatch):
             assert r.status == 403
             devices = await (await client.get("/api/devices")).json()
             assert len(devices["lights"]) == 3 and devices["acs"][0]["linked"] == [ac_id]
+            # The editor served by the hub: its device pickers, and saving a rearranged plan.
+            info = await (await client.post("/api/call", json={"type": "services.info"})).json()
+            assert info["wiz"]["connected"] and info["mrcool"]["connected"]
+            catalog = await (await client.post("/api/call", json={"type": "devices.all"})).json()
+            assert {(d["service"], d["kind"]) for d in catalog["devices"]} == {("wiz", "light"), ("mrcool", "ac")}
+            assert {d["name"] for d in catalog["devices"] if d["kind"] == "light"} == {"Edison Bulb", "Counter Light", "Window Light"}
+            moved = await (await client.get("/api/plan")).json()
+            moved["rooms"][0]["rect"] = [1, 1, 5, 5]
+            r = await client.post("/api/call", json={"type": "savePlan", "config": moved})
+            assert await r.json() == {"ok": True}
+            assert (await (await client.get("/api/plan")).json())["rooms"][0]["rect"] == [1, 1, 5, 5]
         finally:
             await client.close()
             await server.close()

@@ -49,6 +49,15 @@ its ACs with `"link": {"service": "mrcool", "id": "<mac>"}`. The Mac app's edito
 `~/Library/Application Support/HouseControl/plan.json`. When that file is newer, the hub
 copies it here, so the site shows the layout you just saved.
 
+### Rearrange the rooms
+
+The panel's settings button → **Edit home…** opens the editor on any phone or browser that
+reaches the hub (on the LAN or through Tailscale): drag rooms, resize them, move lamps, ACs and
+furniture, and link lamps and ACs to the WiZ, AiDot and MRCOOL devices the hub found. **Save**
+writes the plan to `~/.house-hub/plan.json` and to the Mac app's plan file, so every open panel
+reloads with it and the Mac's menu bar panel and island switch to it within a couple of seconds.
+`GET /api/plan` returns the plan the hub serves.
+
 `python house.py scan` lists every light and AC the hub can find, with its MAC address.
 
 ### Connect the AiDot bulbs
