@@ -307,6 +307,7 @@ Right-click the icon → **Edit Home… → Connections**, and connect what you 
 | **Home Assistant** | Found on your network by itself; paste a long-lived access token | [docs/connections.md](docs/connections.md#home-assistant) |
 | **Philips Hue** | Found on your network by itself; press the button on the bridge | [docs/connections.md](docs/connections.md#philips-hue) |
 | **Apple Home** | Allow access on your iPhone; its devices are listed on the Mac for linking | [docs/connections.md](docs/connections.md#apple-home) |
+| **WiZ** and **MRCOOL SmartHVAC** | Run the hub on a Mac; it finds WiZ lights by itself and reaches MRCOOL through Cielo's cloud | [hub/README.md](hub/README.md) |
 
 Then select a lamp or an AC on the plan, choose its device under **Real device** (lamps take over what the
 device can do), and press **Save & apply**. From then on the panel controls the real device. Changes made

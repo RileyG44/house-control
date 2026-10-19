@@ -1,0 +1,11 @@
+{
+  "home": "My Home",
+  "rooms": ["Living room", "Kitchen", "Bedroom"],
+  "lights": {
+    "a8bb50000001": { "name": "Ceiling", "room": "Living room" },
+    "a8bb50000002": { "name": "Counter light", "room": "Kitchen", "type": "strip" }
+  },
+  "acs": {
+    "aabbccddeeff": { "name": "Bedroom AC", "room": "Bedroom" }
+  }
+}

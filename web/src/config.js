@@ -27,6 +27,8 @@ export const SERVICES = {
   homeassistant: { name: 'Home Assistant', short: 'Home Assistant' },
   hue: { name: 'Philips Hue', short: 'Hue' },
   homekit: { name: 'Apple Home', short: 'Apple Home' },
+  wiz: { name: 'WiZ', short: 'WiZ' },
+  mrcool: { name: 'MRCOOL SmartHVAC', short: 'MRCOOL' },
 };
 export const FLOOR_KINDS = ['oak', 'walnut', 'tile', 'stone'];
 
@@ -99,7 +101,10 @@ export function normalize(raw) {
     need(roomIds.has(a.room), `AC "${a.id}" refers to unknown room "${a.room}"`);
     need(isPoint(a.pos), `AC "${a.id}" needs "pos": [x, z]`);
     need(WALLS.includes(a.wall), `AC "${a.id}" needs "wall": one of ${WALLS.join(', ')}`);
-    return { ...a, name: a.name || a.id, y: a.y ?? 2.2, min: a.min ?? 16, max: a.max ?? 30 };
+    // "unit": "F" for an AC set in Fahrenheit (target, range and room temperature alike).
+    const unit = a.unit === 'F' ? 'F' : 'C';
+    const [min, max] = unit === 'F' ? [61, 86] : [16, 30];
+    return { ...a, name: a.name || a.id, y: a.y ?? 2.2, unit, min: a.min ?? min, max: a.max ?? max };
   });
 
   const scenes = (raw.scenes || []).map((s) => {

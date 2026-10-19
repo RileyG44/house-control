@@ -1,0 +1,427 @@
+#!/usr/bin/env python3
+"""House Control hub: runs on your Mac and drives the lights and air conditioners.
+
+WiZ lights are reached directly over the home network, MRCOOL SmartHVAC air
+conditioners through Cielo's cloud. The House Control panel (the web UI in ../web)
+is served from here, so any phone or computer on the Wi-Fi can open it.
+
+  python house.py            run the hub
+  python house.py install    start it now and whenever you log in
+  python house.py uninstall  stop starting it at login
+  python house.py scan       list the lights and ACs it can find, then exit
+"""
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import json
+import logging
+import os
+import plistlib
+import socket
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+from aiohttp import web
+import aiohttp
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+
+import plan as plans  # noqa: E402
+from mrcool import MrcoolClient, MrcoolError  # noqa: E402
+from wiz import Light, WizClient, WizError  # noqa: E402
+
+PORT = int(os.environ.get("HOUSE_HUB_PORT", "8766"))
+CONF = Path(os.environ.get("HOUSE_HUB_DIR", Path.home() / ".house-hub"))
+WEB = Path(os.environ.get("HOUSE_HUB_WEB", HERE.parent / "web" / "dist"))
+LABEL = "local.househub"
+
+LIGHT_POLL = 2.0     # seconds between reads of every light (local, cheap)
+AC_POLL = 90.0       # Cielo's cloud is rate limited
+DISCOVER_EVERY = 60.0
+
+log = logging.getLogger("house")
+
+
+def local_ip() -> str:
+    with contextlib.suppress(OSError), socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.connect(("10.255.255.255", 1))
+        return s.getsockname()[0]
+    return "127.0.0.1"
+
+
+def read_json(path: Path, default):
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return default
+
+
+class Hub:
+    def __init__(self, conf: Path = CONF):
+        self.conf = conf
+        conf.mkdir(parents=True, exist_ok=True)
+        ip = local_ip()
+        subnet = ip.rsplit(".", 1)[0] + ".255" if ip.count(".") == 3 and not ip.startswith("127.") else None
+        self.wiz = WizClient(broadcast=["255.255.255.255", *([subnet] if subnet else [])],
+                             port=int(os.environ.get("HOUSE_HUB_WIZ_PORT", "38899")))
+        self.http: aiohttp.ClientSession | None = None
+        self.mrcool: MrcoolClient | None = None
+        self.plan: dict = {}
+        self.links: dict[str, tuple[str, str]] = {}   # plan id -> (service, device id)
+        self.state: dict = {"lights": {}, "acs": {}, "features": {}, "offline": []}
+        self.listeners: set[asyncio.Queue] = set()
+        self._tasks: list[asyncio.Task] = []
+        self._ac_due = 0.0
+
+    # ---------- files ----------
+
+    @property
+    def names(self) -> dict:
+        """devices.json: what each device is called and which room it is in."""
+        return read_json(self.conf / "devices.json", {})
+
+    def _remember_lights(self) -> None:
+        known = {mac: {"ip": l.ip, "module": l.module, "firmware": l.firmware,
+                       "capabilities": l.capabilities, "kelvin": list(l.kelvin)} for mac, l in self.wiz.lights.items()}
+        (self.conf / "lights.json").write_text(json.dumps(known, indent=2))
+
+    def _recall_lights(self) -> None:
+        for mac, k in read_json(self.conf / "lights.json", {}).items():
+            self.wiz.lights[mac] = Light(mac=mac, ip=k["ip"], module=k.get("module", ""), firmware=k.get("firmware", ""),
+                                         capabilities=k.get("capabilities", ["brightness"]),
+                                         kelvin=tuple(k.get("kelvin", (2700, 6500))), online=False)
+
+    # ---------- lifecycle ----------
+
+    async def start(self) -> None:
+        self.http = aiohttp.ClientSession()
+        self.mrcool = MrcoolClient(self.conf / "mrcool.json", self.http)
+        self._recall_lights()
+        await self.wiz.start()
+        await self.discover()
+        if self.mrcool.configured:
+            with contextlib.suppress(Exception):
+                await self._read_acs()
+        self._rebuild_plan()
+        # The first panel to connect gets the real state, not the panel's defaults.
+        await self._poll_lights()
+        if self.mrcool.devices:
+            self._publish_acs()
+        self._tasks = [asyncio.create_task(self._loop(self._poll_lights, LIGHT_POLL)),
+                       asyncio.create_task(self._loop(self._poll_acs, 15.0)),
+                       asyncio.create_task(self._loop(self.discover, DISCOVER_EVERY))]
+
+    async def stop(self) -> None:
+        for t in self._tasks:
+            t.cancel()
+        self.wiz.close()
+        if self.http:
+            await self.http.close()
+
+    async def _loop(self, fn, every: float) -> None:
+        while True:
+            await asyncio.sleep(every)
+            try:
+                await fn()
+            except Exception:
+                log.exception("%s failed", fn.__name__)
+
+    # ---------- devices ----------
+
+    def _extra_addresses(self) -> list[str]:
+        """Addresses to ask directly besides the broadcast: lights we know, and any IP
+        written in devices.json (for networks that drop broadcasts)."""
+        ips = {l.ip for l in self.wiz.lights.values()}
+        ips |= {v["ip"] for v in (self.names.get("lights") or {}).values() if isinstance(v, dict) and v.get("ip")}
+        return sorted(ips)
+
+    async def discover(self) -> None:
+        before = set(self.wiz.lights)
+        found = await self.wiz.discover(extra=self._extra_addresses())
+        if set(self.wiz.lights) != before or found:
+            self._remember_lights()
+        if set(self.wiz.lights) != before and self.plan:
+            self._rebuild_plan()
+
+    async def _read_acs(self) -> None:
+        assert self.mrcool
+        before = set(self.mrcool.devices)
+        await self.mrcool.refresh()
+        self._ac_due = time.time() + AC_POLL
+        if set(self.mrcool.devices) != before and self.plan:
+            self._rebuild_plan()
+
+    def _rebuild_plan(self) -> None:
+        custom = read_json(self.conf / "plan.json", None)
+        if custom and custom.get("generatedBy") != "hub":
+            new = custom
+        else:
+            lights = [l.describe() for l in self.wiz.lights.values()]
+            acs = [self.mrcool.describe(m) for m in self.mrcool.devices] if self.mrcool else []
+            new = plans.build(self.names, lights, acs)
+            (self.conf / "plan.json").write_text(json.dumps(new, indent=2))
+        changed = bool(self.plan) and new != self.plan
+        self.plan = new
+        self.links = {d["id"]: (d["link"]["service"], d["link"]["id"])
+                      for d in [*new.get("lights", []), *new.get("acs", [])] if (d.get("link") or {}).get("id")}
+        if changed:
+            self._publish({"reload": True})
+
+    def _plan_ids(self, service: str, device: str) -> list[str]:
+        return [pid for pid, (s, d) in self.links.items() if s == service and d == device]
+
+    async def _poll_lights(self) -> None:
+        macs = [m for m in self.wiz.lights if self._plan_ids("wiz", m)]
+        results = await asyncio.gather(*(self.wiz.read(m) for m in macs), return_exceptions=True)
+        update: dict = {"lights": {}}
+        for mac, result in zip(macs, results):
+            if isinstance(result, Exception):
+                continue
+            for pid in self._plan_ids("wiz", mac):
+                update["lights"][pid] = result
+        self._apply(update)
+
+    async def _poll_acs(self) -> None:
+        if not self.mrcool or not self.mrcool.configured or time.time() < self._ac_due:
+            return
+        try:
+            await self._read_acs()
+        except MrcoolError as e:
+            log.warning("MRCOOL: %s", e)
+            self._ac_due = time.time() + AC_POLL
+            return
+        self._publish_acs()
+
+    def _publish_acs(self) -> None:
+        update: dict = {"acs": {}, "features": {}}
+        for mac in self.mrcool.devices:
+            r = self.mrcool.reading(mac)
+            for pid in self._plan_ids("mrcool", mac):
+                update["acs"][pid] = r["ac"]
+                update["features"][pid] = r["features"]
+        self._apply(update)
+
+    def _apply(self, update: dict) -> None:
+        """Keeps the last known state and tells the panels what changed."""
+        diff: dict = {}
+        for section in ("lights", "acs", "features"):
+            for pid, value in (update.get(section) or {}).items():
+                if self.state[section].get(pid) != value:
+                    self.state[section][pid] = value
+                    diff.setdefault(section, {})[pid] = value
+        if diff:
+            self._publish(diff)
+
+    def _publish(self, message: dict) -> None:
+        for q in list(self.listeners):
+            with contextlib.suppress(asyncio.QueueFull):
+                q.put_nowait(message)
+
+    # ---------- commands from the panel ----------
+
+    async def command(self, message: dict) -> dict:
+        pid = message.get("id")
+        patch = message.get("patch") or {}
+        state = message.get("state") or {}
+        service, device = self.links.get(pid, (None, None))
+        if service is None:
+            return {"ok": True}  # not linked: simulated in the panel
+        try:
+            if service == "wiz":
+                await self.wiz.send(device, patch, state)
+                # Other panels hear it now rather than at the next read.
+                light = self.wiz.lights[device]
+                self._apply({"lights": {other: dict(light.state) for other in self._plan_ids("wiz", device)}})
+            elif service == "mrcool":
+                await self.mrcool.send(device, patch)
+                self._publish_acs()
+            else:
+                return {"error": f"Unknown platform {service}"}
+        except (WizError, MrcoolError, aiohttp.ClientError, asyncio.TimeoutError) as e:
+            log.warning("%s %s %s: %s", pid, service, patch, e)
+            return {"error": str(e) or e.__class__.__name__}
+        log.info("%s [%s] %s → ok", pid, service, " ".join(f"{k}={v}" for k, v in sorted(patch.items())))
+        return {"ok": True}
+
+    def devices(self) -> dict:
+        names = self.names
+        return {
+            "lights": [{**l.describe(), **(names.get("lights") or {}).get(m, {}), "linked": self._plan_ids("wiz", m)}
+                       for m, l in self.wiz.lights.items()],
+            "acs": [{**self.mrcool.describe(m), "linked": self._plan_ids("mrcool", m)} for m in self.mrcool.devices]
+            if self.mrcool else [],
+            "mrcool": {"configured": bool(self.mrcool and self.mrcool.configured)},
+        }
+
+
+# ---------- web ----------
+
+def make_app(hub: Hub) -> web.Application:
+    app = web.Application(client_max_size=64 * 1024)
+
+    async def index(_):
+        page = WEB / "index.html"
+        if not page.is_file():
+            return web.Response(status=503, content_type="text/html", text=(
+                "<h1>The panel is not built yet</h1><p>Run <code>./setup.sh</code> in the hub folder, "
+                "or <code>npm --prefix web ci && npm --prefix web run build</code>.</p>"))
+        boot = {"hub": True, "config": hub.plan}
+        html = page.read_text().replace(
+            "<head>", "<head><script>window.__HOUSE_BOOT__=" + json.dumps(boot).replace("</", "<\\/") + "</script>", 1)
+        return web.Response(text=html, content_type="text/html", headers={"Cache-Control": "no-store"})
+
+    async def events(request):
+        resp = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-store"})
+        await resp.prepare(request)
+        q: asyncio.Queue = asyncio.Queue(maxsize=200)
+        hub.listeners.add(q)
+        try:
+            first = {k: hub.state[k] for k in ("lights", "acs", "features")}
+            await resp.write(f"data: {json.dumps(first)}\n\n".encode())
+            while True:
+                try:
+                    msg = await asyncio.wait_for(q.get(), 20)
+                    await resp.write(f"data: {json.dumps(msg)}\n\n".encode())
+                except asyncio.TimeoutError:
+                    await resp.write(b": keep-alive\n\n")
+        except (ConnectionResetError, asyncio.CancelledError):
+            pass
+        finally:
+            hub.listeners.discard(q)
+        return resp
+
+    async def call(request):
+        body = await request.json()
+        kind = body.get("type")
+        if kind == "command":
+            return web.json_response(await hub.command(body))
+        return web.json_response({"error": f"{kind} is not available from the hub"})
+
+    async def devices(_):
+        return web.json_response(hub.devices())
+
+    async def rescan(_):
+        await hub.discover()
+        if hub.mrcool and hub.mrcool.configured:
+            with contextlib.suppress(MrcoolError):
+                await hub._read_acs()
+        hub._rebuild_plan()
+        return web.json_response(hub.devices())
+
+    async def mrcool_key(request):
+        key = str((await request.json()).get("api_key", "")).strip()
+        if not key:
+            return web.json_response({"error": "Paste the API key from Cielo's web portal"}, status=400)
+        hub.mrcool.save_key(key)
+        try:
+            await hub._read_acs()
+        except MrcoolError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        hub._rebuild_plan()
+        hub._publish_acs()
+        return web.json_response(hub.devices())
+
+    @web.middleware
+    async def same_origin(request, handler):
+        # Only the panel this hub serves may send commands (no drive-by pages on the LAN).
+        if request.method == "POST":
+            origin = request.headers.get("Origin")
+            if origin and origin != f"{request.scheme}://{request.host}":
+                return web.json_response({"error": "Open the panel from the hub itself"}, status=403)
+            if request.content_type != "application/json":
+                return web.json_response({"error": "Send JSON"}, status=415)
+        return await handler(request)
+
+    app.middlewares.append(same_origin)
+    app.router.add_get("/", index)
+    app.router.add_get("/index.html", index)
+    app.router.add_get("/api/events", events)
+    app.router.add_post("/api/call", call)
+    app.router.add_get("/api/devices", devices)
+    app.router.add_post("/api/rescan", rescan)
+    app.router.add_post("/api/mrcool", mrcool_key)
+    if WEB.is_dir():
+        app.router.add_static("/", WEB, show_index=False)
+
+    async def on_startup(_):
+        await hub.start()
+
+    async def on_cleanup(_):
+        await hub.stop()
+
+    app.on_startup.append(on_startup)
+    app.on_cleanup.append(on_cleanup)
+    return app
+
+
+# ---------- login item ----------
+
+PLIST = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
+
+
+def install() -> None:
+    PLIST.parent.mkdir(parents=True, exist_ok=True)
+    CONF.mkdir(parents=True, exist_ok=True)
+    with PLIST.open("wb") as f:
+        plistlib.dump({
+            "Label": LABEL,
+            "ProgramArguments": [sys.executable, str(HERE / "house.py")],
+            "WorkingDirectory": str(HERE),
+            "RunAtLoad": True,
+            "KeepAlive": True,
+            "StandardOutPath": str(CONF / "hub.log"),
+            "StandardErrorPath": str(CONF / "hub.log"),
+        }, f)
+    subprocess.run(["launchctl", "unload", str(PLIST)], capture_output=True)
+    subprocess.run(["launchctl", "load", "-w", str(PLIST)], check=True)
+    print(f"House Control hub is running: http://{local_ip()}:{PORT}")
+    print("It starts by itself whenever you log in. Log: " + str(CONF / "hub.log"))
+
+
+def uninstall() -> None:
+    subprocess.run(["launchctl", "unload", "-w", str(PLIST)], capture_output=True)
+    PLIST.unlink(missing_ok=True)
+    print("Stopped. It no longer starts at login.")
+
+
+async def scan() -> None:
+    hub = Hub()
+    hub.http = aiohttp.ClientSession()
+    hub.mrcool = MrcoolClient(hub.conf / "mrcool.json", hub.http)
+    hub._recall_lights()
+    await hub.wiz.start()
+    try:
+        await hub.discover()
+        if hub.mrcool.configured:
+            try:
+                await hub._read_acs()
+            except MrcoolError as e:
+                print("MRCOOL:", e)
+        else:
+            print("MRCOOL: no Cielo API key yet (see README.md)")
+        print(json.dumps(hub.devices(), indent=2))
+    finally:
+        hub.wiz.close()
+        await hub.http.close()
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    arg = sys.argv[1] if len(sys.argv) > 1 else "run"
+    if arg == "install":
+        install()
+    elif arg == "uninstall":
+        uninstall()
+    elif arg == "scan":
+        asyncio.run(scan())
+    else:
+        print(f"House Control hub on http://{local_ip()}:{PORT}")
+        web.run_app(make_app(Hub()), host="0.0.0.0", port=PORT, print=None)
+
+
+if __name__ == "__main__":
+    main()

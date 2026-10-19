@@ -5,7 +5,7 @@ import { createPanel } from './ui/panel.js';
 import { createAgent } from './agent/tools.js';
 import { h, openMenu } from './ui/dom.js';
 import { icon } from './ui/icons.js';
-import { isNative, isPhone, post, incoming, haptic } from './bridge.js';
+import { isNative, isHub, isPhone, post, incoming, haptic } from './bridge.js';
 import { publishWidgets, runWidgetAction } from './widgets.js';
 
 const DEMO_PLANS = [
@@ -67,7 +67,7 @@ async function boot() {
     onMenu: (anchor, reason) => {
       if (reason === 'escape') post('close');
       else if (reason === 'agent') post('openAgent');
-      else if (isPhone) post('openSettings'); // plans, sync and sign-in are native screens there
+      else if (isPhone && isNative) post('openSettings'); // plans, sync and sign-in are native screens there
       else planMenu(anchor);
     },
   });
@@ -158,6 +158,16 @@ async function boot() {
   for (const type of ['focus', 'pageshow', 'pointermove', 'pointerdown']) window.addEventListener(type, resume, { passive: true });
 
   function planMenu(anchor) {
+    if (isHub) {
+      // The hub makes the plan from the devices it finds; looking again picks up new ones.
+      const rescan = () => fetch('./api/rescan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      openMenu(panel.anchorMenu, anchor, [
+        { label: config.name, selected: true, icon: icon('check', 16, 2.4) },
+        '-',
+        { label: 'Find new lights and ACs', action: rescan },
+      ]);
+      return;
+    }
     const current = window.__HOUSE_BOOT__?.plan ?? (new URLSearchParams(location.search).get('plan') || 'home');
     const items = DEMO_PLANS.map((p) => ({
       label: p.name,

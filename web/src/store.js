@@ -1,4 +1,4 @@
-import { post, call, isNative } from './bridge.js';
+import { post, call, controlsDevices } from './bridge.js';
 
 const STORAGE_KEY = 'house-control:state:v1';
 
@@ -13,9 +13,11 @@ function defaultLight(cfg) {
 }
 
 function defaultAC(cfg, outdoor) {
+  const room = Math.min(outdoor - 2, 27);
+  const f = cfg.unit === 'F';
   return {
-    on: false, target: 24, mode: 'cool', fan: 'auto', swing: 'swing',
-    sleep: false, eco: false, roomTemp: Math.min(outdoor - 2, 27),
+    on: false, target: f ? 74 : 24, mode: 'cool', fan: 'auto', swing: 'swing',
+    sleep: false, eco: false, roomTemp: f ? Math.round(room * 9 / 5 + 32) : room,
   };
 }
 
@@ -70,7 +72,7 @@ export function createStore(config) {
   const outbox = new Map();
 
   function transmit(kind, id, patch) {
-    if (!isNative) return Promise.resolve();
+    if (!controlsDevices) return Promise.resolve();
     const current = kind === 'light' ? state.lights[id] : state.acs[id];
     const sent = call('command', { kind, id, patch, state: { ...current } });
     // Never let a lost reply block the device for good.

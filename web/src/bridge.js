@@ -4,11 +4,19 @@
 const handler = window.webkit?.messageHandlers?.house;
 
 export const isNative = Boolean(handler);
+// Served by the House Control hub (hub/house.py) on a Mac: devices are real, commands go
+// over HTTP and the devices' state comes back as server-sent events.
+export const isHub = !handler && Boolean(window.__HOUSE_BOOT__?.hub);
+// Whether changes made in the panel reach real devices at all.
+export const controlsDevices = isNative || isHub;
 
-// 'ios' inside the iPhone app (or with ?platform=ios in a browser, to work on that layout).
+// 'ios' inside the iPhone app (or with ?platform=ios in a browser, to work on that layout),
+// and on a phone's browser opening the hub.
 export const platform = window.__HOUSE_BOOT__?.platform
-  || new URLSearchParams(location.search).get('platform') || (handler ? 'macos' : 'web');
+  || new URLSearchParams(location.search).get('platform')
+  || (handler ? 'macos' : isHub && matchMedia('(max-width: 600px)').matches ? 'ios' : 'web');
 export const isPhone = platform === 'ios';
+
 
 export function post(type, payload = {}) {
   handler?.postMessage({ type, ...payload });
@@ -28,6 +36,7 @@ let nextId = 1;
 const pending = new Map();
 
 export function call(type, payload = {}) {
+  if (isHub) return hubCall(type, payload);
   if (!handler) return Promise.reject(new Error('Only available inside the app'));
   return new Promise((resolve, reject) => {
     const id = nextId++;
@@ -43,3 +52,30 @@ incoming.reply = (id, result) => {
   if (result && result.error) p.reject(Object.assign(new Error(result.error), { detail: result }));
   else p.resolve(result);
 };
+
+// The hub answers a call like the native shell does: a result, or `{ error, failed }`.
+async function hubCall(type, payload) {
+  let result;
+  try {
+    const res = await fetch('./api/call', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, ...payload }),
+    });
+    result = await res.json();
+  } catch (error) {
+    throw Object.assign(new Error('The hub on the Mac cannot be reached'), { detail: {} });
+  }
+  if (result && result.error) throw Object.assign(new Error(result.error), { detail: result });
+  return result;
+}
+
+// Device state from the hub, for incoming.applyRemote. Reconnects by itself (EventSource
+// does) and reloads when the hub's floor plan changed, e.g. a new light was found.
+if (isHub) {
+  const events = new EventSource('./api/events');
+  events.onmessage = (ev) => {
+    let update;
+    try { update = JSON.parse(ev.data); } catch { return; }
+    if (update.reload) location.reload();
+    else incoming.applyRemote?.(update);
+  };
+}

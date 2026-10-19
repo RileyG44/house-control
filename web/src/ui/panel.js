@@ -329,7 +329,7 @@ export function createPanel(root, config, store, { onFocus, onMenu }) {
     const set = (patch) => store.setAC(id, patch);
     const sub = h('div.sheet-sub');
     const powerBtn = h('button.round.power', { 'aria-label': 'Power', onclick: () => { haptic('medium'); set({ on: !s().on }); } }, icon('power', 21, 2.2));
-    const big = bigNumber('°C');
+    const big = bigNumber(`°${cfg.unit}`);
     const eco = h('button.toggle-chip', { onclick: () => { haptic('light'); set({ eco: !s().eco }); } }, icon('leaf', 17), 'Eco Mode', h('span.switch'));
     const slider = createSlider({
       min: cfg.min, max: cfg.max, value: s().target, gradient: TEMP_GRADIENT,
@@ -391,7 +391,7 @@ export function createPanel(root, config, store, { onFocus, onMenu }) {
         eco.hidden = !f.eco;
         options.style.gridTemplateColumns = `repeat(${shown.filter(([, on]) => on).length || 1}, 1fr)`;
         powerBtn.classList.toggle('on', a.on);
-        sub.replaceChildren(icon('thermo', 14), 'Room ', h('b', `${a.roomTemp.toFixed(1)}°C`),
+        sub.replaceChildren(icon('thermo', 14), 'Room ', h('b', `${a.roomTemp.toFixed(cfg.unit === 'F' ? 0 : 1)}°${cfg.unit}`),
           h('span.live', { style: { background: a.on ? MODE_COLORS[a.mode] : 'rgba(255,255,255,.25)', boxShadow: a.on ? `0 0 8px ${MODE_COLORS[a.mode]}` : 'none' } }));
         big.set(a.target, !a.on);
         slider.set(a.target);
