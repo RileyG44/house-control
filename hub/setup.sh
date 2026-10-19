@@ -32,5 +32,6 @@ echo "Installing the hub…"
 ./.venv/bin/pip install -q --upgrade pip
 ./.venv/bin/pip install -q -r requirements.txt
 mkdir -p "$HOME/.house-hub"
-[ -f "$HOME/.house-hub/devices.json" ] || cp devices.example.json "$HOME/.house-hub/devices.json"
+# Your own names and rooms, if you put a devices.json next to this script; an example otherwise.
+[ -f "$HOME/.house-hub/devices.json" ] || cp "$( [ -f devices.json ] && echo devices.json || echo devices.example.json )" "$HOME/.house-hub/devices.json"
 ./.venv/bin/python house.py install
