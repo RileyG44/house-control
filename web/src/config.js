@@ -1,5 +1,6 @@
-// Loads and normalises a floor plan ("home.json"). Everything the 3D scene and the UI
+// Loads and normalises a floor plan ("riley.json"). Everything the 3D scene and the UI
 // know about the apartment comes from this one document, so swapping the file swaps the home.
+import { roomPoints, oriented, polyArea, polyBox, polyProblem } from './geom.js';
 
 const LIGHT_TYPES = ['ceiling', 'pendant', 'spots', 'floor', 'table', 'strip'];
 const WALLS = ['north', 'south', 'east', 'west'];
@@ -32,12 +33,14 @@ export const SERVICES = {
   mrcool: { name: 'MRCOOL SmartHVAC', short: 'MRCOOL' },
 };
 export const FLOOR_KINDS = ['oak', 'walnut', 'tile', 'stone'];
+/** The plan a fresh install shows. */
+export const DEFAULT_PLAN = 'riley';
 
 // The plan exactly as written on disk (the editor works on this form).
 export async function loadRawConfig() {
   const boot = window.__HOUSE_BOOT__;
   if (boot?.config) return boot.config;
-  const plan = (boot?.plan !== 'custom' && boot?.plan) || new URLSearchParams(location.search).get('plan') || 'home';
+  const plan = (boot?.plan !== 'custom' && boot?.plan) || new URLSearchParams(location.search).get('plan') || DEFAULT_PLAN;
   const res = await fetch(`./plans/${plan}.json`);
   if (!res.ok) throw new ConfigError(`Plan "${plan}" not found (HTTP ${res.status})`);
   try {
@@ -68,20 +71,48 @@ export function normalize(raw) {
     ids.add(id);
   };
 
+  // A room is a rectangle (`rect`) or any simple polygon (`poly`). Either way it gets its
+  // corners (`points`, turning like a rect's), its area, and its bounding box as x/z/w/d for
+  // the code that only needs a box.
   const rooms = raw.rooms.map((r) => {
     unique(r.id, 'A room');
-    need(Array.isArray(r.rect) && r.rect.length === 4 && r.rect.every(Number.isFinite),
-      `Room "${r.id}" needs "rect": [x, z, width, depth]`);
-    const [x, z, w, d] = r.rect;
-    need(w > 0 && d > 0, `Room "${r.id}" has an empty rect`);
-    return { id: r.id, name: r.name || r.id, x, z, w, d, floor: r.floor || 'oak' };
+    let points;
+    if (r.poly != null) {
+      need(Array.isArray(r.poly) && r.poly.every(isPoint), `Room "${r.id}" needs "poly": [[x, z], [x, z], [x, z], ...]`);
+      points = r.poly.map((p) => [p[0], p[1]]);
+      const [first, last] = [points[0], points[points.length - 1]];
+      if (points.length > 3 && first[0] === last[0] && first[1] === last[1]) points.pop(); // a closed ring
+      const problem = polyProblem(points);
+      need(!problem, `Room "${r.id}": its polygon ${problem}`);
+    } else {
+      need(Array.isArray(r.rect) && r.rect.length === 4 && r.rect.every(Number.isFinite),
+        `Room "${r.id}" needs "rect": [x, z, width, depth] or "poly": [[x, z], ...]`);
+      need(r.rect[2] > 0 && r.rect[3] > 0, `Room "${r.id}" has an empty rect`);
+      points = roomPoints(r);
+    }
+    points = oriented(points);
+    const b = polyBox(points);
+    return {
+      id: r.id, name: r.name || r.id, x: b.minX, z: b.minZ, w: b.maxX - b.minX, d: b.maxZ - b.minZ,
+      points, area: polyArea(points), poly: r.poly != null, floor: r.floor || 'oak',
+    };
   });
   const roomIds = new Set(rooms.map((r) => r.id));
 
+  // Openings lie on any wall line, straight or angled. A door opens into `swing` (a room id,
+  // or "out" on an outside wall; by default the smaller room) and hangs on its `hinge` end.
   const openings = (raw.openings || []).map((o, i) => {
     need(isPoint(o.from) && isPoint(o.to), `Opening #${i + 1} needs "from" and "to" points`);
-    need(o.from[0] === o.to[0] || o.from[1] === o.to[1], `Opening #${i + 1} must be axis-aligned`);
-    return { type: o.type || 'door', from: o.from, to: o.to, sill: o.sill ?? 0.85, head: o.head ?? 2.1 };
+    const type = o.type || 'door';
+    const out = { type, from: o.from, to: o.to, sill: o.sill ?? 0.85, head: o.head ?? 2.1 };
+    if (type === 'door') {
+      need(o.hinge == null || o.hinge === 'from' || o.hinge === 'to', `Opening #${i + 1}: "hinge" must be "from" or "to"`);
+      need(o.swing == null || o.swing === 'out' || roomIds.has(o.swing), `Opening #${i + 1}: "swing" must be a room id or "out"`);
+      out.hinge = o.hinge || 'from';
+      if (o.swing) out.swing = o.swing;
+    }
+    if (type === 'open' && o.curtain) out.curtain = true;
+    return out;
   });
 
   const lights = (raw.lights || []).map((l) => {

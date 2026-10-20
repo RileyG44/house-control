@@ -2,10 +2,13 @@
 // written on disk. Nothing here touches the page, so it runs (and is tested) under Node too.
 import { normalize, LIGHT_KINDS, FLOOR_KINDS, LINK_FIELDS, isLinked } from '../config.js';
 import { FURNITURE_TYPES, footprint } from '../three/furniture.js';
+import { roomPoints, containsPoint, polyProblem } from '../geom.js';
 
 export const SCENE_ICONS = ['sun', 'sofa', 'film', 'moon', 'door', 'bed', 'tv', 'sparkles'];
 export const WALLS = ['north', 'south', 'east', 'west'];
-const FURNITURE_KEYS = ['type', 'pos', 'rot', 'width', 'height', 'size', 'color', 'chairs', 'stools', 'upper'];
+const FURNITURE_KEYS = ['type', 'pos', 'rot', 'width', 'height', 'size', 'color', 'chairs', 'stools', 'upper',
+  'depth', 'diameter', 'tv', 'sink', 'sinkAt', 'top', 'stack', 'clothes', 'y'];
+const SINKS = ['none', 'single', 'double'];
 const LIGHT_KEYS = ['id', 'name', 'room', 'type', 'pos', 'y', 'rot', 'length', 'capabilities', 'color'];
 const AC_KEYS = ['id', 'name', 'room', 'wall', 'pos', 'y', 'min', 'max'];
 
@@ -51,22 +54,27 @@ function cleanFurniture(item, where) {
   const out = pick(item, FURNITURE_KEYS);
   out.pos = out.pos.map(round);
   if (out.rot != null) { if (!isNum(out.rot)) fail(`${where}: "rot" must be a number of degrees`); out.rot = Math.round(out.rot); }
-  for (const k of ['width', 'height']) {
+  for (const k of ['width', 'height', 'depth', 'diameter', 'tv']) {
     if (out[k] != null && !(isNum(out[k]) && out[k] > 0.1 && out[k] < 12)) fail(`${where}: "${k}" must be metres between 0.1 and 12`);
   }
+  if (out.y != null && !(isNum(out.y) && out.y >= 0 && out.y < 3)) fail(`${where}: "y" must be metres above the floor, 0–3`);
+  if (out.sink != null && !SINKS.includes(out.sink)) fail(`${where}: "sink" must be one of ${SINKS.join(', ')}`);
+  if (out.sinkAt != null && !isNum(out.sinkAt)) fail(`${where}: "sinkAt" must be metres from the middle of the counter`);
+  if (out.stack != null && !(Number.isInteger(out.stack) && out.stack >= 1 && out.stack <= 6)) fail(`${where}: "stack" must be a whole number 1–6`);
+  if (out.top != null && !/^#[0-9a-f]{6}$/i.test(out.top)) fail(`${where}: "top" must look like "#cfcbc3"`);
   if (out.size != null && !(isPoint(out.size) && out.size.every((v) => v > 0.1 && v < 15))) fail(`${where}: "size" must be [width, depth] in metres`);
   if (out.color != null && !/^#[0-9a-f]{6}$/i.test(out.color)) fail(`${where}: "color" must look like "#8b93a7"`);
   for (const k of ['chairs', 'stools']) {
     if (out[k] != null && !(Number.isInteger(out[k]) && out[k] >= 0 && out[k] <= 12)) fail(`${where}: "${k}" must be a whole number 0–12`);
   }
-  if (out.upper != null) out.upper = Boolean(out.upper);
+  for (const k of ['upper', 'clothes']) if (out[k] != null) out[k] = Boolean(out[k]);
   if (out.rot === 0) delete out.rot;
   return out;
 }
 
-function roomAt(plan, [x, z]) {
-  return (plan.rooms || []).find((r) => x >= r.rect[0] - 0.01 && x <= r.rect[0] + r.rect[2] + 0.01
-    && z >= r.rect[1] - 0.01 && z <= r.rect[1] + r.rect[3] + 0.01);
+// The room a point stands in (or within 1 cm of); a room's `poly` when it has one, else its `rect`.
+function roomAt(plan, p) {
+  return (plan.rooms || []).find((r) => containsPoint(roomPoints(r), p, 0.01));
 }
 
 function findById(list, id, what) {
@@ -80,6 +88,22 @@ function checkRect(rect, where) {
     fail(`${where}: "rect" must be [x, z, width, depth] in metres, at least 0.3 m each way`);
   }
   return rect.map(round);
+}
+
+function checkPoly(poly, where) {
+  if (!(Array.isArray(poly) && poly.length >= 3 && poly.every(isPoint))) {
+    fail(`${where}: "poly" must be a list of at least 3 [x, z] corners in metres`);
+  }
+  const pts = poly.map((p) => p.map(round));
+  const problem = polyProblem(pts);
+  if (problem) fail(`${where}: the room's outline ${problem}`);
+  return pts;
+}
+
+// A room's shape from an operation: `poly` corners for a room with an angled wall, or a `rect`.
+function checkShape(op, where) {
+  if (op.poly != null && op.rect != null) fail(`${where}: give either "rect" or "poly", not both`);
+  return op.poly != null ? { poly: checkPoly(op.poly, where) } : { rect: checkRect(op.rect, where) };
 }
 
 /**
@@ -124,23 +148,28 @@ export function applyOperations(raw, operations) {
         if (typeof op.id !== 'string' || !/^[a-z0-9_.-]+$/i.test(op.id)) fail(`${where}: "id" must be a short word like "office"`);
         if (plan.rooms.some((r) => r.id === op.id)) fail(`${where}: a room "${op.id}" already exists`);
         if (op.floor != null && !FLOOR_KINDS.includes(op.floor)) fail(`${where}: "floor" must be one of ${FLOOR_KINDS.join(', ')}`);
-        plan.rooms.push({ id: op.id, name: String(op.name || op.id), rect: checkRect(op.rect, where), floor: op.floor || 'oak' });
+        plan.rooms.push({ id: op.id, name: String(op.name || op.id), ...checkShape(op, where), floor: op.floor || 'oak' });
         changes.push(`added room ${op.name || op.id}`);
         break;
       }
       case 'update_room': {
         const room = plan.rooms[findById(plan.rooms, op.id, 'room')];
         if (op.name != null) room.name = String(op.name);
-        if (op.rect != null) {
+        if (op.rect != null || op.poly != null) {
           // Furniture inside the room moves with it, so resizing from the far edge keeps it in place.
-          const rect = checkRect(op.rect, where);
-          const [dx, dz] = [rect[0] - room.rect[0], rect[1] - room.rect[1]];
+          // The room's first corner (a rect's north-west one) is the one that is followed.
+          const shape = checkShape(op, where);
+          const [from] = roomPoints(room);
+          const [to] = roomPoints(shape);
+          const [dx, dz] = [to[0] - from[0], to[1] - from[1]];
           if (op.moveContents !== false && (dx || dz)) {
             const inside = (p) => roomAt({ rooms: [room] }, p);
             for (const f of plan.furniture) if (inside(f.pos)) f.pos = [round(f.pos[0] + dx), round(f.pos[1] + dz)];
             for (const d of [...plan.lights, ...plan.acs]) if (d.room === room.id) d.pos = [round(d.pos[0] + dx), round(d.pos[1] + dz)];
           }
-          room.rect = rect;
+          delete room.rect;
+          delete room.poly;
+          Object.assign(room, shape);
         }
         if (op.floor != null) {
           if (!FLOOR_KINDS.includes(op.floor)) fail(`${where}: "floor" must be one of ${FLOOR_KINDS.join(', ')}`);
@@ -194,9 +223,16 @@ export function applyOperations(raw, operations) {
         const type = op.type || 'door';
         if (!['door', 'window', 'open'].includes(type)) fail(`${where}: "type" must be door, window or open`);
         if (!isPoint(op.from) || !isPoint(op.to)) fail(`${where}: "from" and "to" must be [x, z] points on a wall`);
-        if (op.from[0] !== op.to[0] && op.from[1] !== op.to[1]) fail(`${where}: an opening must be horizontal or vertical`);
         const o = { type, from: op.from.map(round), to: op.to.map(round) };
         if (type === 'window') { if (isNum(op.sill)) o.sill = op.sill; if (isNum(op.head)) o.head = op.head; }
+        if (type === 'door') {
+          if (op.hinge != null) { if (!['from', 'to'].includes(op.hinge)) fail(`${where}: "hinge" must be "from" or "to"`); o.hinge = op.hinge; }
+          if (op.swing != null) {
+            if (op.swing !== 'out' && !plan.rooms.some((r) => r.id === op.swing)) fail(`${where}: "swing" must be the id of a room beside the door, or "out"`);
+            o.swing = op.swing;
+          }
+        }
+        if (type === 'open' && op.curtain) o.curtain = true;
         plan.openings.push(o);
         changes.push(`added a ${type}`);
         break;
@@ -326,7 +362,7 @@ export const FURNITURE_GUIDE = {
   fridge: 'tall fridge',
   bed: 'bed with headboard; options width (mattress), color (bedding)',
   nightstand: 'nightstand',
-  dresser: 'chest of drawers; option width',
+  dresser: 'chest of drawers; options width, height (default 0.84)',
   plant: 'potted plant; option height',
   vanity: 'bathroom vanity with basin and mirror; option width',
   bathtub: 'bathtub',
@@ -334,6 +370,16 @@ export const FURNITURE_GUIDE = {
   desk: 'desk; option width',
   wardrobe: 'wardrobe; options width, height',
   bookshelf: 'open bookshelf with books; options width, height',
+  counter: 'run of base cabinets with a countertop and no hob; options width, depth, sink ("none", "single", "double"), sinkAt (metres from the middle), top (countertop colour)',
+  stove: 'freestanding range with oven and four burners; option width',
+  microwave: 'microwave; stands on a counter (y 0.9 by default)',
+  tvCabinet: 'low TV cabinet with a TV on it; options width, tv (screen width)',
+  beanBag: 'large bean bag / floor lounger; options size [w, d], color',
+  waterHeater: 'tall round water heater tank; options diameter, height',
+  chair: 'plain dining / desk chair; option color',
+  closetRod: 'hanging rail with hangers; options width, y (rod height, default 1.75), clothes (false: empty hangers)',
+  storageBins: 'stack of lidded storage bins; options width, stack (how many), color',
+  shower: 'shower tray with a drain, flat on the floor; option size [w, d]',
 };
 
 export function furnitureCatalog() {

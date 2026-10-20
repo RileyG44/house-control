@@ -245,9 +245,16 @@ export function createAgent({ store, config, raw, render, onAction }) {
       pos: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2, description: '[x, z] of the centre, metres' },
       rot: { type: 'number', description: 'Degrees. 0: the front faces south (+z), back to the north wall; 90: faces east; -90: faces west; 180: faces north' },
       width: { type: 'number' }, height: { type: 'number' },
-      size: { type: 'array', items: { type: 'number' }, description: 'rug only: [width, depth]' },
-      color: { type: 'string', description: '#rrggbb (sofa, armchair, rug, bed)' },
+      size: { type: 'array', items: { type: 'number' }, description: 'rug, beanBag, shower: [width, depth]' },
+      color: { type: 'string', description: '#rrggbb (sofa, armchair, rug, bed, beanBag, chair, storageBins)' },
       chairs: { type: 'integer' }, stools: { type: 'integer' }, upper: { type: 'boolean' },
+      depth: { type: 'number', description: 'counter only' }, diameter: { type: 'number', description: 'waterHeater only' },
+      tv: { type: 'number', description: 'tvCabinet: screen width' },
+      sink: { type: 'string', enum: ['none', 'single', 'double'], description: 'counter only' },
+      sinkAt: { type: 'number', description: 'counter: sink centre, metres from the middle along its width' },
+      top: { type: 'string', description: 'counter: countertop #rrggbb' },
+      stack: { type: 'integer', description: 'storageBins: how many' }, clothes: { type: 'boolean', description: 'closetRod: false for empty hangers' },
+      y: { type: 'number', description: 'metres above the floor (microwave on a counter, closetRod height)' },
     },
   };
 
@@ -343,9 +350,9 @@ export function createAgent({ store, config, raw, render, onAction }) {
       title: 'Change the 3D floor plan',
       description: 'Change the home\'s 3D model with a list of operations, applied together (all or nothing). The model on the user\'s screen updates at once, '
         + 'and the change can be undone with undo_floor_plan_edit. To rebuild a room from photos use one "furnish_room" operation with every piece you see. '
-        + 'Operations: set_home{name,outdoorTemp,wallHeight}, add_room{id,name,rect,floor}, update_room{id,name,rect,floor}, remove_room{id}, '
+        + 'Operations: set_home{name,outdoorTemp,wallHeight}, add_room{id,name,rect|poly,floor}, update_room{id,name,rect|poly,floor}, remove_room{id}, '
         + 'furnish_room{room,items[]}, add_furniture{item|items[]}, update_furniture{index,set{}}, remove_furniture{index}, '
-        + 'add_opening{type,from,to,sill,head}, remove_opening{index}, add_light{id,name,room,type,pos,capabilities,y,rot,length,color}, '
+        + 'add_opening{type,from,to,sill,head,hinge,swing,curtain}, remove_opening{index}, add_light{id,name,room,type,pos,capabilities,y,rot,length,color}, '
         + 'update_light{id,set{}}, remove_light{id}, add_ac{id,name,room,wall,pos,y,min,max}, update_ac{id,set{}}, remove_ac{id}, '
         + 'add_scene{id,name,icon,lights{},acs{}}, update_scene{id,set{}}, remove_scene{id}. '
         + 'Indexes are those from get_floor_plan, before this edit.',
@@ -362,6 +369,10 @@ export function createAgent({ store, config, raw, render, onAction }) {
                   'add_ac', 'update_ac', 'remove_ac', 'add_scene', 'update_scene', 'remove_scene'] },
                 id: { type: 'string' }, name: { type: 'string' }, room: { type: 'string' },
                 rect: { type: 'array', items: { type: 'number' }, description: '[x, z, width, depth] in metres' },
+                poly: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'instead of rect, for a room with an angled wall: its corners [[x, z], ...] in order' },
+                hinge: { type: 'string', enum: ['from', 'to'], description: 'door: the end its hinges are on' },
+                swing: { type: 'string', description: 'door: id of the room it opens into, or "out"' },
+                curtain: { type: 'boolean', description: 'open gap: hung with a curtain' },
                 floor: { type: 'string', enum: FLOOR_KINDS },
                 items: { type: 'array', items: FURNITURE_ITEM },
                 item: FURNITURE_ITEM,
@@ -554,7 +565,7 @@ export function createAgent({ store, config, raw, render, onAction }) {
       + `Through these tools you can see it${can.length ? ` and ${can.join(', and ')}` : ''}. `
       + 'Call get_home first: it lists every room and device with its id and state. Act only on what the user asks, then say in one short line what changed. '
       + (permissions?.edit !== false
-        ? 'When the user shows photos of a room and asks to model or update it: call get_floor_plan, work out each piece of furniture, its size and its position in metres within that room\'s rect '
+        ? 'When the user shows photos of a room and asks to model or update it: call get_floor_plan, work out each piece of furniture, its size and its position in metres within that room\'s outline '
           + '(walls, windows and doors in the photo help to orient it), then send one edit_floor_plan with a furnish_room operation listing every piece. '
           + 'Keep the room\'s size unless the user gives measurements. render_home shows you the result; undo_floor_plan_edit reverts it. '
         : '')
@@ -667,11 +678,13 @@ const capitalise = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const PLAN_RULES = `Floor plan rules:
 - Metres, seen from above. x grows to the east (right), z grows to the south (down). Heights are metres above the floor.
-- A room is a rectangle "rect": [x, z, width, depth]. Rooms that touch share a wall; an L-shaped room is two rooms.
+- A room is a rectangle "rect": [x, z, width, depth], or a "poly" of its corners [[x, z], ...] in order when a wall runs at an angle
+  (a room drawn inside a bigger one, like a bathroom in a studio, sits on top of it). Rooms that touch share a wall.
 - Furniture: "type", "pos" [x, z] = centre of the piece, "rot" in degrees. At rot 0 a piece's back is to the north and its front faces south (+z);
   rot 90 faces east, -90 faces west, 180 faces north. A sofa against the east wall facing a TV on the west wall: sofa rot -90, TV rot 90.
   "width" is the size along its front; depth comes from the type. Keep pieces inside their room, about 5 cm off the walls.
-- Openings: doors, windows and open gaps sit on walls, given by two end points "from"/"to" on that wall line.
+- Openings: doors, windows and open gaps sit on walls (angled ones too), given by two end points "from"/"to" on that wall line.
+  A door's "hinge" is "from" or "to" and "swing" the id of the room it opens into (or "out"); an open gap can have "curtain": true.
 - Lights: "type" ceiling, pendant, spots, floor, table or strip; "capabilities" any of brightness, temp, color (none = plain switch).
 - Air conditioners hang on a wall: "wall" north/south/east/west and "pos" on that wall line.
 - Devices marked "linked": true are real hardware: keep their ids, do not remove them.`;
