@@ -11,9 +11,12 @@ const METAL = '#9a9fa8';
 
 const group = (...children) => {
   const g = new THREE.Group();
-  g.add(...children.flat().filter(Boolean));
+  const kids = children.flat().filter(Boolean);
+  if (kids.length) g.add(...kids);
   return g;
 };
+
+const clampTo = (v, a, b) => Math.min(b, Math.max(a, v));
 
 function darker(hex, k = 0.75) {
   return `#${new THREE.Color(hex).multiplyScalar(k).getHexString()}`;
@@ -217,13 +220,16 @@ const builders = {
     );
   },
 
-  dresser({ width = 1.3 }) {
+  dresser({ width = 1.3, height = 0.84 }) {
+    // A tall chest of drawers is the same piece with more drawers.
+    const body = Math.max(0.3, height - 0.1);
+    const drawers = Math.max(3, Math.round(body / 0.25));
     const g = group(
       ...legs(width, 0.45, 0.1, mat(BLACK), 0.06, 0.015),
-      at(box(width, 0.74, 0.45, mat(WHITE, { rough: 0.6 }), { r: 0.015 }), 0, 0.1, 0),
-      at(cyl(0.09, 0.07, 0.18, mat('#c9a15e', { rough: 0.4 })), width / 2 - 0.3, 0.84, 0),
+      at(box(width, body, 0.45, mat(WHITE, { rough: 0.6 }), { r: 0.015 }), 0, 0.1, 0),
+      at(cyl(0.09, 0.07, 0.18, mat('#c9a15e', { rough: 0.4 })), width / 2 - 0.3, height, 0),
     );
-    for (let i = 1; i < 3; i++) g.add(at(box(width - 0.06, 0.006, 0.005, mat('#b9b6ae'), { r: 0 }), 0, 0.1 + 0.247 * i, 0.226));
+    for (let i = 1; i < drawers; i++) g.add(at(box(width - 0.06, 0.006, 0.005, mat('#b9b6ae'), { r: 0 }), 0, 0.1 + (body / drawers) * i, 0.226));
     return g;
   },
 
@@ -320,6 +326,213 @@ const builders = {
     }
     return g;
   },
+
+  // A run of base cabinets with a countertop (no hob), with an optional single or double sink.
+  counter({ width = 1.2, depth = 0.62, sink = 'none', sinkAt = 0, top = '#cfcbc3' }) {
+    const front = mat(WHITE, { rough: 0.6 });
+    const seam = mat('#b9b6ae');
+    const doors = Math.max(1, Math.round(width / 0.5));
+    const face = depth / 2 - 0.02;
+    const g = group(
+      at(box(width - 0.04, 0.1, depth - 0.1, mat('#2a2c33', { rough: 0.9 }), { r: 0 }), 0, 0, -0.05),
+      at(box(width, 0.76, depth - 0.04, front, { r: 0.008 }), 0, 0.1, -0.02),
+      ...doorLines(width, 0.56, 0.12, face + 0.003, doors, seam),
+      at(box(width - 0.03, 0.006, 0.005, seam, { r: 0 }), 0, 0.69, face + 0.003),
+      at(box(width + 0.01, 0.04, depth, mat(top, { rough: 0.4 }), { r: 0.008 }), 0, 0.86, 0),
+    );
+    if (sink === 'single' || sink === 'double') {
+      const double = sink === 'double';
+      const sw = Math.min(double ? 0.8 : 0.5, width - 0.1);
+      const x = clampTo(sinkAt, -(width - sw) / 2, (width - sw) / 2);
+      const steel = mat(METAL, { rough: 0.3, metal: 0.9 });
+      const basin = mat('#6f747c', { rough: 0.35, metal: 0.7 });
+      g.add(at(box(sw, 0.006, 0.44, steel, { r: 0 }), x, 0.9, 0.02));
+      const bw = double ? (sw - 0.07) / 2 : sw - 0.06;
+      for (const bx of double ? [x - (bw + 0.02) / 2, x + (bw + 0.02) / 2] : [x]) g.add(at(box(bw, 0.006, 0.36, basin, { r: 0.004 }), bx, 0.903, 0.03));
+      g.add(at(cyl(0.015, 0.015, 0.26, steel, 10), x, 0.9, -0.2));
+      const spout = at(cyl(0.012, 0.012, 0.16, steel, 10), x, 1.15, -0.13);
+      spout.rotation.x = Math.PI / 2;
+      g.add(spout);
+    }
+    return g;
+  },
+
+  // A freestanding white range: four coil burners, a back panel with knobs, the oven door.
+  stove({ width = 0.76 }) {
+    const d = 0.66;
+    const white = mat('#f1efe9', { rough: 0.45 });
+    const dark = mat(BLACK, { rough: 0.45 });
+    const g = group(
+      at(box(width, 0.9, d, white, { r: 0.012 }), 0, 0, 0),
+      at(box(width - 0.02, 0.006, d - 0.12, mat('#e2dfd8', { rough: 0.5 }), { r: 0 }), 0, 0.9, 0.04),
+      at(box(width, 0.2, 0.07, white, { r: 0.012 }), 0, 0.9, -d / 2 + 0.035),
+      at(box(width - 0.2, 0.26, 0.008, mat('#14161b', { rough: 0.15 }), { r: 0.006 }), 0, 0.3, d / 2),
+      at(box(width - 0.06, 0.006, 0.005, mat('#b9b6ae'), { r: 0 }), 0, 0.12, d / 2 + 0.001),
+      at(box(width - 0.06, 0.006, 0.005, mat('#b9b6ae'), { r: 0 }), 0, 0.7, d / 2 + 0.001),
+      at(box(width - 0.16, 0.022, 0.03, mat(METAL, { rough: 0.3, metal: 0.8 }), { r: 0.008 }), 0, 0.64, d / 2 + 0.03),
+    );
+    const bx = Math.min(0.17, width / 4.4);
+    for (const [x, z, r] of [[-bx, -0.12, 0.1], [bx, -0.12, 0.08], [-bx, 0.14, 0.08], [bx, 0.14, 0.1]]) {
+      g.add(at(cyl(r + 0.02, r + 0.02, 0.006, mat('#9da1a8', { rough: 0.4, metal: 0.6 }), 24), x, 0.903, z));
+      for (const k of [1, 0.62, 0.3]) {
+        const coil = new THREE.Mesh(new THREE.TorusGeometry(r * k, 0.008, 6, 28), dark);
+        coil.rotation.x = -Math.PI / 2;
+        coil.position.set(x, 0.915, z);
+        g.add(coil);
+      }
+    }
+    for (let i = 0; i < 4; i++) {
+      const knob = at(cyl(0.022, 0.022, 0.03, dark, 14), -width / 2 + 0.12 + ((width - 0.24) / 3) * i, 1.0, -d / 2 + 0.07);
+      knob.rotation.x = Math.PI / 2;
+      g.add(knob);
+    }
+    return g;
+  },
+
+  // Countertop microwave; `y` (in the plan) lifts it onto a counter.
+  microwave() {
+    const black = mat('#18191d', { rough: 0.4 });
+    return group(
+      ...legs(0.48, 0.36, 0.012, black, 0.05, 0.012),
+      at(box(0.5, 0.29, 0.38, black, { r: 0.012 }), 0, 0.012, 0),
+      at(box(0.32, 0.2, 0.006, mat('#2c3340', { rough: 0.1, emissive: '#0e1626', emissiveIntensity: 0.4 }), { r: 0.004 }), -0.07, 0.07, 0.19),
+      at(box(0.09, 0.22, 0.006, mat('#2a2d34', { rough: 0.5 }), { r: 0.004 }), 0.18, 0.05, 0.19),
+      at(box(0.06, 0.025, 0.004, mat('#5fd3a3', { emissive: '#3fbf8a', emissiveIntensity: 0.8 }), { r: 0 }), 0.18, 0.225, 0.194),
+      at(box(0.012, 0.18, 0.02, mat(METAL, { rough: 0.3, metal: 0.8 }), { r: 0.004 }), 0.105, 0.07, 0.2),
+    );
+  },
+
+  // A wooden media cabinet (drawers and a door) with a dark granite top, the TV on a stand on it.
+  tvCabinet({ width = 0.95, tv }) {
+    const d = 0.52;
+    const wood = mat('#7a5236', { rough: 0.65 });
+    const seam = mat('#3d2a1d');
+    const sw = Math.max(0.4, tv ?? width - 0.05);
+    const sh = sw * 0.5625;
+    const screen = new THREE.MeshStandardMaterial({ color: '#05070c', roughness: 0.25, emissive: '#27407a', emissiveIntensity: 0.35 });
+    const g = group(
+      at(box(width, 0.76, d, wood, { r: 0.012 }), 0, 0, 0),
+      at(box(0.006, 0.66, 0.005, seam, { r: 0 }), 0, 0.06, d / 2 + 0.001),
+      at(box(width + 0.02, 0.035, d + 0.02, mat('#2b2d31', { rough: 0.25 }), { r: 0.008 }), 0, 0.76, 0),
+      at(box(0.05, 0.05, 0.012, mat('#c9a15e', { rough: 0.4, metal: 0.5 }), { r: 0.005 }), width / 4 - 0.18, 0.45, d / 2 + 0.006),
+      at(box(0.24, 0.015, 0.16, mat(BLACK, { rough: 0.4 }), { r: 0.005 }), 0, 0.795, -0.06),
+      at(box(0.05, 0.1, 0.03, mat(BLACK, { rough: 0.4 }), { r: 0.005 }), 0, 0.81, -0.08),
+      at(box(sw + 0.02, sh + 0.02, 0.04, mat(BLACK, { rough: 0.4 }), { r: 0.008 }), 0, 0.88, -0.08),
+      at(box(sw - 0.02, sh - 0.02, 0.01, screen, { r: 0 }), 0, 0.89, -0.055),
+    );
+    for (let i = 1; i < 3; i++) g.add(at(box(width / 2 - 0.04, 0.006, 0.005, seam, { r: 0 }), -width / 4, 0.06 + (0.66 / 3) * i, d / 2 + 0.001));
+    return g;
+  },
+
+  // A squashed, slumped blob: a sphere flattened on top, spread at the bottom, a little lumpy.
+  beanBag({ size = [1.5, 0.9], color = '#d79aa6' }) {
+    const [w, d] = size;
+    const h = Math.min(0.62, 0.3 + Math.min(w, d) * 0.22);
+    const geo = new THREE.SphereGeometry(1, 40, 24);
+    const rand = rng(Math.round(w * 100 + d * 37));
+    const bumps = Array.from({ length: 5 }, () => [rand() * Math.PI * 2, 0.04 + rand() * 0.05]);
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const y = pos.getY(i);
+      const z = pos.getZ(i);
+      const a = Math.atan2(z, x);
+      // Bulge low down, a dip in the middle of the top where someone sat.
+      const spread = 1 + 0.12 * (1 - (y + 1) / 2) ** 2 + bumps.reduce((sum, [b, k]) => sum + k * Math.cos(a - b) ** 8, 0);
+      const ny = y < 0 ? y * 0.25 : y * (1 - 0.45 * Math.exp(-((x * x + z * z) / 0.25)));
+      pos.setXYZ(i, (x * spread * w) / 2.24, ((ny + 0.25) / 1.25) * h, (z * spread * d) / 2.24);
+    }
+    geo.computeVertexNormals();
+    return group(new THREE.Mesh(geo, mat(color, { rough: 1 })));
+  },
+
+  // A white tank water heater with its pipes and the burner control at the bottom front.
+  waterHeater({ diameter = 0.55, height = 1.5 }) {
+    const r = diameter / 2;
+    const white = mat('#f0eee8', { rough: 0.4 });
+    const copper = mat('#b87346', { rough: 0.35, metal: 0.7 });
+    const top = new THREE.Mesh(new THREE.SphereGeometry(r, 28, 10, 0, Math.PI * 2, 0, Math.PI / 2), white);
+    top.scale.y = 0.18;
+    top.position.y = height - 0.06;
+    const g = group(
+      at(cyl(r, r, height - 0.06, white, 32), 0, 0, 0),
+      top,
+      at(cyl(r + 0.004, r + 0.004, 0.05, mat('#c9c6bf', { rough: 0.5 }), 32), 0, 0, 0),
+      at(box(0.12, 0.12, 0.07, mat('#3a3d45', { rough: 0.5 }), { r: 0.01 }), 0, 0.3, r + 0.01),
+      at(cyl(0.035, 0.035, 0.32, mat('#7f848c', { rough: 0.4, metal: 0.6 }), 12), 0, height - 0.02, 0),
+    );
+    for (const x of [-r * 0.5, r * 0.5]) g.add(at(cyl(0.016, 0.016, 0.45, copper, 10), x, height - 0.04, -r * 0.3));
+    return g;
+  },
+
+  // One dining chair: wooden frame, dark seat and back rest.
+  chair({ color = '#2b2e37' }) {
+    const wood = mat(WOOD, { rough: 0.6 });
+    const seat = mat(color, { rough: 0.8 });
+    const g = group(
+      ...legs(0.42, 0.42, 0.45, wood, 0.03, 0.017),
+      at(box(0.44, 0.04, 0.44, wood, { r: 0.012 }), 0, 0.43, 0),
+      at(box(0.4, 0.04, 0.4, seat, { r: 0.015 }), 0, 0.47, 0.01),
+      at(box(0.4, 0.2, 0.025, seat, { r: 0.012 }), 0, 0.68, -0.2),
+    );
+    for (const sx of [-1, 1]) g.add(at(box(0.035, 0.5, 0.035, wood, { r: 0.008 }), sx * 0.19, 0.45, -0.2));
+    return g;
+  },
+
+  // A hanging rod from closet wall to closet wall, the plan's `y` high, with hangers and clothes.
+  closetRod({ width = 1.5, clothes = true }) {
+    const steel = mat('#c9ccd2', { rough: 0.3, metal: 0.8 });
+    const rod = at(cyl(0.014, 0.014, width, steel, 12), -width / 2, 0, 0);
+    rod.rotation.z = -Math.PI / 2;
+    const g = group(rod);
+    for (const sx of [-1, 1]) g.add(at(box(0.03, 0.08, 0.06, mat(WHITE, { rough: 0.6 }), { r: 0.005 }), sx * (width / 2 - 0.015), -0.05, 0));
+    const rand = rng(Math.round(width * 1000));
+    const colors = ['#3d4f6b', '#c9553f', '#e9e6df', '#4f7a5c', '#1f2229', '#8b93a7', '#b8a07a', '#6a4a5e'];
+    const count = Math.max(3, Math.floor(width / (clothes ? 0.075 : 0.18)));
+    for (let i = 0; i < count; i++) {
+      const x = -width / 2 + 0.08 + ((width - 0.16) / Math.max(1, count - 1)) * i + (rand() - 0.5) * 0.02;
+      const hook = at(box(0.004, 0.06, 0.004, steel, { r: 0 }), x, -0.04, 0);
+      const bar = at(box(0.006, 0.012, 0.4, steel, { r: 0 }), x, -0.1, 0);
+      g.add(hook, bar);
+      if (!clothes) continue;
+      const len = 0.55 + rand() * 0.35;
+      const piece = at(box(0.035, len, 0.42 + rand() * 0.06, mat(colors[Math.floor(rand() * colors.length)], { rough: 1 }), { r: 0.015 }), x, -0.1 - len, 0);
+      piece.rotation.y = (rand() - 0.5) * 0.25;
+      g.add(piece);
+    }
+    return g;
+  },
+
+  // A stack of lidded storage totes (red with black lids and corners, like a tool-box system).
+  storageBins({ width = 0.6, stack = 2, color = '#c8372d' }) {
+    const d = 0.42;
+    const body = mat(color, { rough: 0.55 });
+    const black = mat('#1e1f23', { rough: 0.6 });
+    const g = group();
+    const n = Math.max(1, Math.min(6, Math.round(stack)));
+    for (let i = 0; i < n; i++) {
+      const y = i * 0.31;
+      g.add(
+        at(box(width - 0.03, 0.25, d - 0.03, body, { r: 0.02 }), 0, y, 0),
+        at(box(width, 0.05, d, black, { r: 0.015 }), 0, y + 0.25, 0),
+        at(box(width * 0.4, 0.025, 0.04, black, { r: 0.008 }), 0, y + 0.18, d / 2 - 0.01),
+      );
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.add(at(box(0.05, 0.25, 0.05, black, { r: 0.01 }), sx * (width / 2 - 0.035), y, sz * (d / 2 - 0.035)));
+    }
+    return g;
+  },
+
+  // The floor of a shower stall: a low tray with its drain (the stall's walls come from the room).
+  shower({ size = [0.9, 0.9] }) {
+    const [w, d] = size;
+    const g = group(
+      at(box(w, 0.05, d, mat(WHITE, { rough: 0.3 }), { r: 0.012 }), 0, 0, 0),
+      at(box(w - 0.1, 0.01, d - 0.1, mat('#dfe6ec', { rough: 0.2 }), { r: 0.02 }), 0, 0.046, 0),
+      at(cyl(0.045, 0.045, 0.008, mat(METAL, { rough: 0.3, metal: 0.8 }), 20), 0, 0.05, 0),
+    );
+    g.userData.flat = true;
+    return g;
+  },
 };
 
 export const FURNITURE_TYPES = Object.keys(builders);
@@ -348,9 +561,22 @@ export function footprint(item) {
     case 'desk': return [w || 1.4, 0.65];
     case 'wardrobe': return [w || 1.6, 0.6];
     case 'bookshelf': return [w || 1, 0.32];
+    case 'counter': return [w || 1.2, item.depth || 0.62];
+    case 'stove': return [w || 0.76, 0.66];
+    case 'microwave': return [0.5, 0.38];
+    case 'tvCabinet': return [(w || 0.95) + 0.02, 0.54];
+    case 'beanBag': return item.size || [1.5, 0.9];
+    case 'waterHeater': return [item.diameter || 0.55, item.diameter || 0.55];
+    case 'chair': return [0.46, 0.46];
+    case 'closetRod': return [w || 1.5, item.clothes === false ? 0.4 : 0.48];
+    case 'storageBins': return [w || 0.6, 0.42];
+    case 'shower': return item.size || [0.9, 0.9];
     default: return [0.6, 0.6];
   }
 }
+
+// Pieces that do not stand on the floor unless the plan's `y` says so.
+export const BASE_Y = { microwave: 0.9, closetRod: 1.75 };
 
 export function buildFurniture(items) {
   const root = new THREE.Group();
@@ -361,7 +587,7 @@ export function buildFurniture(items) {
       continue;
     }
     const g = make(item);
-    g.position.set(item.pos[0], item.y || 0, item.pos[1]);
+    g.position.set(item.pos[0], item.y ?? BASE_Y[item.type] ?? 0, item.pos[1]);
     g.rotation.y = THREE.MathUtils.degToRad(item.rot || 0);
     const flat = g.userData.flat;
     g.traverse((o) => {

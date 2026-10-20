@@ -137,6 +137,48 @@ const DRAW = {
     for (let x = -w / 2 + 0.07; x < w / 2 - 0.05; x += 0.055) parts.push(line(x, -d / 2 + 0.05, x, d / 2 - 0.03));
     return parts;
   },
+  counter(item, [w, d]) {
+    const parts = [rect(-w / 2, -d / 2, w, d, 0.02), line(-w / 2 + 0.02, d / 2 - 0.05, w / 2 - 0.02, d / 2 - 0.05), ...doorTicks(w, d, Math.max(1, Math.round(w / 0.5)), 0.05)];
+    if (item.sink === 'single' || item.sink === 'double') {
+      const double = item.sink === 'double';
+      const sw = Math.min(double ? 0.8 : 0.5, w - 0.1);
+      const x = Math.min((w - sw) / 2, Math.max(-(w - sw) / 2, item.sinkAt || 0));
+      const bw = double ? (sw - 0.07) / 2 : sw - 0.06;
+      for (const bx of double ? [x - (bw + 0.02) / 2, x + (bw + 0.02) / 2] : [x]) parts.push(rect(bx - bw / 2, -0.15, bw, 0.36, 0.05, 'line'));
+      parts.push(circle(x, -d / 2 + 0.1, 0.022, 'strong'));
+    }
+    return parts;
+  },
+  stove(item, [w, d]) {
+    const bx = Math.min(0.17, w / 4.4);
+    const parts = [rect(-w / 2, -d / 2, w, d, 0.03), line(-w / 2 + 0.02, -d / 2 + 0.08, w / 2 - 0.02, -d / 2 + 0.08, 'strong')];
+    for (const [x, y, r] of [[-bx, -0.1, 0.1], [bx, -0.1, 0.08], [-bx, 0.16, 0.08], [bx, 0.16, 0.1]]) parts.push(circle(x, y, r, 'line'), circle(x, y, r * 0.45, 'line'));
+    return parts;
+  },
+  microwave(item, [w, d]) {
+    return [rect(-w / 2, -d / 2, w, d, 0.02), line(-w / 2 + 0.04, d / 2 - 0.05, w / 2 - 0.14, d / 2 - 0.05, 'strong'), line(w / 2 - 0.1, -d / 2 + 0.05, w / 2 - 0.1, d / 2 - 0.02)];
+  },
+  tvCabinet(item, [w, d]) {
+    const sw = Math.max(0.4, item.tv ?? (item.width || 0.95) - 0.05);
+    return [rect(-w / 2, -d / 2, w, d, 0.03), rect(-sw / 2, -0.12, sw, 0.05, 0.01, 'strong'), ...doorTicks(w, d, 2)];
+  },
+  beanBag(item, [w, d]) { return [ellipse(0, 0, w / 2, d / 2), ellipse(0, -d * 0.05, w * 0.28, d * 0.22, 'dash')]; },
+  waterHeater(item, [w]) { return [circle(0, 0, w / 2), circle(0, 0, w / 2 - 0.05, 'line'), circle(-w * 0.25, -w * 0.15, 0.025, 'strong'), circle(w * 0.25, -w * 0.15, 0.025, 'strong')]; },
+  chair(item, [w, d]) {
+    return [rect(-w / 2 + 0.02, -d / 2 + 0.02, w - 0.04, d - 0.04, 0.05), line(-w / 2 + 0.04, -d / 2 + 0.04, w / 2 - 0.04, -d / 2 + 0.04, 'strong')];
+  },
+  closetRod(item, [w, d]) {
+    const parts = item.clothes === false ? [] : [rect(-w / 2 + 0.04, -d / 2, w - 0.08, d, 0.04, 'soft')];
+    parts.push(line(-w / 2, 0, w / 2, 0, 'dash'));
+    for (let x = -w / 2 + 0.12; x < w / 2 - 0.08; x += 0.18) parts.push(line(x, -0.18, x, 0.18));
+    return parts;
+  },
+  storageBins(item, [w, d]) {
+    return [rect(-w / 2, -d / 2, w, d, 0.04), rect(-w / 2 + 0.05, -d / 2 + 0.05, w - 0.1, d - 0.1, 0.02, 'line'), line(-w * 0.2, d / 2 - 0.02, w * 0.2, d / 2 - 0.02, 'strong')];
+  },
+  shower(item, [w, d]) {
+    return [rect(-w / 2, -d / 2, w, d, 0.03, 'soft'), rect(-w / 2 + 0.05, -d / 2 + 0.05, w - 0.1, d - 0.1, 0.04, 'line'), circle(0, 0, 0.04, 'strong')];
+  },
   rug(item, [w, d]) {
     return [rect(-w / 2, -d / 2, w, d, 0.02, 'rug'), rect(-w / 2 + 0.12, -d / 2 + 0.12, w - 0.24, d - 0.24, 0.01, 'dash')];
   },
