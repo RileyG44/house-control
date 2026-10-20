@@ -5,6 +5,21 @@ What changed in each release of House Control. The Mac app is on
 
 ## Unreleased
 
+### Floor plans
+
+- **Walls at any angle.** A room can be a polygon (`"poly"`: its corners) instead of a rectangle, and doors, windows
+  and open gaps sit on angled walls too. In the editor, **Cut corner** turns a corner of a rectangular room into a
+  short angled wall, and an angled room has a handle on every corner that snaps to walls, corners, the grid and 45°.
+- **Doors and curtains:** a door's hinge side and the room it opens into (**Hinge**, **Opens into** in the editor),
+  drawn as an arc on the plan and as a leaf ajar in 3D; an open gap can have a curtain.
+- **New furniture:** counter (with a single or double sink), stove, microwave, TV cabinet, bean bag, water heater,
+  chair, closet rod, storage bins and shower; a dresser can be taller. **Add** lists the furniture in groups:
+  living, kitchen and dining, bedroom and storage, bathroom and utility.
+- **Riley's Studio is the default home** on every surface — the web panel, the Mac and iPhone apps, the widgets'
+  sample and a new hub, which links its lamps and AC by name to the devices it finds. The old demos stay in the
+  plan picker as **Demo apartment** and **Demo studio**.
+- The AI's floor plan tools take polygon rooms, door hinges and curtains, and the new furniture.
+
 ### Mac
 
 - **Open at Login**, in the menu bar icon's right-click menu and in the panel's gear menu: House Control starts with

@@ -41,10 +41,14 @@ it under a light's Settings → Device info):
 A light may also have `"ip"` for a network that drops broadcasts, and `"type"` (`ceiling`,
 `pendant`, `spots`, `floor`, `table`, `strip`) for how it looks in the 3D model. AiDot
 bulbs also carry `"service": "aidot"`; they are matched by MAC address, or by `"ip"` or
-`"name"` when AiDot has given the bulb a new device id. The hub
-makes a simple floor plan from this file (a box per room) until the real one is drawn.
-A `~/.house-hub/plan.json` without `"generatedBy": "hub"` is your own plan and is used as
-it is; link its lamps with `"link": {"service": "wiz", "id": "<mac>"}` (or `"aidot"`) and
+`"name"` when AiDot has given the bulb a new device id. A hub with no
+`~/.house-hub/plan.json` starts from Riley's Studio, the panel's default home
+(`web/dist/plans/riley.json`, or `web/public/plans/riley.json` in the repo), and links each of
+its unlinked lamps and ACs to the found device of the same name (so the AiDot "Door Light" and
+"Bathroom Light" find their bulbs); it keeps doing so as devices turn up, until a plan is saved.
+Without that file, and for a hub that already made one, it makes a simple floor plan from
+`devices.json` (a box per room). A `~/.house-hub/plan.json` without `"generatedBy": "hub"` or
+`"seededBy": "hub"` is your own plan and is used as it is, never replaced; link its lamps with `"link": {"service": "wiz", "id": "<mac>"}` (or `"aidot"`) and
 its ACs with `"link": {"service": "mrcool", "id": "<mac>"}`. The Mac app's editor saves to
 `~/Library/Application Support/HouseControl/plan.json`. When that file is newer, the hub
 copies it here, so the site shows the layout you just saved.
@@ -109,7 +113,7 @@ iPhone / Mac browser ── HTTP ──▶ hub (house.py, port 8766) ── UDP 
 - `wiz.py` — WiZ discovery and control.
 - `aidot_lan.py` — AiDot sign-in and local control, over `python-aidot`.
 - `mrcool.py` — the Cielo client (Open API key, or the MRCOOL account Alexa uses).
-- `plan.py` — the floor plan made from `devices.json`.
+- `plan.py` — the starting floor plan: Riley's Studio linked by name, or boxes made from `devices.json`.
 
 The panel is the same web UI the Mac and iPhone apps use (`../web`). Served by the hub it
 sends each change to `POST /api/call` and receives the devices' state from

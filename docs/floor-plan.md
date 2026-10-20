@@ -4,8 +4,10 @@ A home is one JSON document. The 3D scene, the panel and the editor are all buil
 file swaps the home.
 
 - Your plan: `~/Library/Application Support/HouseControl/plan.json`
-- Bundled demos: [`web/public/plans/home.json`](../web/public/plans/home.json) and
-  [`studio.json`](../web/public/plans/studio.json)
+- The default home, Riley's Studio: [`web/public/plans/riley.json`](../web/public/plans/riley.json). A fresh
+  install, the widgets' sample and a new hub start from it.
+- Bundled demos, still selectable as **Demo apartment** and **Demo studio**:
+  [`web/public/plans/home.json`](../web/public/plans/home.json) and [`studio.json`](../web/public/plans/studio.json)
 
 You rarely need to write it by hand — **Edit Home…** does it for you — but it is plain, stable and easy to
 generate or version. Load a file with **Load Floor Plan…** in the menu bar icon's right-click menu, or with
@@ -82,19 +84,37 @@ Heights (`y`, `sill`, `head`) are metres above the floor. Angles are degrees.
 | `id` | Unique. Lights and ACs refer to it |
 | `name` | Shown in the room filter |
 | `rect` | `[x, z, width, depth]` |
+| `poly` | Instead of `rect`: the room's corners `[[x, z], ...]`, in order either way round, for a room with a wall at an angle or an L shape |
 | `floor` | `oak`, `walnut`, `tile` or `stone` |
 
-Rooms are rectangles. Where two of them touch, an inner wall appears on its own; make an L-shaped room out of two.
+Where two rooms touch, an inner wall appears on its own, at any angle. A room drawn inside a bigger one (a bathroom
+in the corner of a studio) sits on top of it, and the edges it shares with the bigger room's outline stay outer
+walls. A `poly` needs at least 3 corners and may not cross itself.
+
+```jsonc
+// Riley's Studio: the bathroom's door is in a wall at 41°
+{ "id": "bathroom", "name": "Bathroom", "poly": [[0, 2.2], [2.25, 2.2], [2.25, 3.65], [1.55, 4.25], [0, 4.25]], "floor": "tile" }
+```
+
+In the editor, **Cut corner** on a room's page turns the chosen corner of a rectangle into a short angled wall,
+and a selected angled room shows a handle on every corner (it snaps to other rooms' corners and walls, the grid
+and 45°).
 
 ## `openings`
 
-A gap in a wall, given by its two end points on that wall. It must be horizontal or vertical.
+A gap in a wall, given by its two end points on that wall, which may run at any angle.
 
 | Field | Meaning |
 | --- | --- |
 | `type` | `door`, `window`, or `open` (a doorway without a door, or a missing piece of wall) |
 | `from`, `to` | `[x, z]` end points |
 | `sill`, `head` | Bottom and top of a window. Defaults `0.85` and `2.1` |
+| `hinge` | Doors: the end the hinges are on, `"from"` (default) or `"to"` |
+| `swing` | Doors: the `id` of the room the door opens into, or `"out"` for an outer door that opens outside. Default: the smaller of the two rooms beside it |
+| `curtain` | `open` only: `true` hangs a curtain across the gap (a shower curtain, a closet) |
+
+The 3D model shows a door's leaf ajar and the plan its swing arc; walls the camera looks through are cut away
+with their doors.
 
 ## `furniture`
 
@@ -106,7 +126,8 @@ Decoration only. Every piece has `type`, `pos` (`[x, z]` of its centre) and an o
 | `armchair` | `color` |
 | `coffeeTable` | `width` |
 | `rug` | `size` (`[width, depth]`), `color` |
-| `tv`, `sideboard`, `dresser`, `desk`, `vanity` | `width` |
+| `tv`, `sideboard`, `desk`, `vanity` | `width` |
+| `dresser` | `width`, `height` (default `0.84`) |
 | `diningSet` | `width`, `chairs` |
 | `island` | `width`, `stools` |
 | `kitchen` | `width`, `upper` (wall cabinets, `true` by default) |
@@ -114,6 +135,19 @@ Decoration only. Every piece has `type`, `pos` (`[x, z]` of its centre) and an o
 | `wardrobe`, `bookshelf` | `width`, `height` |
 | `plant` | `height` |
 | `fridge`, `nightstand`, `bathtub`, `toilet` | — |
+| `counter` | Base cabinets and a countertop, without a hob: `width`, `depth` (`0.62`), `sink` (`none`, `single` or `double`), `sinkAt` (the sink's centre, metres from the middle along the width), `top` (countertop colour) |
+| `stove` | A freestanding range: `width` (`0.76`) |
+| `microwave` | Stands on a counter: `y` (`0.9`) |
+| `tvCabinet` | A low cabinet with a TV on it: `width`, `tv` (the screen's width) |
+| `beanBag` | `size` (`[width, depth]`), `color` |
+| `waterHeater` | A round tank: `diameter` (`0.55`), `height` (`1.5`) |
+| `chair` | `color` |
+| `closetRod` | A hanging rail with hangers: `width`, `y` (the rod's height, `1.75`), `clothes` (`false` for empty hangers) |
+| `storageBins` | A stack of lidded bins: `width`, `stack` (how many, `2`), `color` |
+| `shower` | A shower tray, flat on the floor: `size` (`[width, depth]`) |
+
+`rot` turns a piece anticlockwise as seen from above: at `0` its front faces south (`+z`), `90` east, `180` north
+and `-90` west. Any piece can also take `y` to lift it off the floor.
 
 ## `lights`
 
@@ -190,5 +224,5 @@ Device IDs identify your hardware. Remove the `link`, `sensor` and `tuya` object
 
 ## Errors
 
-A plan that does not add up — an unknown room, a duplicate id, an opening that is not axis-aligned — is not
-rendered half-way: the panel says what is wrong and where, and the editor shows the same in its status bar.
+A plan that does not add up — an unknown room, a duplicate id, a room whose `poly` crosses itself or has fewer
+than 3 corners, a door whose `swing` names no room — is not rendered half-way: the panel says what is wrong and where, and the editor shows the same in its status bar.

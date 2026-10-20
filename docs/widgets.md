@@ -73,7 +73,7 @@ widget tap ─▶ AppIntent ─▶ HomeSnapshot.apply ─▶ home.json (at once)
   desktop → **Edit Widgets…** → House Control. `SKIP_WIDGETS=1` builds the app without them.
 - **Stills of every widget**, without WidgetKit: `cd widgets && swift run render-widgets` (writes PNGs from
   `Resources/sample-home.json`; pass a snapshot to draw another home, `--size mac` for the desktop sizes).
-  `node widgets/make-sample.mjs` regenerates the sample from the demo apartment.
+  `node widgets/make-sample.mjs` regenerates the sample from Riley's Studio, the default home.
 
 ## Signing and the App Group
 
