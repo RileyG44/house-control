@@ -17,6 +17,7 @@ import { createToaster, actionSheet, segmented, hooks as formHooks, holding } fr
 import { createConnections } from './connections.js';
 import { createSmartLife } from './smartlife.js';
 import * as P from './pages.js';
+import { tv } from '../tv/client.js';
 
 const WIDE = { w: 900, h: 560 };
 const BAR_H = 52;
@@ -819,6 +820,15 @@ export function createEditor(host, opts) {
     plan.render();
     if (sheet.top?.key?.startsWith('item:light:')) refreshSheet();
   });
+  // The TVs found (and their names) show on a TV piece's page and in its picker.
+  let tvsSeen = '';
+  const unsubscribeTv = tv.subscribe((state) => {
+    const seen = `${tv.ready}|${state.error}|${state.devices.map((d) => `${d.id}:${d.name}:${d.online}:${d.on}:${d.app?.id}`).join(',')}`;
+    if (seen === tvsSeen) return;
+    tvsSeen = seen;
+    const key = sheet.top?.key || '';
+    if (key === 'tv-picker' || key.startsWith('item:furniture:')) refreshSheet();
+  });
 
   /* ---------- done ---------- */
 
@@ -924,6 +934,7 @@ export function createEditor(host, opts) {
       plan.destroy();
       disposePreview();
       unsubscribe?.();
+      unsubscribeTv();
       smartLife?.stop();
       links.stopPairing?.();
       clearTimeout(saveTimer);

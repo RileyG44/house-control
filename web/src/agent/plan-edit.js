@@ -9,6 +9,8 @@ export const WALLS = ['north', 'south', 'east', 'west'];
 const FURNITURE_KEYS = ['type', 'pos', 'rot', 'width', 'height', 'size', 'color', 'chairs', 'stools', 'upper',
   'depth', 'diameter', 'tv', 'sink', 'sinkAt', 'top', 'stack', 'clothes', 'y'];
 const SINKS = ['none', 'single', 'double'];
+// Pieces that show a real TV; their `device` link is made in the editor, never by an AI.
+const TV_PIECES = ['tv', 'tvCabinet'];
 const LIGHT_KEYS = ['id', 'name', 'room', 'type', 'pos', 'y', 'rot', 'length', 'capabilities', 'color'];
 const AC_KEYS = ['id', 'name', 'room', 'wall', 'pos', 'y', 'min', 'max'];
 
@@ -209,7 +211,9 @@ export function applyOperations(raw, operations) {
       }
       case 'update_furniture': {
         const i = furnitureIndex(op, where);
+        const { device } = plan.furniture[i];
         plan.furniture[i] = cleanFurniture({ ...plan.furniture[i], ...(op.set || {}) }, where);
+        if (device != null && TV_PIECES.includes(plan.furniture[i].type)) plan.furniture[i].device = device;
         changes.push(`changed ${plan.furniture[i].type} #${i}`);
         break;
       }
@@ -310,6 +314,8 @@ export function applyOperations(raw, operations) {
     }
   });
 
+  // A TV refurnished away hands its link to the TV piece that takes its place.
+  keepTvLinks({ furniture: addFurniture }, { furniture: plan.furniture.filter((_, k) => dropFurniture.has(k)) });
   plan.furniture = plan.furniture.filter((_, k) => !dropFurniture.has(k)).concat(addFurniture);
   plan.openings = plan.openings.filter((_, k) => !dropOpenings.has(k));
   return { plan, changes, warnings: check(plan) };
@@ -334,11 +340,30 @@ export function check(plan) {
   return warnings;
 }
 
+/**
+ * A TV piece of `old` linked to a real TV (`device`) keeps its link in a plan an AI wrote
+ * whole: each goes to the nearest TV piece of the new plan, within 2 m.
+ */
+function keepTvLinks(plan, old) {
+  const linked = (old.furniture || []).filter((f) => TV_PIECES.includes(f?.type) && f.device != null && isPoint(f.pos));
+  const free = plan.furniture.filter((f) => TV_PIECES.includes(f.type));
+  for (const was of linked) {
+    let best = null;
+    let bestD = 2;
+    for (const f of free) {
+      const d = Math.hypot(f.pos[0] - was.pos[0], f.pos[1] - was.pos[1]);
+      if (d < bestD) { best = f; bestD = d; }
+    }
+    if (best) { best.device = was.device; free.splice(free.indexOf(best), 1); }
+  }
+}
+
 /** A plan an AI wrote whole (replace_floor_plan), checked and with the hardware links kept. */
 export function replacePlan(old, next) {
   if (!next || typeof next !== 'object' || !Array.isArray(next.rooms)) fail('"plan" must be a floor plan object with a "rooms" list');
   const plan = restoreLinks(structuredClone(next), old);
   plan.furniture = (plan.furniture || []).map((f, i) => cleanFurniture(f, `Furniture #${i}`));
+  keepTvLinks(plan, old);
   if (old.version != null && plan.version == null) plan.version = old.version;
   const lost = [...(old.lights || []), ...(old.acs || [])].filter((d) => isLinked(d)
     && ![...(plan.lights || []), ...(plan.acs || [])].some((n) => n.id === d.id));

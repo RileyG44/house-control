@@ -7,6 +7,7 @@ import { isNative, isHub } from '../bridge.js';
 import { isLinked, linkOf, SERVICES } from '../config.js';
 import { footprint } from '../three/furniture.js';
 import { thumbnail } from './glyphs.js';
+import { tv, tvLinks, TV_TYPES } from '../tv/client.js';
 import {
   group, row, tile, textRow, toggleRow, stepperRow, segmentedRow, segmented, chipGrid, swatches, button, note, quickActions,
 } from './forms.js';
@@ -15,7 +16,7 @@ import * as M from './model.js';
 const ACCENT = '#3d8bff';
 const TINT = {
   room: '#8e7cff', light: '#ffb340', ac: '#5ac8fa', opening: '#a2845e', furniture: '#30b0c7', scene: '#ff9f0a',
-  settings: '#8e8e93', add: ACCENT, network: '#34c759', danger: '#ff453a',
+  settings: '#8e8e93', add: ACCENT, network: '#34c759', danger: '#ff453a', tv: '#ff375f',
 };
 const FLOOR_SWATCH = Object.fromEntries(M.FLOORS.map((f) => [f.id, f.color]));
 const count = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -545,6 +546,7 @@ export function furniturePage(ctx, index) {
             (f.sink || 'none') !== 'none' ? stepperRow({ title: 'From the middle', key: 'sinkat', value: f.sinkAt ?? 0, format: (v) => M.fmtLen(v, units), min: -4, max: 4, step: (v, dir) => M.stepLength(v, dir, step), onChange: (v) => set((it) => { it.sinkAt = v; }, `sinkat-${index}`) }) : null,
           ]) : null,
           f.type === 'counter' ? group('Countertop', [h('div.ed-row.ed-swatch-row', swatches({ key: 'top', colors: M.COUNTER_TOPS, value: f.top, onPick: (c) => set((it) => { if (c) it.top = c; else delete it.top; }) }))]) : null,
+          TV_TYPES.has(f.type) ? tvGroup(ctx, index) : null,
           group('Rotation', [
             h('div.ed-row.ed-stepper-row', h('span.ed-row-text', h('span.ed-row-title', 'Angle')),
               h('span.ed-rot-btns',
@@ -577,8 +579,70 @@ function changeType(it, t) {
   if (t === 'island') keep.stools = it.stools ?? 3;
   if (t === 'kitchen' && 'upper' in it) keep.upper = it.upper;
   if (it.y != null && LIFTED[t] && LIFTED[it.type]) keep.y = it.y;
+  if (it.device != null && TV_TYPES.has(t) && TV_TYPES.has(it.type)) keep.device = it.device;
   for (const k of Object.keys(it)) delete it[k];
   Object.assign(it, keep);
+}
+
+/* ---------- TV ---------- */
+
+// Which real TV a TV piece shows. No `device`: the one TV there is, when the plan has one TV
+// piece; "none": none (the screen stays dark); otherwise that TV's id.
+function tvChoice(ctx, index) {
+  const f = ctx.doc.furniture[index];
+  const state = tv.state;
+  const shown = tvLinks(ctx.doc.furniture, state).find((l) => l.index === index)?.id ?? null;
+  const nameOf = (id) => state.devices.find((d) => d.id === id)?.name || `TV ${id}`;
+  if (f.device == null) return { value: 'Automatic', shown, name: shown ? nameOf(shown) : null };
+  if (f.device === 'none') return { value: 'None', shown: null, name: null };
+  return { value: nameOf(f.device), shown, name: nameOf(f.device) };
+}
+
+function tvGroup(ctx, index) {
+  const { value, shown, name } = tvChoice(ctx, index);
+  const f = ctx.doc.furniture[index];
+  const why = f.device === 'none' ? 'Its screen stays dark.'
+    : shown ? `Its screen shows what ${name} is showing, and clicking it opens the remote.`
+      : f.device == null ? 'Links itself when the plan has one TV and one TV is found.'
+        : 'That TV is not answering right now.';
+  return group('TV', [
+    row({ icon: 'tv', tint: TINT.tv, title: 'Linked TV', value, chevron: true, key: 'tv-link', onClick: () => ctx.push(tvPickerPage(ctx, index)) }),
+  ], why);
+}
+
+export function tvPickerPage(ctx, index) {
+  return {
+    key: 'tv-picker',
+    short: 'Linked TV',
+    render() {
+      const f = ctx.doc.furniture[index];
+      if (!f || !TV_TYPES.has(f.type)) return gone();
+      const state = tv.state;
+      const pick = (device) => {
+        ctx.change((d) => { const it = d.furniture[index]; if (device == null) delete it.device; else it.device = device; });
+        ctx.pop();
+      };
+      const { name } = tvChoice(ctx, index);
+      const known = state.devices.some((d) => d.id === f.device);
+      const status = (d) => (!d.online ? 'Not answering' : d.on ? (d.app?.name ? `On · ${d.app.name}` : 'On') : 'Off');
+      return {
+        head: { tile: tile('tv', TINT.tv, 40), title: 'Linked TV', subtitle: M.furnitureName(f.type) },
+        body: [
+          group(null, [
+            row({ icon: 'wand', tint: ACCENT, title: 'Automatic', subtitle: f.device == null && name ? name : 'The one TV, when there is one', check: f.device == null, key: 'tv-auto', onClick: () => pick(null) }),
+            row({ icon: 'unlink', tint: TINT.settings, title: 'None', subtitle: 'The screen stays dark', check: f.device === 'none', key: 'tv-none', onClick: () => pick('none') }),
+          ]),
+          group('TVs', [
+            ...state.devices.map((d) => row({ icon: 'tv', tint: TINT.tv, title: d.name || `TV ${d.id}`, subtitle: status(d), check: f.device === d.id, key: `tv-${d.id}`, onClick: () => pick(d.id) })),
+            f.device != null && f.device !== 'none' && !known
+              ? row({ icon: 'tv', tint: TINT.settings, title: `TV ${f.device}`, subtitle: 'Not found right now', check: true, key: 'tv-unknown' }) : null,
+            !state.devices.length && (f.device == null || f.device === 'none' || known)
+              ? row({ icon: 'search', tint: TINT.settings, title: tv.ready ? 'No TVs found' : 'Looking for TVs…', subtitle: state.error || null, key: 'tv-empty' }) : null,
+          ], 'TVs come from the TV remote service on the Mac.'),
+        ],
+      };
+    },
+  };
 }
 
 /* ---------- Door / window / opening ---------- */
