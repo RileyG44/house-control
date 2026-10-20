@@ -1,5 +1,6 @@
 // The control panel that lives in the menu bar popover: header, scenes, rooms,
-// device tiles and the detail sheets for a light, an AC or the TV.
+// device tiles (in the order they were dragged into) and the detail sheets for a light,
+// an AC or the TV.
 import * as THREE from 'three';
 import { h, clamp, createSlider, createColorPad, openMenu } from './dom.js';
 import { icon } from './icons.js';
@@ -11,6 +12,8 @@ import { containsPoint } from '../geom.js';
 import { tv, tvLinks } from '../tv/client.js';
 import { APPS, appInfo, statusOf, glowOf, logoSVG } from '../tv/apps.js';
 import { createPad, createVolume, createSearch } from '../tv/remote.js';
+import { createNowPlaying } from '../tv/nowplaying.js';
+import { createReorder, flip } from './reorder.js';
 
 const MODE_LABEL = { cool: 'Cool', heat: 'Heat', dry: 'Dry', fan: 'Fan', auto: 'Auto' };
 const FAN_LABEL = { auto: 'Auto', low: 'Low', medium: 'Medium', high: 'High', turbo: 'Turbo' };
@@ -35,9 +38,14 @@ function acTemperatureColor(target, cfg) {
   return tmp.set('#1c4fc0').lerp(new THREE.Color('#8a3d12'), t).clone();
 }
 
-export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEditPrefetch, editing = false, grown = false }) {
+/**
+ * `onOrder(tileOrder)`: the tiles were dragged into a new order (the plan's `tileOrder`:
+ * every tile's key, room by room), for the caller to keep.
+ */
+export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEditPrefetch, onOrder, editing = false, grown = false }) {
   const { state } = store;
   const ui = { room: 'all', sheet: null };
+  let order = config.tileOrder.slice();
   let world = null;
   const roomName = new Map(config.rooms.map((r) => [r.id, r.name]));
 
@@ -59,12 +67,13 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
   const rooms = h('div.rooms');
   const listTitle = h('span.title');
   const grid = h('div.grid');
+  const said = h('div.sr-only', { 'aria-live': 'polite' }); // a tile moved with the keyboard
   const panel = h('section.panel',
     scenes, rooms,
     h('div.list-head', listTitle,
       h('button.pill', { onclick: () => bulk(true) }, 'All on'),
       h('button.pill', { onclick: () => bulk(false) }, 'All off')),
-    h('div.devices', grid));
+    h('div.devices', grid), said);
   const sheet = h('section.sheet.hidden');
   sheet.inert = true;
   const toastEl = h('div.panel-toast');
@@ -135,6 +144,24 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
   /* ---------- tiles ---------- */
 
   const tiles = new Map();
+  // Long press a tile and drag it to another place in its room (reorder.js).
+  const reorder = createReorder({
+    grid,
+    scroller: grid.parentElement,
+    announce: (text) => { said.textContent = text; },
+    onOrder: (keys) => {
+      order = reordered(keys);
+      onOrder?.(order.slice());
+    },
+  });
+  // A tile's name in `tileOrder`: a lamp's or an AC's id, "tv:<id>" for a TV.
+  const keyOf = (t) => (t.kind === 'tv' ? `tv:${t.cfg.id}` : t.cfg.id);
+  function draggable(t, opts) {
+    t.el.dataset.key = keyOf(t);
+    t.el.setAttribute('aria-keyshortcuts', 'Alt+ArrowUp Alt+ArrowDown');
+    reorder.attach(t.el, opts);
+    return t;
+  }
 
   function lightTile(cfg) {
     const dimmable = cfg.capabilities.includes('brightness');
@@ -150,7 +177,8 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
       more,
       h('div.tile-level'));
 
-    // Tap toggles; dragging sideways dims (HomeKit-style).
+    // Tap toggles; dragging sideways dims (HomeKit-style). Held still, it lifts to be moved
+    // (reorder.js); on a phone, let go where it was, it opens the light's sheet.
     let gesture = null;
     el.addEventListener('pointerdown', (ev) => {
       if (ev.target.closest('.tile-more') || ev.button !== 0) return;
@@ -158,20 +186,10 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
       const s = state.lights[cfg.id];
       gesture = { x: ev.clientX, y: ev.clientY, start: s.on ? s.brightness : 0, moved: false, step: null };
       el.classList.add('pressed');
-      if (isPhone && hasSheet) {
-        gesture.hold = setTimeout(() => {
-          if (!gesture || gesture.moved) return;
-          gesture = null;
-          el.classList.remove('pressed');
-          haptic('medium');
-          openSheet({ kind: 'light', id: cfg.id });
-        }, 420);
-      }
     });
     el.addEventListener('pointermove', (ev) => {
-      if (!gesture) return;
+      if (!gesture || reorder.lifted(el)) return;
       const dx = ev.clientX - gesture.x;
-      if (Math.hypot(dx, ev.clientY - gesture.y) > 8) clearTimeout(gesture.hold);
       // A mostly vertical move is the list being scrolled, not a dim.
       if (!gesture.moved && dimmable && Math.abs(dx) > 6 && Math.abs(dx) > Math.abs(ev.clientY - gesture.y)) {
         gesture.moved = true;
@@ -186,8 +204,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     });
     const finish = (ev) => {
       if (!gesture) return;
-      const tapped = !gesture.moved && ev.type === 'pointerup';
-      clearTimeout(gesture.hold);
+      const tapped = !gesture.moved && ev.type === 'pointerup' && !reorder.lifted(el);
       gesture = null;
       el.classList.remove('pressed', 'dragging');
       if (tapped) toggleLight(cfg.id);
@@ -198,7 +215,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
       if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); toggleLight(cfg.id); }
     });
 
-    return {
+    return draggable({
       el, cfg, kind: 'light',
       update() {
         const s = state.lights[cfg.id];
@@ -208,7 +225,10 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
         // On a phone the group heading above the tile already names the room.
         sub.textContent = ui.room === 'all' && !isPhone ? `${lightStatus(cfg, s)} · ${roomName.get(cfg.room)}` : lightStatus(cfg, s);
       },
-    };
+    }, {
+      canLift: () => !gesture?.moved, // being dimmed
+      onHold: isPhone && hasSheet ? () => openSheet({ kind: 'light', id: cfg.id }) : null,
+    });
   }
 
   function acTile(cfg) {
@@ -231,7 +251,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
       h('button.mini-power', { 'aria-label': `${cfg.name} power`, onclick: (e) => { e.stopPropagation(); haptic('medium'); store.setAC(cfg.id, { on: !state.acs[cfg.id].on }); } }, icon('power', 16, 2.2)));
     el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') openSheet({ kind: 'ac', id: cfg.id }); });
     let shownMode = null;
-    return {
+    return draggable({
       el, cfg, kind: 'ac',
       update() {
         const s = state.acs[cfg.id];
@@ -241,7 +261,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
         value.textContent = `${s.target}°`;
         sub.textContent = `${s.on ? MODE_LABEL[s.mode] : 'Off'} · Room ${s.roomTemp.toFixed(isPhone ? 0 : 1)}°`;
       },
-    };
+    });
   }
 
   for (const cfg of config.acs) tiles.set(cfg.id, acTile(cfg));
@@ -288,7 +308,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
       bubble, h('div.tile-text', name, sub), powerBtn);
     el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') openSheet({ kind: 'tv', id: t.id }); });
     let shownApp;
-    return {
+    return draggable({
       el, cfg: { id: t.id, room: t.room }, kind: 'tv',
       update() {
         const d = tvDevice(t.id);
@@ -297,7 +317,9 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
         el.style.setProperty('--c', on ? glowOf(d.app) : 'var(--warm)');
         name.textContent = tvName(t.id);
         el.setAttribute('aria-label', tvName(t.id));
-        sub.textContent = tvStatus(t.id);
+        // Playing something: "YouTube · Bretz in the Scablands".
+        const title = on ? d.nowPlaying?.title : null;
+        sub.textContent = title ? `${tvStatus(t.id)} · ${title}` : tvStatus(t.id);
         const app = on && d.app && d.app.id !== 'other' ? d.app.id : null;
         if (shownApp !== app) {
           bubble.replaceChildren(app ? logoSVG(d.app, 42) : icon('tv', 19));
@@ -306,7 +328,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
         }
         powerBtn.disabled = !tv.state.available;
       },
-    };
+    });
   }
 
   // A TV that turns up (or goes) changes the list: lay it out again.
@@ -327,25 +349,59 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     store.toggleLight(id);
   }
 
-  function layoutTiles() {
+  // A room's tiles: first those in `order`, as they were dragged; the others after them,
+  // as the plan has them (its ACs, its TV, then its lamps).
+  function roomTiles(roomId) {
+    const devices = [...tiles.values(), ...tvTiles.values()].filter((t) => t.cfg.room === roomId);
+    const plain = ['ac', 'tv', 'light'].flatMap((kind) => devices.filter((t) => t.kind === kind));
+    const rank = new Map(order.map((k, i) => [k, i]));
+    return plain.map((t, i) => ({ t, i, r: rank.get(keyOf(t)) ?? Infinity }))
+      .sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.t);
+  }
+
+  // The whole order after one room's group was rearranged into `keys`. A tile that isn't
+  // shown just now (a TV that is away) keeps its place after the tile it followed.
+  function reordered(keys) {
+    const moved = new Set(keys);
+    let i = 0;
+    const next = config.rooms.flatMap((r) => roomTiles(r.id).map(keyOf)).map((k) => (moved.has(k) ? keys[i++] : k));
+    order.forEach((k, at) => {
+      if (next.includes(k)) return;
+      const before = order.slice(0, at).reverse().find((p) => next.includes(p));
+      next.splice(before ? next.indexOf(before) + 1 : 0, 0, k);
+    });
+    return next;
+  }
+
+  /** `still`: the same tiles in a new order, sliding there (no entrance, scroll kept). */
+  function layoutTiles({ still = false } = {}) {
+    reorder.cancel();
     const nodes = [];
     let i = 0;
     const add = (t) => { t.el.style.setProperty('--i', i++); nodes.push(t.el); };
     for (const room of config.rooms) {
       if (ui.room !== 'all' && room.id !== ui.room) continue;
-      const devices = [...tiles.values(), ...tvTiles.values()].filter((t) => t.cfg.room === room.id);
+      const devices = roomTiles(room.id);
       if (!devices.length) continue;
       if (ui.room === 'all') nodes.push(h('div.group-label', room.name));
-      devices.filter((t) => t.kind === 'ac').forEach(add);
-      devices.filter((t) => t.kind === 'tv').forEach(add);
-      devices.filter((t) => t.kind === 'light').forEach(add);
+      devices.forEach(add);
     }
     if (!nodes.length) nodes.push(h('div.group-label', 'No devices in this room yet'));
     else if (isPhone && config.lights.some((l) => l.capabilities.length && inScope(l))) {
-      nodes.push(h('div.grid-hint', 'Touch and hold a light for brightness and colour'));
+      nodes.push(h('div.grid-hint', 'Touch and hold a light for brightness and colour, or hold and drag any tile to move it'));
     }
+    grid.classList.toggle('still', still);
     grid.replaceChildren(...nodes);
-    grid.parentElement.scrollTop = 0;
+    if (!still) grid.parentElement.scrollTop = 0;
+  }
+
+  // An order that came from elsewhere (another screen saved it): the tiles slide into it.
+  function setOrder(next) {
+    next = Array.isArray(next) ? next.filter((k) => typeof k === 'string') : [];
+    if (next.join('\n') === order.join('\n')) return;
+    order = next;
+    const shown = [...grid.querySelectorAll('.tile')];
+    flip(shown, () => layoutTiles({ still: true }));
   }
 
   /* ---------- sheets ---------- */
@@ -568,6 +624,11 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
       tv.act(id, body).then((ok) => { if (!ok) { opening = null; update(); } });
     }
 
+    // Playing something: what, and a slider through it. Else just the app that is open.
+    const playing = createNowPlaying({
+      onPlayPause: () => key('playpause'),
+      onSeek: (position) => tv.act(id, { action: 'seek', position }),
+    });
     const nowLogo = h('span.tv-now-logo');
     const nowName = h('b');
     const now = h('div.tv-now', nowLogo, h('div.tv-now-text', h('span', 'Now on'), nowName),
@@ -601,7 +662,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
 
     const problemText = h('span');
     const problem = h('div.sheet-note.tv-problem', { hidden: true }, icon('offline', 18, 2), problemText);
-    const scroll = h('div.tv-scroll', problem, now, h('div.tv-label', 'Apps'), apps, remote, volumeRow, h('div.tv-label', 'Search'), search.el);
+    const scroll = h('div.tv-scroll', problem, playing.el, now, h('div.tv-label', 'Apps'), apps, remote, volumeRow, h('div.tv-label', 'Search'), search.el);
 
     return {
       nodes: [sheetHead(name, sub, powerBtn), scroll],
@@ -613,8 +674,9 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
         if (t?.closest?.('button, [role=button], [role=slider]') && ['Enter', ' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(ev.key)) return false;
         return pad.key(ev);
       },
-      dispose() { pad.stop(); volume.stop(); search.stop(); },
+      dispose() { pad.stop(); volume.stop(); search.stop(); playing.stop(); },
       search, // for screenshots and tests: search.show('the')
+      playing, // and playing.preview(0.6)
       update() {
         const dev = d();
         const available = tv.state.available && Boolean(dev?.online);
@@ -632,8 +694,9 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
         problem.hidden = !(tv.ready && !available);
         problemText.textContent = !tv.state.available ? tv.state.error || 'The TV can’t be reached.'
           : `${tvName(id)} isn’t answering. Is it plugged in and on the Wi-Fi?`;
-        // Now on: the app on the screen (not the home screen).
-        const showing = on && app && app.id !== 'home';
+        // Now on: the app on the screen (not the home screen), unless it says what it plays.
+        const isPlaying = playing.set(dev);
+        const showing = on && app && app.id !== 'home' && !isPlaying;
         now.hidden = !showing;
         if (showing && nowLogo.dataset.app !== `${app.id}:${app.name}`) {
           nowLogo.replaceChildren(logoSVG(app, 34));
@@ -785,6 +848,9 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     selectRoom,
     toggleLight,
     get room() { return ui.room; },
+    /** The tiles' order, as `tileOrder`. */
+    get order() { return order.slice(); },
+    setOrder,
     setNotch(x) { card.style.setProperty('--notch-x', `${x}px`); },
     setAgentLive(live) { aiBadge.hidden = !live; },
     toast,
@@ -802,6 +868,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
       window.removeEventListener('keydown', onKey);
       unsubscribe();
       unsubscribeTv();
+      reorder.cancel();
       sheetView?.dispose?.();
       clearTimeout(toastEl.timer);
     },

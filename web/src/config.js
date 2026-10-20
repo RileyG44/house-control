@@ -144,6 +144,10 @@ export function normalize(raw) {
     return { id: s.id, name: s.name || s.id, icon: s.icon || 'sun', lights: s.lights || {}, acs: s.acs || {} };
   });
 
+  // The device list's order, as the tiles were last dragged into it: lamp and AC ids, and
+  // "tv:<id>" for a TV's tile. Tiles not listed follow, in the plan's order.
+  const tileOrder = Array.isArray(raw.tileOrder) ? [...new Set(raw.tileOrder.filter((k) => typeof k === 'string' && k))] : [];
+
   const minX = Math.min(...rooms.map((r) => r.x));
   const minZ = Math.min(...rooms.map((r) => r.z));
   const maxX = Math.max(...rooms.map((r) => r.x + r.w));
@@ -161,6 +165,7 @@ export function normalize(raw) {
     lights,
     acs,
     scenes,
+    tileOrder,
     bounds: { minX, minZ, maxX, maxZ },
   };
 }

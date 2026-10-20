@@ -1,6 +1,7 @@
 // A pretend TV for a plain browser (no hub) or ?tv=demo: it answers the way the hub and
 // tv-remote do, a moment later, so the TV's sheet and its screen in the model can be worked
-// on and photographed without the real one.
+// on and photographed without the real one. It plays an episode in Netflix and a video in
+// YouTube (their positions move on, and seek, play and pause work); other apps play nothing.
 import { APPS } from './apps.js';
 
 const app = (id) => {
@@ -9,13 +10,34 @@ const app = (id) => {
 };
 const HOME = { id: 'home', name: 'Google TV', package: 'com.google.android.apps.tv.launcherx' };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const now = () => Date.now() / 1000;
+
+// What each app is in the middle of, in the shape the hub's nowPlaying takes.
+const SHOWS = {
+  netflix: { title: 'Chapter Seven: The Bathtub', subtitle: 'Stranger Things · S1 E7', duration: 2492, position: 1134, state: 'playing' },
+  youtube: { title: 'Episode P - Bretz in the Scablands', subtitle: 'Nick Zentner', duration: 9535, position: 420, state: 'paused' },
+};
 
 export function createDemoTv(onState) {
   const tv = {
     id: '79519fff', name: 'Living Room TV', online: true, on: true, app: app('netflix'),
     volume: 12, volumeMax: 25, muted: false, caps: ['keys', 'volume', 'apps', 'text', 'search'],
   };
-  const state = () => ({ available: true, error: '', devices: [structuredClone(tv)] });
+  const shows = structuredClone(SHOWS);
+  for (const show of Object.values(shows)) show.at = now();
+  // Where a show is now: its position moves on while it plays.
+  const settle = (show) => {
+    if (show.state === 'playing') show.position = Math.min(show.duration, show.position + now() - show.at);
+    show.at = now();
+  };
+  const playing = () => (tv.on && tv.app && shows[tv.app.id]) || null;
+  const nowPlaying = () => {
+    const show = playing();
+    if (!show) return null;
+    return { title: show.title, subtitle: show.subtitle, state: show.state, position: Math.round(show.position * 10) / 10,
+      duration: show.duration, seekable: true, artwork: null, app: tv.app.id, at: show.at };
+  };
+  const state = () => ({ available: true, error: '', devices: [{ ...structuredClone(tv), nowPlaying: nowPlaying() }] });
   const changed = () => onState(state());
 
   return {
@@ -41,6 +63,19 @@ export function createDemoTv(onState) {
         tv.muted = false;
       } else if (action === 'mute') {
         tv.muted = !tv.muted;
+      } else if (['playpause', 'play', 'pause', 'seek', 'skip'].includes(action)) {
+        const show = playing();
+        if (!show) {
+          if (action === 'seek' || action === 'skip') throw new Error('What’s on the TV can’t be moved through');
+        } else {
+          settle(show);
+          if (action === 'seek' || action === 'skip') {
+            const to = action === 'seek' ? body.position : show.position + body.by;
+            show.position = Math.max(0, Math.min(show.duration - 1, to));
+          } else {
+            show.state = action === 'play' || (action === 'playpause' && show.state === 'paused') ? 'playing' : 'paused';
+          }
+        }
       }
       changed();
       return { ok: true };

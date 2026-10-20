@@ -22,10 +22,35 @@ export function post(type, payload = {}) {
   handler?.postMessage({ type, ...payload });
 }
 
-// A tap you can feel, on the iPhone only: 'tick' for a step of a slider, 'light' /
-// 'medium' for a switch or a scene, 'error' when a device refuses a change.
-export function haptic(kind = 'light') {
-  if (isPhone) post('haptic', { kind });
+// A tap you can feel: 'tick' for a step of a slider, 'light' / 'medium' for a switch or a
+// scene, 'error' when a device refuses a change. The iPhone app plays it; a phone's browser
+// buzzes where it can. `drag`: feedback in the middle of a drag (a tile lifted, a slot
+// passed), which the Mac's trackpad gives too; a click there already has its own feel.
+export function haptic(kind = 'light', { drag = false } = {}) {
+  if (isPhone && handler) post('haptic', { kind });
+  else if (isPhone) buzz(kind);
+  else if (drag && handler) post('haptic', { kind });
+}
+
+// A phone's browser: Android vibrates; Safari (iOS 18) ticks when a switch is flipped, so a
+// hidden one is. Neither is there everywhere, and neither may complain when it isn't.
+const BUZZ = { tick: 6, light: 10, medium: 16, heavy: 24, success: [10, 60, 10], error: [14, 70, 14] };
+let tickSwitch = null;
+function buzz(kind) {
+  try {
+    if (navigator.vibrate?.(BUZZ[kind] ?? 10)) return;
+    if (document.activeElement?.matches?.('input, textarea')) return; // the switch must not take the keyboard
+    if (!tickSwitch) {
+      const input = Object.assign(document.createElement('input'), { type: 'checkbox', tabIndex: -1 });
+      input.setAttribute('switch', '');
+      tickSwitch = document.createElement('label');
+      tickSwitch.setAttribute('aria-hidden', 'true');
+      tickSwitch.style.cssText = 'position:fixed;left:-100px;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
+      tickSwitch.append(input);
+      document.body.append(tickSwitch);
+    }
+    tickSwitch.click();
+  } catch { /* no haptics here */ }
 }
 
 // Native -> JS entry points are attached here by main.js.

@@ -365,6 +365,8 @@ export function replacePlan(old, next) {
   plan.furniture = (plan.furniture || []).map((f, i) => cleanFurniture(f, `Furniture #${i}`));
   keepTvLinks(plan, old);
   if (old.version != null && plan.version == null) plan.version = old.version;
+  // The order the tiles were dragged into is the panel's, not part of the drawing.
+  if (Array.isArray(old.tileOrder) && plan.tileOrder == null) plan.tileOrder = old.tileOrder;
   const lost = [...(old.lights || []), ...(old.acs || [])].filter((d) => isLinked(d)
     && ![...(plan.lights || []), ...(plan.acs || [])].some((n) => n.id === d.id));
   if (lost.length) {

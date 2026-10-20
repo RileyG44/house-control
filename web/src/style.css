@@ -358,7 +358,7 @@ html.glass .stage::after {
 }
 .devices::-webkit-scrollbar { display: none; }
 
-.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-top: 2px; }
+.grid { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-top: 2px; }
 
 .group-label {
   grid-column: 1 / -1;
@@ -368,6 +368,7 @@ html.glass .stage::after {
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--faint);
+  transition: opacity 220ms, color 220ms;
 }
 .group-label:first-child { margin-top: 0; }
 
@@ -386,10 +387,15 @@ html.glass .stage::after {
   overflow: hidden;
   background: var(--glass);
   border: 1px solid var(--line);
-  transition: transform 320ms var(--spring), background 260ms, border-color 260ms, box-shadow 360ms;
+  transition: transform 320ms var(--spring), background 260ms, border-color 260ms, box-shadow 360ms, opacity 220ms;
   animation: tile-in 480ms var(--ease) both;
   animation-delay: calc(var(--i, 0) * 28ms);
+  /* Held to be moved: no text selection, callout or magnifier. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
+.grid.still .tile { animation: none; }
 @keyframes tile-in {
   from { opacity: 0; transform: translateY(10px) scale(0.97); }
 }
@@ -484,6 +490,40 @@ html.glass .stage::after {
 .tile.ac.on .mini-power { background: color-mix(in srgb, var(--c) 88%, #1a1d26); color: #06162c; }
 
 .tile:focus-visible { outline: none; border-color: rgba(120, 175, 255, 0.8); }
+
+/* Moving a tile (ui/reorder.js): it lifts off the list and follows the finger; its room's
+   group is softly lit, the rest of the list steps back. */
+.tile.lifted {
+  z-index: 5;
+  scale: 1.04;
+  cursor: grabbing;
+  background-color: rgba(28, 34, 52, 0.9);
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 22px 44px -14px rgba(0, 0, 0, 0.7), 0 6px 16px -6px rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  backdrop-filter: blur(18px) saturate(1.3);
+  transition: transform 320ms var(--spring), scale 240ms var(--ease), background-color 200ms, border-color 200ms, box-shadow 280ms var(--ease), opacity 200ms;
+}
+.tile.on.lifted { background-color: color-mix(in srgb, var(--c) 10%, rgba(28, 34, 52, 0.92)); }
+.tile.settling { z-index: 4; }
+.grid.reordering .tile:not(.lifted) { opacity: 0.8; }
+.grid.reordering .tile.elsewhere { opacity: 0.36; }
+.grid.reordering .group-label { opacity: 0.5; }
+.grid.reordering .group-label.lit { opacity: 1; color: rgba(170, 200, 255, 0.82); }
+.grid.reordering .grid-hint { opacity: 0.4; }
+.reorder-zone {
+  position: absolute; z-index: -1;
+  border-radius: 26px;
+  background: rgba(120, 165, 255, 0.045);
+  box-shadow: inset 0 0 0 1px rgba(140, 180, 255, 0.14);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 220ms ease, left 220ms var(--ease), top 220ms var(--ease), width 220ms var(--ease), height 220ms var(--ease);
+}
+.reorder-zone.shown { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .tile.lifted { scale: none; } }
+
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 .panel-toast {
   position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 30;
@@ -763,10 +803,11 @@ html.ios .devices {
 html.ios .grid { gap: 10px; }
 html.ios .group-label { font-size: 11.5px; margin-top: 10px; }
 html.ios .tile { height: 76px; border-radius: 22px; padding: 0 13px; }
+html.ios .reorder-zone { border-radius: 28px; }
 html.ios .bubble { width: 42px; height: 42px; border-radius: 14px; }
 html.ios .tile-name { font-size: 14.5px; }
 html.ios .tile-sub { font-size: 12.5px; }
-html.ios .grid-hint { grid-column: 1 / -1; margin: 10px 4px 0; text-align: center; font-size: 12.5px; color: var(--faint); }
+html.ios .grid-hint { grid-column: 1 / -1; margin: 10px 18px 0; text-align: center; font-size: 12.5px; line-height: 1.4; color: var(--faint); transition: opacity 220ms; }
 html.ios .tile.dimmable { touch-action: pan-y; }
 html.ios .stepper button { width: 36px; height: 38px; border-radius: 12px; }
 html.ios .stepper .value { font-size: 18px; min-width: 40px; }
@@ -902,6 +943,111 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
 }
 @media (hover: hover) { .tv-now-home:hover { background: rgba(255, 255, 255, 0.14); color: var(--text); } }
 .tv-now-home:active { transform: scale(0.88); }
+
+/* Now playing: artwork, title, a slider through it, back / play-pause / ahead */
+.tv-np {
+  --glow: #7aa2ff;
+  margin-top: 4px; padding: 12px 12px 8px; border-radius: 20px;
+  background:
+    radial-gradient(120% 100% at 0% 0%, color-mix(in srgb, var(--glow) 13%, transparent), transparent 62%),
+    var(--glass);
+  border: 1px solid var(--line);
+  animation: tile-in 420ms var(--ease) both;
+}
+.tv-np-top { display: flex; align-items: center; gap: 12px; }
+.tv-np-media {
+  position: relative; flex: none;
+  height: 62px; aspect-ratio: 16 / 9; border-radius: 11px;
+  transition: aspect-ratio 260ms var(--ease);
+}
+.tv-np-media.poster { aspect-ratio: 2 / 3; height: 72px; }
+.tv-np-art {
+  position: absolute; inset: 0; border-radius: inherit; overflow: hidden;
+  display: grid; place-items: center;
+  background: radial-gradient(130% 120% at 30% 15%, color-mix(in srgb, var(--glow) 42%, #10131c), #07090f 78%);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09) inset, 0 8px 18px -10px rgba(0, 0, 0, 0.8);
+}
+.tv-np-logo { width: 30px; height: 30px; border-radius: 9px; overflow: hidden; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14), 0 6px 14px -6px rgba(0, 0, 0, 0.8); }
+.tv-np-logo .tv-logo, .tv-np-badge .tv-logo { width: 100%; height: 100%; display: block; }
+.tv-np-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 320ms ease; }
+.tv-np-media.pictured .tv-np-art img { opacity: 1; }
+.tv-np-badge {
+  position: absolute; right: -5px; bottom: -5px; width: 20px; height: 20px; border-radius: 6px; overflow: hidden;
+  box-shadow: 0 0 0 2px #121726, 0 2px 6px rgba(0, 0, 0, 0.5);
+  opacity: 0; transform: scale(0.6); transition: opacity 200ms, transform 300ms var(--spring);
+}
+.tv-np-media.pictured .tv-np-badge { opacity: 1; transform: none; }
+.tv-np-text { flex: 1; min-width: 0; transition: opacity 200ms var(--ease); }
+.tv-np-title {
+  font-size: 14px; font-weight: 650; line-height: 1.28; letter-spacing: -0.005em;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.tv-np-sub { margin-top: 3px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.tv-scrub {
+  position: relative; height: 26px; margin: 10px 0 0;
+  touch-action: pan-y; outline: none; display: none;
+}
+.tv-np.timed .tv-scrub { display: block; }
+.tv-np.seekable .tv-scrub { cursor: pointer; }
+.tv-scrub:focus-visible .tv-scrub-track { box-shadow: 0 0 0 2px var(--accent); }
+.tv-scrub-track {
+  position: absolute; left: 0; right: 0; top: 50%;
+  height: 4px; margin-top: -2px; border-radius: 3px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.14);
+  transition: height 180ms var(--ease), margin-top 180ms var(--ease);
+}
+.tv-np.seekable .tv-scrub:hover .tv-scrub-track, .tv-np.scrubbing .tv-scrub-track { height: 6px; margin-top: -3px; }
+.tv-scrub-fill { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); background: rgba(255, 255, 255, 0.9); will-change: transform; }
+.tv-scrub-thumb { position: absolute; top: 50%; left: -8px; width: 16px; height: 16px; margin-top: -8px; pointer-events: none; will-change: transform; }
+.tv-scrub-thumb::after {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 5px rgba(0, 0, 0, 0.45);
+  transform: scale(0.62);
+  transition: transform 220ms var(--spring);
+}
+.tv-np:not(.seekable) .tv-scrub-thumb { display: none; }
+.tv-np.seekable .tv-scrub:hover .tv-scrub-thumb::after { transform: scale(0.85); }
+.tv-np.scrubbing .tv-scrub-thumb::after { transform: scale(1.12); }
+.tv-scrub-bubble { position: absolute; left: 0; bottom: calc(100% - 1px); pointer-events: none; }
+.tv-scrub-bubble span {
+  display: block; padding: 4px 8px; border-radius: 9px;
+  font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap;
+  background: rgba(16, 20, 32, 0.94); border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 18px -8px rgba(0, 0, 0, 0.7);
+  transform: translateX(-50%) translateY(5px) scale(0.9); opacity: 0;
+  transition: opacity 160ms, transform 240ms var(--spring);
+}
+.tv-np.scrubbing .tv-scrub-bubble span { transform: translateX(-50%); opacity: 1; }
+/* The time being chosen is what to read: the title steps back while the bubble is up. */
+.tv-np.scrubbing .tv-np-text { opacity: 0.4; }
+.tv-np-times {
+  display: flex; justify-content: space-between; margin-top: -2px;
+  font-size: 11px; font-weight: 550; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.tv-np:not(.timed) .tv-np-times { margin-top: 10px; }
+.tv-np.scrubbing .tv-np-times { color: var(--text); }
+.tv-np-controls { display: flex; align-items: center; justify-content: center; gap: 26px; margin-top: 2px; }
+.tv-np-skip {
+  width: 40px; height: 40px; border-radius: 50%;
+  display: grid; place-items: center; color: var(--text);
+  transition: background 180ms, transform 240ms var(--spring), opacity 200ms;
+}
+@media (hover: hover) { .tv-np-skip:hover { background: rgba(255, 255, 255, 0.1); } }
+.tv-np-skip:active { transform: scale(0.86); }
+.tv-np-skip:disabled { opacity: 0.3; cursor: default; transform: none; background: none; }
+.tv-np-play {
+  width: 46px; height: 46px; border-radius: 50%;
+  display: grid; place-items: center;
+  color: #0b0f1c; background: #f3f5fa;
+  box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.7);
+  transition: transform 260ms var(--spring), background 180ms;
+}
+.tv-np-play .icon { grid-area: 1 / 1; fill: currentColor; transition: opacity 160ms, transform 260ms var(--spring); }
+.tv-np-play .icon:first-child { margin-left: 2px; }
+.tv-np-play.playing .icon:first-child, .tv-np-play:not(.playing) .icon:last-child { opacity: 0; transform: scale(0.6); }
+@media (hover: hover) { .tv-np-play:hover { background: #fff; } }
+.tv-np-play:active { transform: scale(0.9); }
 
 /* Apps: a row that scrolls sideways, a grid where the sheet is wide */
 .tv-apps {
@@ -1118,6 +1264,17 @@ html.ios .tv-app-icon { width: 62px; height: 62px; border-radius: 18px; }
 html.ios .tv-app-name { font-size: 12px; max-width: 68px; }
 html.ios .tv-label { font-size: 11.5px; }
 html.ios .tv-now-text b { font-size: 15px; }
+html.ios .tv-np { padding: 14px 14px 10px; border-radius: 22px; }
+html.ios .tv-np-media { height: 68px; }
+html.ios .tv-np-media.poster { height: 80px; }
+html.ios .tv-np-title { font-size: 15.5px; }
+html.ios .tv-np-sub { font-size: 13px; }
+html.ios .tv-scrub { height: 30px; }
+html.ios .tv-np-times { font-size: 12px; }
+html.ios .tv-np-skip { width: 46px; height: 46px; }
+html.ios .tv-np-skip .icon { width: 27px; height: 27px; }
+html.ios .tv-np-play { width: 54px; height: 54px; }
+html.ios .tv-np-controls { gap: 30px; }
 html.ios .tv-now-text span { font-size: 12px; }
 html.ios .tv-remote { grid-template-columns: auto minmax(180px, 240px) auto; }
 html.ios .tv-key { width: 52px; height: 52px; }

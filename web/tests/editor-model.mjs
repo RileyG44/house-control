@@ -94,3 +94,20 @@ assert.deepEqual(M.wallOf(doc2,door),wall);
 assert.ok(door.from[0]<door.to[0],'the hinge end is still "from"');
 assert.equal(M.swingOf(doc2,door),'studio');
 console.log('PASS polygon rooms, area and containment, angled walls on the default home, cut corners, sliding on an angled wall');
+
+// The panel's tile order: kept by normalize and the editor, without the tiles a plan drops.
+const ordered=M.ensureArrays({name:'Ordered',rooms:[{id:'studio',name:'Studio',rect:[0,0,6,6]}],
+  lights:[{id:'studio.a',type:'table',room:'studio',pos:[1,1]},{id:'studio.b',type:'ceiling',room:'studio',pos:[2,2]}],
+  acs:[{id:'studio.ac',room:'studio',pos:[0,3],wall:'west'}],
+  tileOrder:['tv:79519fff','studio.ac','studio.b','studio.a']});
+assert.deepEqual(normalize(structuredClone({...ordered,tileOrder:['studio.b','studio.b',7,'','tv:x']})).tileOrder,['studio.b','tv:x']);
+assert.deepEqual(normalize(structuredClone({...ordered,tileOrder:undefined})).tileOrder,[]);
+assert.deepEqual(normalize(structuredClone(ordered)).tileOrder,['tv:79519fff','studio.ac','studio.b','studio.a']);
+M.removeItem(ordered,{kind:'light',id:'studio.b'});
+assert.deepEqual(ordered.tileOrder,['tv:79519fff','studio.ac','studio.a'],'a removed lamp leaves the order; a TV stays');
+const twin=M.duplicate(ordered,{kind:'light',id:'studio.a'});
+assert.ok(twin&&!ordered.tileOrder.includes(twin.id),'a copy goes where the panel puts new tiles');
+M.deleteRoom(ordered,ordered.rooms[0]);
+assert.deepEqual(ordered.tileOrder,['tv:79519fff'],'deleting the room takes its tiles out of the order');
+assert.deepEqual(JSON.parse(JSON.stringify(ordered)).tileOrder,['tv:79519fff']);
+console.log('PASS tile order: normalized, kept by the editor, pruned with removed lamps, ACs and rooms');

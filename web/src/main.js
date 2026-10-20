@@ -5,7 +5,7 @@ import { createPanel } from './ui/panel.js';
 import { createAgent } from './agent/tools.js';
 import { h, openMenu } from './ui/dom.js';
 import { icon } from './ui/icons.js';
-import { isNative, isHub, isPhone, post, incoming, haptic, CLIENT_ID, listenForPlanChanges } from './bridge.js';
+import { isNative, isHub, isPhone, post, call, incoming, haptic, CLIENT_ID, listenForPlanChanges } from './bridge.js';
 import { publishWidgets, runWidgetAction } from './widgets.js';
 import { tv } from './tv/client.js';
 
@@ -78,8 +78,57 @@ async function boot(initialRaw = null) {
       return;
     }
     if (JSON.stringify(next) === JSON.stringify(home.raw)) return;
+    // Only the tiles were rearranged (on another screen): they slide into place here.
+    if (JSON.stringify({ ...next, tileOrder: null }) === JSON.stringify({ ...home.raw, tileOrder: null })) {
+      if (next.tileOrder == null) delete home.raw.tileOrder; else home.raw.tileOrder = next.tileOrder;
+      home.panel.setOrder(next.tileOrder);
+      return;
+    }
     swapHome(next);
   });
+}
+
+/* ---------- the tiles' order ---------- */
+
+// Dragging a tile changes the plan's `tileOrder`, saved the way the editor saves a plan (the
+// hub; the Mac or iPhone app), so every screen shows it. The panel keeps the plan it shows:
+// nothing is rebuilt when the save comes back. A plain browser, or the app showing a demo
+// while the user's own home is saved separately, keeps the order in this browser only.
+const ORDER_SAVE = 700; // ms after the last move
+
+function savesOrder() {
+  if (isHub) return true;
+  const boot = window.__HOUSE_BOOT__ || {};
+  return isNative && (boot.plan === 'custom' || !boot.hasCustomPlan);
+}
+
+const orderKey = (raw) => `house.tileOrder.${window.__HOUSE_BOOT__?.plan || new URLSearchParams(location.search).get('plan') || DEFAULT_PLAN}.${raw.name || ''}`;
+
+function keptOrder(raw) {
+  try {
+    const kept = JSON.parse(localStorage.getItem(orderKey(raw)));
+    return Array.isArray(kept) ? kept.filter((k) => typeof k === 'string') : null;
+  } catch { return null; }
+}
+
+function saveOrder(m, order) {
+  m.raw.tileOrder = order; // in place: the editor and AI Access work on this same plan
+  if (!savesOrder()) {
+    try { localStorage.setItem(orderKey(m.raw), JSON.stringify(order)); } catch { /* private browsing */ }
+    return;
+  }
+  clearTimeout(m.orderTimer);
+  m.orderTimer = setTimeout(async () => {
+    try {
+      await call('savePlan', isHub ? { config: m.raw, client: CLIENT_ID } : { config: m.raw });
+      // The app keeps it as the user's own home from now on. (A plan the hub makes stays the
+      // hub's: a new order changes nothing else.)
+      if (!isHub) Object.assign(window.__HOUSE_BOOT__ ||= {}, { plan: 'custom', hasCustomPlan: true });
+    } catch (error) {
+      m.panel?.toast(`The new order wasn’t saved: ${error.message}`);
+      haptic('error');
+    }
+  }, ORDER_SAVE);
 }
 
 // A standalone browser preview has no server to keep its edits through a navigation.
@@ -102,6 +151,7 @@ export async function showPreviewPanel(raw) {
  */
 function mountHome(raw, { first = false, editing: underEditor = false, grown = false, state = null, room = null } = {}) {
   const config = normalize(structuredClone(raw));
+  if (!savesOrder()) config.tileOrder = keptOrder(raw) ?? config.tileOrder;
   const lifetime = new AbortController();
   const { signal } = lifetime;
 
@@ -128,6 +178,7 @@ function mountHome(raw, { first = false, editing: underEditor = false, grown = f
     },
     onEdit: () => openEditor(),
     onEditPrefetch: () => { if (!isNative) loadEditor().catch(() => {}); },
+    onOrder: (order) => saveOrder(m, order),
     editing: underEditor,
     grown,
   });

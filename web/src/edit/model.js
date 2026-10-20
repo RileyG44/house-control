@@ -783,6 +783,7 @@ export function deleteRoom(doc, room) {
   // A room re-snapped above may have moved an AC onto the deleted room's wall: snap again.
   for (const a of doc.acs) if (!roomById(doc, a.room)) a.room = doc.rooms[0]?.id;
   pruneScenes(doc);
+  pruneTileOrder(doc);
   return plan;
 }
 
@@ -793,7 +794,15 @@ export function removeItem(doc, sel) {
   const key = COLLECTIONS[sel.kind];
   doc[key] = doc[key].filter((x) => x !== item);
   pruneScenes(doc);
+  pruneTileOrder(doc);
   return item;
+}
+
+/** The panel's tile order (`tileOrder`) without the lamps and ACs the plan no longer has. */
+export function pruneTileOrder(doc) {
+  if (!Array.isArray(doc.tileOrder)) return;
+  const ids = new Set([...doc.lights, ...doc.acs].map((d) => d.id));
+  doc.tileOrder = doc.tileOrder.filter((k) => typeof k === 'string' && (k.startsWith('tv:') || ids.has(k)));
 }
 
 /* ---------- duplicating ---------- */
