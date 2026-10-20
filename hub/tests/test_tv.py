@@ -79,7 +79,7 @@ def test_state_normalization():
     assert s == {"available": True, "error": "", "devices": [{
         "id": TV_ID, "name": "Living Room TV", "online": True, "on": True,
         "app": {"id": "netflix", "name": "Netflix", "package": "com.netflix.ninja"},
-        "volume": 5, "volumeMax": 25, "muted": False, "caps": ["keys", "volume", "apps"]}]}
+        "volume": 5, "volumeMax": 25, "muted": False, "caps": ["keys", "volume", "apps"], "nowPlaying": None}]}
     asleep = tv.normalize({"devices": [living_room(isOn=False, volume=None)]})["devices"][0]
     assert asleep["on"] is False and asleep["app"] is None and asleep["volume"] is None
     # Unreachable is not "on", whatever the last report said.

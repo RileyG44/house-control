@@ -33,6 +33,7 @@ sys.path.insert(0, str(HERE))
 import plan as plans  # noqa: E402
 from aidot_lan import AidotError, AidotLanClient  # noqa: E402
 from mrcool import MrcoolClient, MrcoolError  # noqa: E402
+from nowplaying import Adb  # noqa: E402
 from tv import TvRemote, default_url as tv_url  # noqa: E402
 from wiz import Light, WizClient, WizError  # noqa: E402
 
@@ -82,8 +83,9 @@ class Hub:
         self.links: dict[str, tuple[str, str]] = {}   # plan id -> (service, device id)
         self.state: dict = {"lights": {}, "acs": {}, "features": {}, "offline": []}
         self.listeners: set[asyncio.Queue] = set()
-        # The TV, through tv-remote: read often while a panel is open.
-        self.tv = TvRemote(tv_url(conf, local_ip), self._publish, watched=lambda: bool(self.listeners))
+        # The TV, through tv-remote: read often while a panel is open. What it plays comes
+        # from the TV over Cast, or adb when that is paired with it.
+        self.tv = TvRemote(tv_url(conf, local_ip), self._publish, watched=lambda: bool(self.listeners), adb=Adb.find())
         self._tasks: list[asyncio.Task] = []
         self._ac_due = 0.0
 
@@ -141,6 +143,7 @@ class Hub:
         for t in self._tasks:
             t.cancel()
         self.wiz.close()
+        self.tv.close()
         if self.aidot:
             await self.aidot.close()
         if self.http:

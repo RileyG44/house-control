@@ -111,9 +111,16 @@ hub finds tv-remote at this Mac's LAN address, port 8765; `HOUSE_TV_URL` or
 `~/.house-hub/tv.json` (`{"url": "http://192.168.0.188:8765"}`) says otherwise. If it does
 not answer, the panel says so and everything else works as before.
 
+What the TV is playing (title, show or channel, position, artwork) the hub reads from the TV
+itself over Cast, with `pychromecast` (in `requirements.txt`). It only ever reads, and seeks
+when the panel's slider is moved: nothing it does opens an app on the TV. For apps that don't
+report over Cast, `adb` paired with the TV (`adb devices` lists it) gives the title and state.
+Without either, the remote simply shows no "now playing".
+
 `GET /api/tv` is the TV's state, `POST /api/tv/<id>` with `{"action": …}` drives it (only the
-remote's own keys, `volume`, `text`, `search`, `open` an app and `play` a checked link), and
-`GET /api/tv/search?q=…` searches the catalog. See [docs/tv-remote.md](../docs/tv-remote.md).
+remote's own keys, `volume`, `text`, `search`, `open` an app, `play` a checked link, and `seek`
+to a position or `skip` by a few seconds), and `GET /api/tv/search?q=…` searches the catalog.
+See [docs/tv-remote.md](../docs/tv-remote.md) and [docs/tile-reorder-now-playing.md](../docs/tile-reorder-now-playing.md).
 
 ## How it fits together
 
@@ -128,6 +135,7 @@ iPhone / Mac browser ── HTTP ──▶ hub (house.py, port 8766) ── UDP 
 - `aidot_lan.py` — AiDot sign-in and local control, over `python-aidot`.
 - `mrcool.py` — the Cielo client (Open API key, or the MRCOOL account Alexa uses).
 - `tv.py` — the TV through tv-remote, and the streaming catalog search.
+- `nowplaying.py` — what the TV is playing, over Cast (or adb), and seeking.
 - `plan.py` — the starting floor plan: Riley's Studio linked by name, or boxes made from `devices.json`.
 
 The panel is the same web UI the Mac and iPhone apps use (`../web`). Served by the hub it
@@ -157,3 +165,5 @@ with a `/tmp/hub/devices.json` that gives those lights `"ip": "127.0.0.2"` and s
 | `HOUSE_HUB_DIR` | `~/.house-hub` | Names, plan, Cielo key, log |
 | `HOUSE_HUB_WEB` | `../web/dist` | The built panel |
 | `HOUSE_TV_URL` | `http://<LAN IP>:8765` | tv-remote, the TV's service |
+| `HOUSE_TV_CAST` | on | `off`: don't read the TV over Cast |
+| `HOUSE_TV_ADB` | `adb` on the `PATH` | The adb to read the TV's media sessions with, or `off` |

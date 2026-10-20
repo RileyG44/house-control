@@ -7,7 +7,8 @@ local.tvremote, port 8765) that keeps an Android TV Remote connection to the Goo
 The hub reads it every 2 s while a panel is watching (10 s otherwise), tells the panels what
 changed as `{"tv": …}` on /api/events, and passes the panel's remote keys on, only the ones
 listed here. App links from the streaming catalog (JustWatch) are checked against the app
-before the TV is asked to open them. Where tv-remote is: HOUSE_TV_URL, else
+before the TV is asked to open them. What is playing comes from the TV itself, over Cast
+(nowplaying.py), and seeking goes the same way. Where tv-remote is: HOUSE_TV_URL, else
 ~/.house-hub/tv.json {"url": …}, else this Mac's LAN address, port 8765 (127.0.0.1:8765 is
 another app on Riley's Mac).
 """
@@ -26,12 +27,17 @@ from urllib.parse import parse_qs, urlsplit
 
 import aiohttp
 
+import nowplaying
+from nowplaying import Adb, cast_link
+
 log = logging.getLogger("house.tv")
 
 TV_PORT = 8765
 POLL_WATCHED = 2.0    # seconds between reads while a panel is open
 POLL_IDLE = 10.0
 POLL_BURST = 0.7      # right after a command, until the TV has caught up
+POLL_PLAYING = 1.0    # while a panel is open and something plays
+SEEK_SETTLE = 3.0     # how long a seek's position stands before the TV's own reports take over
 WAKE_WAIT = 6.0       # how long an app launch waits for a sleeping TV
 SEARCH_TTL = 300.0
 UNREACHABLE = "The TV remote service on the Mac isn't answering."
@@ -188,7 +194,8 @@ def app_of(package: str | None) -> dict | None:
 
 
 def normalize(payload: dict) -> dict:
-    """tv-remote's /api/devices as the panel's TV state (see docs/tv-remote.md)."""
+    """tv-remote's /api/devices as the panel's TV state (see docs/tv-remote.md). What is
+    playing (`nowPlaying`) is filled in from the TV itself (TvRemote._read_playing)."""
     devices = []
     for d in (payload or {}).get("devices") or []:
         if not isinstance(d, dict) or not d.get("id"):
@@ -202,7 +209,7 @@ def normalize(payload: dict) -> dict:
             "app": app_of(d.get("currentApp")) if on else None,
             "volume": volume if on and isinstance(volume, int) and not isinstance(volume, bool) else None,
             "volumeMax": d.get("volumeMax") or 100, "muted": bool(d.get("muted")),
-            "caps": list(d.get("caps") or []),
+            "caps": list(d.get("caps") or []), "nowPlaying": None,
         })
     return {"available": True, "error": "", "devices": devices}
 
@@ -255,10 +262,15 @@ class TvRemote:
     """tv-remote, as the hub sees it. `publish` gets {"tv": state} whenever it changes;
     `watched()` says whether a panel is open (the TV is read more often then)."""
 
-    def __init__(self, url: str, publish: Callable[[dict], None], watched: Callable[[], bool] = lambda: False):
+    def __init__(self, url: str, publish: Callable[[dict], None], watched: Callable[[], bool] = lambda: False,
+                 cast: Callable[[str], object] = cast_link, adb: Adb | None = None):
         self.url = url
         self.publish = publish
         self.watched = watched
+        self.cast = cast                 # host -> a Cast link (nowplaying.CastLink), or None
+        self.adb = adb                   # nowplaying.Adb, when adb is paired with the TV
+        self.links: dict[str, object] = {}
+        self._settle: dict[str, float] = {}   # TV id -> until when a seek's position stands
         self.http: aiohttp.ClientSession | None = None
         self.state: dict | None = None   # None until the first read
         self.raw: dict = {}              # tv-remote's own view of each TV, by id
@@ -289,6 +301,7 @@ class TvRemote:
             self.raw = {str(d.get("id")): d for d in payload.get("devices") or [] if isinstance(d, dict)}
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, OSError):
             new = {"available": False, "error": UNREACHABLE, "devices": []}
+        await self._read_playing(new)
         self.read_at = time.monotonic()
         if new != self.state:
             self.state = new
@@ -307,8 +320,48 @@ class TvRemote:
         if now < self._burst_until:
             return POLL_BURST
         if self.watched() or now - self.asked_at < 8:
-            return POLL_WATCHED
+            playing = any((d.get("nowPlaying") or {}).get("state") in ("playing", "buffering") for d in self.snapshot["devices"])
+            return POLL_PLAYING if playing and self.watched() else POLL_WATCHED
         return POLL_IDLE
+
+    # ---------- what is playing ----------
+
+    async def _link(self, host: str):
+        """The Cast link to the TV at `host`, made the first time it is needed (None without pychromecast)."""
+        if host not in self.links:
+            self.links[host] = await asyncio.to_thread(self.cast, host)
+        return self.links[host]
+
+    async def _read_playing(self, new: dict) -> None:
+        """Fills in each TV's `nowPlaying`: from Cast, else adb; the last one stands while
+        the new one only moved on as expected (nowplaying.steady)."""
+        old = {d["id"]: d.get("nowPlaying") for d in self.snapshot["devices"]}
+        for dev in new["devices"]:
+            host = (self.raw.get(dev["id"]) or {}).get("host")
+            if not dev["on"] or not dev["app"] or not host:
+                continue
+            at = time.time()
+            sample = None
+            link = await self._link(host)
+            if link is not None:
+                try:
+                    sample = nowplaying.from_cast(link.snapshot(), dev["app"], at)
+                    link.refresh()  # answered in the background: the next read has it
+                except Exception as e:  # a link that broke must not stop the TV's state
+                    log.debug("Cast status from %s: %s", host, e)
+            if sample is None and self.adb is not None:
+                with contextlib.suppress(Exception):
+                    sample = nowplaying.from_adb(await self.adb.sessions(host), dev["app"], at)
+            last = old.get(dev["id"])
+            if time.monotonic() < self._settle.get(dev["id"], 0) and nowplaying.same_title(last, sample):
+                sample = last  # a seek just asked for: the TV is still catching up
+            dev["nowPlaying"] = nowplaying.steady(last, sample)
+
+    def close(self) -> None:
+        for link in self.links.values():
+            if link is not None:
+                link.close()
+        self.links.clear()
 
     async def run(self) -> None:
         while True:
@@ -373,6 +426,8 @@ class TvRemote:
         if dev is None:
             return {"error": "There is no such TV"}, 404
         action = body["action"]
+        if action in ("seek", "skip"):
+            return await self._seek(tv_id, dev, body)
         # "play" is also the remote's play key: with an app it is a search result to play.
         titled = action == "open" or (action == "play" and "app" in body)
         if action in KEYS and not titled:
@@ -409,6 +464,34 @@ class TvRemote:
         else:
             log.warning("TV %s %s: %s", tv_id, action, result.get("error"))
         return result, status
+
+    async def _seek(self, tv_id: str, dev: dict, body: dict) -> tuple[dict, int]:
+        """`{"action": "seek", "position": s}` or `{"action": "skip", "by": ±s}`, over Cast.
+        The new position is shown at once; the TV's own reports take over when they agree."""
+        key = "position" if body["action"] == "seek" else "by"
+        value = body.get(key)
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or value != value or abs(value) > 1e7:
+            return {"error": f"Say {'where to jump to' if key == 'position' else 'how far to skip'}, in seconds"}, 400
+        playing = dev.get("nowPlaying")
+        link = self.links.get((self.raw.get(tv_id) or {}).get("host"))
+        if not playing or not playing.get("seekable") or link is None:
+            return {"error": "What's on the TV can't be moved through"}, 400
+        now = time.time()
+        current = playing["position"] + (now - playing["at"] if playing["state"] == "playing" else 0)
+        target = round(min(max(0.0, value if key == "position" else current + value), max(0.0, playing["duration"] - 1)), 1)
+        try:
+            await asyncio.to_thread(link.seek, target)
+        except Exception as e:
+            log.warning("TV %s seek to %s: %s", tv_id, target, e)
+            return {"error": "The TV didn't jump there"}, 502
+        log.info("TV %s seek %s", tv_id, target)
+        self._settle[tv_id] = time.monotonic() + SEEK_SETTLE
+        moved = {**playing, "position": target, "at": round(now, 3)}
+        self.state = {**self.snapshot, "devices": [{**d, "nowPlaying": moved} if d["id"] == tv_id else d
+                                                   for d in self.snapshot["devices"]]}
+        self.publish({"tv": self.state})
+        self.kick()
+        return {"ok": True, "position": target}, 200
 
     # ---------- the streaming catalog ----------
 
