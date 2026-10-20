@@ -89,9 +89,33 @@ final class HubTests: XCTestCase {
         let update = await hub.poll()
         XCTAssertEqual((update?["lights"] as? [String: [String: Any]])?["studio.edison-bulb"]?["on"] as? Bool, true)
     }
+
+    func testLocalHubRequestReachesOnlyTheTV() async {
+        XCTAssertTrue(LocalHubClient.allows(path: "api/tv"))
+        XCTAssertTrue(LocalHubClient.allows(path: "api/tv/79519fff"))
+        XCTAssertTrue(LocalHubClient.allows(path: "api/tv/search?q=the%20bear"))
+        XCTAssertFalse(LocalHubClient.allows(path: "api/call"))
+        XCTAssertFalse(LocalHubClient.allows(path: "api/tvx"))
+        XCTAssertFalse(LocalHubClient.allows(path: "api/tv/../call"))
+
+        HubStub.reset()
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [HubStub.self]
+        let client = LocalHubClient(baseURL: URL(string: "http://hub.test")!, session: URLSession(configuration: config))
+        let state = await client.request(method: "GET", path: "api/tv")
+        XCTAssertEqual(state["available"] as? Bool, true)
+        XCTAssertEqual(HubStub.lastPath, "/api/tv")
+        let sent = await client.request(method: "POST", path: "api/tv/79519fff", body: ["action": "up"])
+        XCTAssertEqual(sent["ok"] as? Bool, true)
+        XCTAssertEqual(HubStub.lastPath, "/api/tv/79519fff")
+        XCTAssertEqual(HubStub.lastBody?["action"] as? String, "up")
+        let refused = await client.request(method: "POST", path: "api/call", body: ["type": "command"])
+        XCTAssertNotNil(refused["error"])
+        XCTAssertEqual(HubStub.lastPath, "/api/tv/79519fff") // never sent
+    }
 }
 
-/// Serves the hub's two endpoints from memory: POST /api/call and GET /api/events (SSE).
+/// Serves the hub's endpoints from memory: POST /api/call, GET /api/events (SSE) and the TV's /api/tv.
 private final class HubStub: URLProtocol {
     static var lastPath: String?
     static var lastBody: [String: Any]?
@@ -103,7 +127,9 @@ private final class HubStub: URLProtocol {
 
     override func startLoading() {
         Self.lastPath = request.url?.path
-        if request.url?.path == "/api/call" {
+        if request.url?.path == "/api/tv" {
+            respond(Data("{\"available\": true, \"error\": \"\", \"devices\": []}".utf8))
+        } else if request.url?.path == "/api/call" || request.url?.path.hasPrefix("/api/tv/") == true {
             var data = request.httpBody ?? Data()
             if data.isEmpty, let stream = request.httpBodyStream {
                 stream.open()

@@ -517,6 +517,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     host.reply(to: message, ["error": error.localizedDescription])
                 }
             }
+        case "hubRequest":
+            // The panel's TV (hub/tv.py): its custom scheme cannot fetch the hub itself.
+            guard let localHub = hub.localHub else {
+                host.reply(to: message, ["error": "There is no hub on this Mac"])
+                return
+            }
+            let method = message["method"] as? String ?? "GET"
+            let path = message["path"] as? String ?? ""
+            let body = message["body"] as? [String: Any]
+            Task { @MainActor in
+                host.reply(to: message, await localHub.request(method: method, path: path, body: body))
+            }
         case "service.disconnect":
             hub.disconnect(service: message["service"] as? String ?? "")
             connectionsChanged()

@@ -66,4 +66,41 @@ public struct LocalHubClient: Sendable {
         }
         return result
     }
+
+    /// Whether the panel may reach `path` on the hub through the app (`hubRequest`): only
+    /// the TV's routes (hub/tv.py). The rest of the hub has its own native calls.
+    public static func allows(path: String) -> Bool {
+        let path = path.hasPrefix("/") ? String(path.dropFirst()) : path
+        guard path == "api/tv" || path.hasPrefix("api/tv/") || path.hasPrefix("api/tv?") else { return false }
+        return !path.contains("..") && !path.contains("#") && !path.contains("\\")
+    }
+
+    /// One request to the hub on the panel's behalf, answered with the decoded JSON
+    /// (a 4xx/5xx answer keeps its `{"error": …}`), or `{"error": …}` when the hub cannot
+    /// be reached. `path` is relative, like "api/tv" or "api/tv/search?q=…".
+    public func request(method: String, path: String, body: [String: Any]? = nil) async -> [String: Any] {
+        guard Self.allows(path: path) else { return ["error": "The panel may not ask the hub for \(path)"] }
+        let relative = path.hasPrefix("/") ? String(path.dropFirst()) : path
+        var base = baseURL.absoluteString
+        while base.hasSuffix("/") { base.removeLast() }
+        guard let url = URL(string: "\(base)/\(relative)") else {
+            return ["error": "Not a hub address: \(path)"]
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = method.uppercased() == "POST" ? "POST" : "GET"
+        // An app launch waits for a sleeping TV, and the catalog search reaches JustWatch.
+        request.timeoutInterval = 25
+        if request.httpMethod == "POST" {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let json: [String: Any] = body.map { JSONSerialization.isValidJSONObject($0) ? $0 : [:] } ?? [:]
+            request.httpBody = try? JSONSerialization.data(withJSONObject: json)
+        }
+        guard let (data, response) = try? await session.data(for: request), response is HTTPURLResponse else {
+            return ["error": "The hub on this Mac cannot be reached"]
+        }
+        guard let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return ["error": "The hub answered HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)"]
+        }
+        return result
+    }
 }
