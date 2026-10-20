@@ -2,7 +2,7 @@
 // rooms, lamps, ACs and scenes with their current state. Posted to the native shell, which
 // keeps it where its widgets can read it; only the panel posts, the other views are copies.
 import { post } from './bridge.js';
-import { linkOf, LINK_FIELDS } from './config.js';
+import { linkOf, LINK_FIELDS, DEFAULT_PLAN } from './config.js';
 import { footprint } from './three/furniture.js';
 
 const round = (v, digits = 3) => (Number.isFinite(v) ? Math.round(v * 10 ** digits) / 10 ** digits : v);
@@ -22,7 +22,11 @@ export function widgetSnapshot(config, store, plan) {
     outdoorTemp: config.outdoorTemp,
     updated: Date.now() / 1000,
     scene: state.scene || null,
-    rooms: config.rooms.map((r) => ({ id: r.id, name: r.name, x: r.x, z: r.z, w: r.w, d: r.d, floor: r.floor })),
+    // The box, for older readers, and the corners, for walls at an angle.
+    rooms: config.rooms.map((r) => ({
+      id: r.id, name: r.name, x: round(r.x), z: round(r.z), w: round(r.w), d: round(r.d), floor: r.floor,
+      points: r.points.map(([x, z]) => [round(x), round(z)]),
+    })),
     lights: config.lights.map((l) => {
       const s = state.lights[l.id];
       return {
@@ -49,7 +53,7 @@ export function widgetSnapshot(config, store, plan) {
 
 /** Posts the snapshot after every change (and now and then while a room's temperature drifts). */
 export function publishWidgets(config, store) {
-  const plan = window.__HOUSE_BOOT__?.plan || new URLSearchParams(location.search).get('plan') || 'home';
+  const plan = window.__HOUSE_BOOT__?.plan || new URLSearchParams(location.search).get('plan') || DEFAULT_PLAN;
   let timer = 0;
   let lastTick = 0;
   const send = () => { timer = 0; post('widgets', { snapshot: widgetSnapshot(config, store, plan) }); };

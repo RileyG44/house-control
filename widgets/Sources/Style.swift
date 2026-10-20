@@ -115,7 +115,7 @@ extension HomeSnapshot {
         copy.rooms = [room]
         copy.lights = lights.filter { $0.room == id }
         copy.acs = acs.filter { $0.room == id }
-        copy.furniture = furniture?.filter { $0.x >= room.x && $0.x <= room.x + room.w && $0.z >= room.z && $0.z <= room.z + room.d }
+        copy.furniture = furniture?.filter { room.contains($0.x, $0.z) }
         return copy
     }
 }

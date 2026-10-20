@@ -84,6 +84,23 @@ final class WidgetTests: XCTestCase {
         XCTAssertEqual((lamp?["tuya"] as? [String: Any])?["deviceId"] as? String, "abc")
     }
 
+    func testRoomWithAnAngledWallKeepsItsCorners() throws {
+        // The bathroom of Riley's Studio, written anticlockwise to check the corners are turned.
+        let json = """
+        {"id":"bathroom","name":"Bathroom","x":0,"z":2.2,"w":2.25,"d":2.05,"floor":"tile",
+         "points":[[0,4.25],[1.55,4.25],[2.25,3.65],[2.25,2.2],[0,2.2]]}
+        """
+        let room = try JSONDecoder().decode(HomeSnapshot.Room.self, from: Data(json.utf8))
+        XCTAssertEqual(room.corners.count, 5)
+        XCTAssertEqual(room.corners[0].x, 0)
+        XCTAssertEqual(room.corners[0].z, 2.2)
+        XCTAssertTrue(room.contains(1, 3))
+        XCTAssertFalse(room.contains(2.2, 4.2), "the corner cut off by the angled wall is outside")
+        let plain = HomeSnapshot.Room(id: "r", name: "R", x: 0, z: 0, w: 2, d: 1, floor: nil)
+        XCTAssertEqual(plain.corners.count, 4)
+        XCTAssertTrue(plain.contains(1.9, 0.9))
+    }
+
     func testQueueAndPublish() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dir) }

@@ -8,9 +8,42 @@ public struct HomeSnapshot: Codable, Equatable, Sendable {
     public struct Room: Codable, Equatable, Sendable, Identifiable {
         public var id: String
         public var name: String
-        /// The room's rectangle on the floor plan, in metres.
+        /// The room's rectangle on the floor plan, in metres (its bounding box when it has `points`).
         public var x: Double, z: Double, w: Double, d: Double
         public var floor: String?
+        /// The room's corners as [x, z] pairs, for a room that is not a rectangle (a wall at an
+        /// angle). Older snapshots have none: the rectangle is the room.
+        public var points: [[Double]]? = nil
+
+        /// The corners to draw, turning the way a rectangle's do (north-west, north-east, ...),
+        /// so the outside of each edge a -> b is on its left: (b.z - a.z, a.x - b.x).
+        public var corners: [(x: Double, z: Double)] {
+            let given: [(x: Double, z: Double)] = (points ?? []).compactMap { p -> (x: Double, z: Double)? in
+                p.count == 2 ? (x: p[0], z: p[1]) : nil
+            }
+            guard given.count >= 3 else { return [(x: x, z: z), (x: x + w, z: z), (x: x + w, z: z + d), (x: x, z: z + d)] }
+            var twice = 0.0
+            for (i, a) in given.enumerated() {
+                let b = given[(i + 1) % given.count]
+                twice += a.x * b.z - b.x * a.z
+            }
+            return twice < 0 ? Array(given.reversed()) : given
+        }
+
+        /// Whether a plan point lies inside the room (even-odd rule on its corners).
+        public func contains(_ px: Double, _ pz: Double) -> Bool {
+            let c = corners
+            var inside = false
+            var j = c.count - 1
+            for i in 0..<c.count {
+                if (c[i].z > pz) != (c[j].z > pz),
+                   px < (c[j].x - c[i].x) * (pz - c[i].z) / (c[j].z - c[i].z) + c[i].x {
+                    inside.toggle()
+                }
+                j = i
+            }
+            return inside
+        }
     }
 
     public struct Light: Codable, Equatable, Sendable, Identifiable {
@@ -73,7 +106,7 @@ public struct HomeSnapshot: Codable, Equatable, Sendable {
 
     public var version = 1
     public var name: String
-    /// "home" / "studio" for the bundled demos, "custom" for the user's own plan.
+    /// "riley" / "home" / "studio" for the bundled plans, "custom" for the user's own plan.
     public var plan: String
     public var outdoorTemp: Double?
     public var rooms: [Room]

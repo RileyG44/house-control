@@ -22,9 +22,9 @@ struct IsoProjection {
         cosA = cos(a); sinA = sin(a); sinE = sin(e); cosE = cos(e)
         var points: [CGPoint] = []
         for r in home.rooms {
-            for (x, z) in [(r.x, r.z), (r.x + r.w, r.z), (r.x + r.w, r.z + r.d), (r.x, r.z + r.d)] {
-                points.append(raw(x, z, 0))
-                points.append(raw(x, z, Self.backWall))
+            for c in r.corners {
+                points.append(raw(c.x, c.z, 0))
+                points.append(raw(c.x, c.z, Self.backWall))
             }
         }
         guard let minX = points.map(\.x).min(), let maxX = points.map(\.x).max(),
@@ -109,9 +109,17 @@ struct HouseModel: View {
         .accessibilityLabel("\(home.name): \(home.lightsLine)")
     }
 
+    /// The floor's outline; a negative `inset` grows it (each corner moved away from the middle).
     private func roomCorners(_ r: HomeSnapshot.Room, _ iso: IsoProjection, inset: Double = 0) -> [CGPoint] {
-        [iso.point(r.x + inset, r.z + inset), iso.point(r.x + r.w - inset, r.z + inset),
-         iso.point(r.x + r.w - inset, r.z + r.d - inset), iso.point(r.x + inset, r.z + r.d - inset)]
+        let corners = r.corners
+        guard inset != 0 else { return corners.map { iso.point($0.x, $0.z) } }
+        let cx = corners.map { $0.x }.reduce(0, +) / Double(corners.count)
+        let cz = corners.map { $0.z }.reduce(0, +) / Double(corners.count)
+        return corners.map { c in
+            let dx = c.x - cx, dz = c.z - cz
+            let len = max(0.001, (dx * dx + dz * dz).squareRoot())
+            return iso.point(c.x - dx / len * inset * 1.41, c.z - dz / len * inset * 1.41)
+        }
     }
 
     private static func floorColor(_ kind: String?) -> Color {
@@ -171,15 +179,17 @@ struct HouseModel: View {
     private func wallList(_ iso: IsoProjection) -> [Wall] {
         var walls: [String: Wall] = [:]
         func inside(_ x: Double, _ z: Double, except id: String) -> Bool {
-            home.rooms.contains { $0.id != id && x > $0.x && x < $0.x + $0.w && z > $0.z && z < $0.z + $0.d }
+            home.rooms.contains { $0.id != id && $0.contains(x, z) }
         }
         for r in home.rooms {
-            let edges: [((Double, Double), (Double, Double), (Double, Double))] = [
-                ((r.x, r.z), (r.x + r.w, r.z), (0, -1)),
-                ((r.x + r.w, r.z), (r.x + r.w, r.z + r.d), (1, 0)),
-                ((r.x + r.w, r.z + r.d), (r.x, r.z + r.d), (0, 1)),
-                ((r.x, r.z + r.d), (r.x, r.z), (-1, 0)),
-            ]
+            // Each edge with its outward normal: walls at an angle are shaded by theirs too.
+            let c = r.corners
+            let edges: [((Double, Double), (Double, Double), (Double, Double))] = c.indices.compactMap { i -> ((Double, Double), (Double, Double), (Double, Double))? in
+                let a = c[i], b = c[(i + 1) % c.count]
+                let len = ((b.x - a.x) * (b.x - a.x) + (b.z - a.z) * (b.z - a.z)).squareRoot()
+                guard len > 0.001 else { return nil }
+                return ((a.x, a.z), (b.x, b.z), ((b.z - a.z) / len, (a.x - b.x) / len))
+            }
             for (a, b, n) in edges {
                 let mid = ((a.0 + b.0) / 2, (a.1 + b.1) / 2)
                 let outside = !inside(mid.0 + n.0 * 0.08, mid.1 + n.1 * 0.08, except: r.id)
@@ -277,7 +287,7 @@ struct HouseModel: View {
     }
 
     private func roomLit(at x: Double, _ z: Double) -> HomeSnapshot.Light? {
-        guard let room = home.rooms.first(where: { x >= $0.x && x <= $0.x + $0.w && z >= $0.z && z <= $0.z + $0.d }) else { return nil }
+        guard let room = home.rooms.first(where: { $0.contains(x, z) }) else { return nil }
         return home.lights(in: room.id).first(where: \.on)
     }
 

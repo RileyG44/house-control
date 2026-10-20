@@ -175,9 +175,20 @@ public struct PlanEditor {
     }
 
     private func rect(of room: String) -> [Double]? {
-        guard let entry = (plan["rooms"] as? [[String: Any]] ?? []).first(where: { $0["id"] as? String == room }),
-              let rect = entry["rect"] as? [NSNumber], rect.count == 4 else { return nil }
-        return rect.map(\.doubleValue)
+        guard let entry = (plan["rooms"] as? [[String: Any]] ?? []).first(where: { $0["id"] as? String == room }) else { return nil }
+        return Self.box(of: entry)
+    }
+
+    /// A room's `rect`, or the box around its `poly` corners: [x, z, w, d].
+    static func box(of room: [String: Any]) -> [Double]? {
+        if let rect = room["rect"] as? [NSNumber], rect.count == 4 { return rect.map(\.doubleValue) }
+        guard let poly = room["poly"] as? [[NSNumber]] else { return nil }
+        let points: [[Double]] = poly.filter { $0.count >= 2 }.map { [$0[0].doubleValue, $0[1].doubleValue] }
+        guard points.count >= 3 else { return nil }
+        let xs: [Double] = points.map { $0[0] }
+        let zs: [Double] = points.map { $0[1] }
+        let minX = xs.min() ?? 0, minZ = zs.min() ?? 0
+        return [minX, minZ, (xs.max() ?? 0) - minX, (zs.max() ?? 0) - minZ]
     }
 
     private static func fix(_ v: Double) -> Double { (v * 1000).rounded() / 1000 }
@@ -280,7 +291,7 @@ public struct PlanEditor {
     @discardableResult
     public mutating func addRoom(named name: String, width: Double = 4, depth: Double = 3.5) -> String {
         var rooms = plan["rooms"] as? [[String: Any]] ?? []
-        let rects = rooms.compactMap { ($0["rect"] as? [NSNumber])?.map(\.doubleValue) }.filter { $0.count == 4 }
+        let rects: [[Double]] = rooms.compactMap { Self.box(of: $0) }
         let maxX = rects.map { $0[0] + $0[2] }.max() ?? 0
         let minZ = rects.map { $0[1] }.min() ?? 0
         let base = Self.slug(name)
