@@ -7,6 +7,10 @@ found (`seed`). Without that file, each room named in devices.json becomes a sim
 of furniture that says what the room is (`build`). Every lamp and AC is linked to its
 real device (`link: {service, id}`), so the panel controls the real thing. A plan.json
 without "generatedBy": "hub" or "seededBy": "hub" is the user's own and is used as it is.
+
+The panel's tile order (`tileOrder`: lamp and AC ids, "tv:<id>" for a TV) is the one thing
+a screen may change in a plan the hub makes without making it the user's own: `ordered`
+carries it into each plan the hub makes again.
 """
 from __future__ import annotations
 
@@ -90,6 +94,30 @@ def seed(base: dict, names: dict, lights: list[dict], acs: list[dict]) -> dict:
                     taken.add(link)
                     break
     return plan
+
+
+def order_of(plan) -> list[str] | None:
+    """A plan's `tileOrder`, without anything that is not a tile's name; None when it has none."""
+    order = plan.get("tileOrder") if isinstance(plan, dict) else None
+    if not isinstance(order, list):
+        return None
+    return list(dict.fromkeys(k for k in order if isinstance(k, str) and k))
+
+
+def ordered(plan: dict, previous) -> dict:
+    """`plan` with the tile order `previous` had (names the new plan lacks are kept: a lamp
+    that is unplugged for a while comes back to its place)."""
+    order = order_of(previous)
+    if order is not None:
+        plan["tileOrder"] = order
+    return plan
+
+
+def same_but_order(a, b) -> bool:
+    """Whether two plans differ in their tile order alone."""
+    if not isinstance(a, dict) or not isinstance(b, dict):
+        return False
+    return {k: v for k, v in a.items() if k != "tileOrder"} == {k: v for k, v in b.items() if k != "tileOrder"}
 
 
 def build(names: dict, lights: list[dict], acs: list[dict]) -> dict:

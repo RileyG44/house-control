@@ -241,6 +241,7 @@ class Hub:
             # devices turn up, until a plan is saved; a hub that already made a plan keeps making it.
             base = plans.template(WEB) if not path.exists() or (custom or {}).get("seededBy") == "hub" else None
             new = plans.seed(base, self.names, lights, acs) if base else plans.build(self.names, lights, acs)
+            new = plans.ordered(new, custom)  # the tiles as a screen arranged them
             path.write_text(json.dumps(new, indent=2))
         changed = bool(self.plan) and new != self.plan
         if new != self.plan:
@@ -380,11 +381,20 @@ class Hub:
                       and all(isinstance(p, list) and len(p) == 2 and all(number(v) for v in p) for p in poly))
             if not (isinstance(r, dict) and r.get("id") and (boxed or shaped)):
                 return {"error": "Every room needs an id and a rect [x, z, width, depth] or a poly [[x, z], ...]"}
-        config = {k: v for k, v in config.items() if k not in ("generatedBy", "seededBy")}  # drawn by hand now
+        if "tileOrder" in config:
+            if plans.order_of(config) is None:
+                return {"error": "tileOrder must be a list of tile names"}
+            config = {**config, "tileOrder": plans.order_of(config)}
+        # Tiles dragged into a new order on a plan the hub makes leave it the hub's, so it keeps
+        # linking the devices that turn up; anything else makes it drawn by hand from now on.
+        hubs = (plans.same_but_order(config, self.plan)
+                and (self.plan.get("generatedBy") == "hub" or self.plan.get("seededBy") == "hub"))
+        if not hubs:
+            config = {k: v for k, v in config.items() if k not in ("generatedBy", "seededBy")}
         data = (json.dumps(config, indent=2) + "\n").encode()
         targets = [self.conf / "plan.json"]
         with contextlib.suppress(OSError):
-            if PANEL_PLAN.is_file() and PANEL_PLAN.resolve() != targets[0].resolve():
+            if not hubs and PANEL_PLAN.is_file() and PANEL_PLAN.resolve() != targets[0].resolve():
                 targets.append(PANEL_PLAN)
         now = time.time_ns()
         for path in targets:
@@ -392,7 +402,10 @@ class Hub:
             tmp.write_bytes(data)
             os.replace(tmp, path)
             os.utime(path, ns=(now, now))
-        log.info("Saved the floor plan from the editor (%d rooms)", len(rooms))
+        if plans.same_but_order(config, self.plan):
+            log.info("Saved the tiles' new order")
+        else:
+            log.info("Saved the floor plan from the editor (%d rooms)", len(rooms))
         self._rebuild_plan(by=by if isinstance(by, str) and by else None)
         return {"ok": True, "rev": self.plan_rev}
 

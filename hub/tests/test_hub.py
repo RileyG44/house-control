@@ -368,6 +368,49 @@ def test_hub_with_a_made_plan_keeps_making_it(tmp_path, monkeypatch):
     assert hub.plan["generatedBy"] == "hub" and hub.plan["rooms"][0]["name"] == "Den"
 
 
+def test_tile_order_round_trips(tmp_path, monkeypatch):
+    panel = tmp_path / "panel.json"
+    conf = tmp_path / "hub"
+    panel.write_text(json.dumps({"name": "Mac app", "rooms": [{"id": "studio", "rect": [0, 0, 4, 4]}]}))
+    monkeypatch.setattr(house, "PANEL_PLAN", panel)
+    hub = house.Hub(conf)
+    hub._rebuild_plan()
+    order = ["studio.ac", "tv:79519fff", "studio.window", "studio.door"]
+    drawn = {"name": "Mine", "rooms": [{"id": "studio", "rect": [0, 0, 6, 7]}],
+             "tileOrder": [*order, "studio.ac", 7, None, ""]}  # repeats and junk are dropped
+    assert hub.save_plan(drawn, by="tab-1")["ok"]
+    assert hub.plan["tileOrder"] == order
+    assert (conf / "plan.json").read_bytes() == panel.read_bytes()  # the Mac app's panel gets it too
+    # A hub started again (and the Mac app's file it adopts) keeps it.
+    again = house.Hub(conf)
+    again._rebuild_plan()
+    assert again.plan["tileOrder"] == order
+    assert "error" in hub.save_plan({**drawn, "tileOrder": "studio.ac"})
+    assert hub.plan["tileOrder"] == order
+
+
+def test_tile_order_leaves_a_made_plan_the_hubs(tmp_path, monkeypatch):
+    monkeypatch.setattr(house, "PANEL_PLAN", tmp_path / "no-mac-app" / "plan.json")
+    (tmp_path / "devices.json").write_text(json.dumps({"rooms": ["Den"]}))
+    hub = house.Hub(tmp_path)
+    (tmp_path / "plan.json").write_text(json.dumps(plan.build({"rooms": ["Den"]}, [], [])))
+    hub._rebuild_plan()
+    heard: asyncio.Queue = asyncio.Queue()
+    hub.listeners.add(heard)
+    rev = hub.plan_rev
+    # Dragging the tiles into a new order changes the order alone: the hub keeps making the plan.
+    assert hub.save_plan({**hub.plan, "tileOrder": ["tv:abc", "den.lamp"]}, by="tab-1") == {"ok": True, "rev": rev + 1}
+    assert heard.get_nowait() == {"reload": True, "rev": rev + 1, "by": "tab-1"}
+    assert hub.plan["generatedBy"] == "hub" and hub.plan["tileOrder"] == ["tv:abc", "den.lamp"]
+    (tmp_path / "devices.json").write_text(json.dumps({"rooms": ["Den", "Kitchen"]}))
+    hub._rebuild_plan()
+    assert [r["name"] for r in hub.plan["rooms"]] == ["Den", "Kitchen"]  # still following devices.json
+    assert hub.plan["tileOrder"] == ["tv:abc", "den.lamp"]  # and the order is kept
+    # Any other change makes it the user's.
+    assert hub.save_plan({**hub.plan, "name": "Mine"})["ok"]
+    assert "generatedBy" not in hub.plan and hub.plan["tileOrder"] == ["tv:abc", "den.lamp"]
+
+
 def test_plan_seed_links_by_name():
     base = {"rooms": [], "lights": [{"id": "a", "name": "Door Light"}, {"id": "b", "name": "Desk",
                                      "link": {"service": "wiz", "id": "x"}}, {"id": "c", "name": "door light"}],
@@ -457,13 +500,16 @@ def test_hub_serves_panel_and_sends_commands(tmp_path, monkeypatch):
             if (house.WEB / "index.html").is_file():
                 assert f'"rev": {rev}' in page
             moved["rooms"][0]["rect"] = [1, 1, 5, 5]
+            moved["tileOrder"] = [ids["Counter Light"], ac_id, ids["Edison Bulb"]]
             heard: asyncio.Queue = asyncio.Queue()
             hub.listeners.add(heard)
             r = await client.post("/api/call", json={"type": "savePlan", "config": moved, "client": "tab-1"})
             assert await r.json() == {"ok": True, "rev": rev + 1}
             assert heard.get_nowait() == {"reload": True, "rev": rev + 1, "by": "tab-1"}
             r = await client.get("/api/plan")
-            assert (await r.json())["rooms"][0]["rect"] == [1, 1, 5, 5] and r.headers["X-Plan-Rev"] == str(rev + 1)
+            back = await r.json()
+            assert back["rooms"][0]["rect"] == [1, 1, 5, 5] and r.headers["X-Plan-Rev"] == str(rev + 1)
+            assert back["tileOrder"] == [ids["Counter Light"], ac_id, ids["Edison Bulb"]]
         finally:
             await client.close()
             await server.close()
