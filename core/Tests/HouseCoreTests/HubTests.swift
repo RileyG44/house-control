@@ -44,6 +44,17 @@ final class HubTests: XCTestCase {
         XCTAssertNil(store.bootPayload()["config"])
     }
 
+    func testFreshPlanStoreShowsRileysStudio() {
+        let native = tempDir(), hubDir = tempDir()
+        defer { try? FileManager.default.removeItem(at: native); try? FileManager.default.removeItem(at: hubDir) }
+
+        let store = PlanStore(directory: native, hubDirectory: hubDir)
+        XCTAssertEqual(store.activePlan, "riley")
+        XCTAssertEqual(store.bootPayload()["plan"] as? String, "riley")
+        store.removeCustom()
+        XCTAssertEqual(store.activePlan, "riley")
+    }
+
     func testLocalHubParsesFirstEvent() {
         let payload = "data: {\"lights\": {\"studio.edison-bulb\": {\"on\": true}}, \"acs\": {}, \"features\": {}}\n\ndata: {\"lights\": {}}\n\n"
         let state = LocalHubClient.firstEvent(from: payload)

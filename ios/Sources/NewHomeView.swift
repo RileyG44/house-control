@@ -11,6 +11,7 @@ struct NewHomeView: View {
 
     private let templates: [(id: String?, title: String, detail: String, symbol: String)] = [
         (nil, "One room", "Draw the rest yourself, or add your devices to it", "square.dashed"),
+        ("riley", "Riley's Studio", "The studio with its angled bathroom wall, to adapt", "house.lodge.fill"),
         ("studio", "Studio layout", "3 rooms with furniture, to adapt", "square.split.bottomrightquarter.fill"),
         ("home", "Apartment layout", "5 rooms with furniture, to adapt", "building.2.fill"),
     ]

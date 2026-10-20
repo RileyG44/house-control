@@ -77,9 +77,11 @@ struct SettingsView: View {
                     planRow("custom", name: model.customPlanName ?? "My home", detail: customPlanDetail, symbol: "house.fill", tint: Theme.warm)
                     RowDivider()
                 }
-                planRow("home", name: "Apartment", detail: "Demo · 5 rooms, simulated devices", symbol: "building.2.fill", tint: Theme.accent)
+                planRow("riley", name: "Riley's Studio", detail: "5 rooms, from the LiDAR scan", symbol: "house.lodge.fill", tint: Theme.accent)
                 RowDivider()
-                planRow("studio", name: "Studio", detail: "Demo · 3 rooms, simulated devices", symbol: "square.split.bottomrightquarter.fill", tint: Theme.accent)
+                planRow("home", name: "Demo apartment", detail: "5 rooms, simulated devices", symbol: "building.2.fill", tint: Theme.accent)
+                RowDivider()
+                planRow("studio", name: "Demo studio", detail: "3 rooms, simulated devices", symbol: "square.split.bottomrightquarter.fill", tint: Theme.accent)
             }
             Card {
                 Button { model.openEditor() } label: {

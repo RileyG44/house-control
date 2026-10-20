@@ -220,16 +220,20 @@ class Hub:
     def _rebuild_plan(self, by: str | None = None) -> None:
         """Reloads the plan; when it changed, every panel is told (`by`: the screen that saved it)."""
         self._adopt_panel_plan()
-        custom = read_json(self.conf / "plan.json", None)
-        if custom and custom.get("generatedBy") != "hub":
+        path = self.conf / "plan.json"
+        custom = read_json(path, None)
+        if custom and custom.get("generatedBy") != "hub" and custom.get("seededBy") != "hub":
             new = custom
         else:
             lights = [l.describe() for l in self.wiz.lights.values()]
             if self.aidot:
                 lights += self.aidot.describe_all()
             acs = [self.mrcool.describe(m) for m in self.mrcool.devices] if self.mrcool else []
-            new = plans.build(self.names, lights, acs)
-            (self.conf / "plan.json").write_text(json.dumps(new, indent=2))
+            # A new hub starts from the default home (Riley's Studio) and keeps re-linking it as
+            # devices turn up, until a plan is saved; a hub that already made a plan keeps making it.
+            base = plans.template(WEB) if not path.exists() or (custom or {}).get("seededBy") == "hub" else None
+            new = plans.seed(base, self.names, lights, acs) if base else plans.build(self.names, lights, acs)
+            path.write_text(json.dumps(new, indent=2))
         changed = bool(self.plan) and new != self.plan
         if new != self.plan:
             self.plan_rev += 1
@@ -357,12 +361,18 @@ class Hub:
         rooms = config.get("rooms")
         if not isinstance(rooms, list) or not rooms:
             return {"error": "The plan needs at least one room"}
+        def number(v) -> bool:
+            return isinstance(v, (int, float)) and not isinstance(v, bool)
+
         for r in rooms:
             rect = r.get("rect") if isinstance(r, dict) else None
-            if not (isinstance(r, dict) and r.get("id") and isinstance(rect, list) and len(rect) == 4
-                    and all(isinstance(v, (int, float)) for v in rect)):
-                return {"error": "Every room needs an id and a rect [x, z, width, depth]"}
-        config = {k: v for k, v in config.items() if k != "generatedBy"}  # drawn by hand now
+            poly = r.get("poly") if isinstance(r, dict) else None
+            boxed = isinstance(rect, list) and len(rect) == 4 and all(number(v) for v in rect)
+            shaped = (isinstance(poly, list) and len(poly) >= 3
+                      and all(isinstance(p, list) and len(p) == 2 and all(number(v) for v in p) for p in poly))
+            if not (isinstance(r, dict) and r.get("id") and (boxed or shaped)):
+                return {"error": "Every room needs an id and a rect [x, z, width, depth] or a poly [[x, z], ...]"}
+        config = {k: v for k, v in config.items() if k not in ("generatedBy", "seededBy")}  # drawn by hand now
         data = (json.dumps(config, indent=2) + "\n").encode()
         targets = [self.conf / "plan.json"]
         with contextlib.suppress(OSError):

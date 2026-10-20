@@ -4,7 +4,10 @@ import CryptoKit
 /// Persists which floor plan is active and the user's own plan file.
 /// Everything lives in ~/Library/Application Support/HouseControl (or HOUSE_DATA_DIR).
 public final class PlanStore {
-    public static let bundled = ["home", "studio"]
+    /// Riley's Studio (the default home) and the two demos.
+    public static let bundled = ["riley", "home", "studio"]
+    /// The bundled plan a fresh install shows.
+    public static let defaultPlan = "riley"
 
     public let directory: URL
     public var customPlanURL: URL { directory.appendingPathComponent("plan.json") }
@@ -12,8 +15,8 @@ public final class PlanStore {
     /// The Mac hub's own plan (hub/house.py reads ~/.house-hub), when this store adopted it.
     private let hubPlanURL: URL?
 
-    /// "home" / "studio" for the bundled demos, or "custom" for plan.json.
-    public private(set) var activePlan = "home"
+    /// "riley" for Riley's Studio, "home" / "studio" for the bundled demos, or "custom" for plan.json.
+    public private(set) var activePlan = PlanStore.defaultPlan
 
     /// `hubDirectory` is the Mac hub's folder (~/.house-hub by default on the machine that
     /// runs it). When the native store has no plan and no plan was ever chosen here, the
@@ -54,7 +57,7 @@ public final class PlanStore {
         if !chosePlan, !FileManager.default.fileExists(atPath: customPlanURL.path), hubPlan() != nil {
             activePlan = "custom"
         }
-        if activePlan == "custom", customPlan() == nil { activePlan = "home" }
+        if activePlan == "custom", customPlan() == nil { activePlan = Self.defaultPlan }
     }
 
     /// The file the active custom plan is read from: this store's own, or the hub's when adopted.
@@ -129,10 +132,10 @@ public final class PlanStore {
         try saveCustom(Self.validate(try Data(contentsOf: url)))
     }
 
-    /// Forgets the user's plan and falls back to the bundled demo.
+    /// Forgets the user's plan and falls back to the default home.
     public func removeCustom() {
         try? FileManager.default.removeItem(at: customPlanURL)
-        if activePlan == "custom" { select("home") }
+        if activePlan == "custom" { select(Self.defaultPlan) }
     }
 
     /// The plan the UI should render: the custom JSON inline, or the name of a bundled demo.

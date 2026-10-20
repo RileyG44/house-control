@@ -322,7 +322,7 @@ final class AgentController: NSObject, AgentBackend {
             "edit": permissions.edit,
             "canUndo": !history.isEmpty,
             "activity": activity.suffix(80).map(\.json),
-            "home": plans.activePlan == "custom" ? (plans.customPlanName ?? "My home") : "Demo home",
+            "home": plans.activePlan == "custom" ? (plans.customPlanName ?? "My home") : (plans.activePlan == PlanStore.defaultPlan ? "Riley's Studio" : "Demo home"),
             "tunnel": ["installed": tunnel.binary != nil, "downloading": tunnel.isDownloading, "error": tunnelError],
         ]
         switch phase {

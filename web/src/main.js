@@ -1,4 +1,4 @@
-import { loadRawConfig, normalize, isLinked } from './config.js';
+import { loadRawConfig, normalize, isLinked, DEFAULT_PLAN } from './config.js';
 import { createStore } from './store.js';
 import { createWorld } from './three/world.js';
 import { createPanel } from './ui/panel.js';
@@ -9,8 +9,9 @@ import { isNative, isHub, isPhone, post, incoming, haptic, CLIENT_ID, listenForP
 import { publishWidgets, runWidgetAction } from './widgets.js';
 
 const DEMO_PLANS = [
-  { id: 'home', name: 'Demo · Apartment' },
-  { id: 'studio', name: 'Demo · Studio' },
+  { id: 'riley', name: 'Riley’s Studio' },
+  { id: 'home', name: 'Demo apartment' },
+  { id: 'studio', name: 'Demo studio' },
 ];
 const STAGE_INSETS = [62, 50]; // header above, panel overlap below
 
@@ -224,7 +225,7 @@ function mountHome(raw, { first = false, editing: underEditor = false, grown = f
   for (const type of ['focus', 'pageshow', 'pointermove', 'pointerdown']) window.addEventListener(type, resume, { passive: true, signal });
 
   function planMenu(anchor) {
-    const current = window.__HOUSE_BOOT__?.plan ?? (new URLSearchParams(location.search).get('plan') || 'home');
+    const current = window.__HOUSE_BOOT__?.plan ?? (new URLSearchParams(location.search).get('plan') || DEFAULT_PLAN);
     const items = DEMO_PLANS.map((p) => ({
       label: p.name,
       selected: p.id === current,

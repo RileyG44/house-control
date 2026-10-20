@@ -307,6 +307,7 @@ def test_editor_saves_the_plan_for_every_screen(tmp_path, monkeypatch):
     # Something that is not a floor plan is refused and changes nothing.
     assert "error" in hub.save_plan({"rooms": []})
     assert "error" in hub.save_plan({"rooms": [{"id": "x", "rect": [0, 0, "wide", 2]}]})
+    assert "error" in hub.save_plan({"rooms": [{"id": "x", "poly": [[0, 0], [1, 0]]}]})
     assert json.loads((conf / "plan.json").read_text())["name"] == "Again" and hub.plan_rev == rev + 2
 
 
@@ -327,6 +328,59 @@ def test_plan_from_devices():
     assert by_name["Window Light"]["link"] == {"service": "wiz", "id": "c"}
     assert p["acs"][0]["link"] == {"service": "mrcool", "id": "m"} and p["acs"][0]["unit"] == "F"
     assert len({d["id"] for d in [*p["lights"], *p["acs"], *p["rooms"]]}) == 8
+
+
+def test_new_hub_starts_from_rileys_studio(tmp_path, monkeypatch):
+    monkeypatch.setattr(house, "PANEL_PLAN", tmp_path / "no-mac-app" / "plan.json")
+    (tmp_path / "devices.json").write_text(json.dumps({"lights": {
+        "dc067586ebf8": {"name": "Door Light", "room": "Studio", "service": "aidot", "ip": "192.168.0.171"},
+        "d807b6a0ea92": {"name": "bathroom light", "room": "Bathroom", "service": "aidot", "ip": "192.168.0.244"}}}))
+    hub = house.Hub(tmp_path)
+    found = [{"id": "dc067586ebf8", "service": "aidot", "kind": "bulb", "ip": "192.168.0.171"},
+             {"id": "d807b6a0ea92", "service": "aidot", "kind": "bulb", "ip": "192.168.0.244"}]
+    hub.aidot = type("Aidot", (), {"configured": True, "describe_all": lambda self: found})()
+    hub._rebuild_plan()
+    assert hub.plan["name"] == "Riley's Studio" and hub.plan["seededBy"] == "hub"
+    assert any("poly" in r for r in hub.plan["rooms"])
+    # The bulbs found are linked by name; the links in the file stay as they are.
+    assert hub.links["studio.door"] == ("aidot", "dc067586ebf8")
+    assert hub.links["bathroom.ceiling"] == ("aidot", "d807b6a0ea92")
+    assert hub.links["kitchen.edison"] == ("wiz", "d8a0113a23e6") and hub.links["studio.ac"] == ("mrcool", "485519fb47c7")
+    # Until a plan is saved it keeps following the devices; once saved it is the user's.
+    found.pop()
+    hub._rebuild_plan()
+    assert "bathroom.ceiling" not in hub.links
+    edited = {**hub.plan, "name": "Mine"}
+    assert hub.save_plan(edited)["ok"]
+    saved = json.loads((tmp_path / "plan.json").read_text())
+    assert saved["name"] == "Mine" and "seededBy" not in saved
+    found.append({"id": "d807b6a0ea92", "service": "aidot", "kind": "bulb"})
+    hub._rebuild_plan()
+    assert hub.plan["name"] == "Mine" and "bathroom.ceiling" not in hub.links
+
+
+def test_hub_with_a_made_plan_keeps_making_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(house, "PANEL_PLAN", tmp_path / "no-mac-app" / "plan.json")
+    (tmp_path / "devices.json").write_text(json.dumps({"rooms": ["Den"]}))
+    (tmp_path / "plan.json").write_text(json.dumps(plan.build({"rooms": ["Old"]}, [], [])))
+    hub = house.Hub(tmp_path)
+    hub._rebuild_plan()
+    assert hub.plan["generatedBy"] == "hub" and hub.plan["rooms"][0]["name"] == "Den"
+
+
+def test_plan_seed_links_by_name():
+    base = {"rooms": [], "lights": [{"id": "a", "name": "Door Light"}, {"id": "b", "name": "Desk",
+                                     "link": {"service": "wiz", "id": "x"}}, {"id": "c", "name": "door light"}],
+            "acs": [{"id": "ac", "name": "Bedroom AC"}]}
+    p = plan.seed(base, {"acs": {"m": {"name": "Bedroom AC"}}},
+                  [{"id": "y", "name": "Door Light"}, {"id": "x", "name": "Desk"}], [{"id": "m", "name": "Unit"}])
+    by_id = {l["id"]: l.get("link") for l in p["lights"]}
+    # One device links to one lamp; a wiz bulb is the default service, an AC is MRCOOL.
+    assert by_id == {"a": {"service": "wiz", "id": "y"}, "b": {"service": "wiz", "id": "x"}, "c": None}
+    assert p["acs"][0]["link"] == {"service": "mrcool", "id": "m"}
+    assert "link" not in base["lights"][0]  # the template itself is left alone
+    # The bundled file is found and is a plan.
+    assert plan.template(Path("/nonexistent"))["name"] == "Riley's Studio"
 
 
 # ---------- the whole hub ----------
@@ -468,7 +522,8 @@ class _FakeAidot:
         self.state.setdefault(key, {}).update(patch)
 
 
-def test_hub_routes_aidot_commands(tmp_path):
+def test_hub_routes_aidot_commands(tmp_path, monkeypatch):
+    monkeypatch.setattr(plan, "template", lambda web: None)  # no bundled home: the plan is made from the devices
     async def go():
         (tmp_path / "devices.json").write_text(json.dumps({
             "rooms": ["Bedroom"], "lights": {

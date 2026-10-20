@@ -1,14 +1,19 @@
-"""A floor plan made from the devices themselves, until the home is drawn properly.
+"""The hub's floor plan until the home is drawn in the editor.
 
-Each room named in devices.json becomes a simple 4.5 × 4 m box, laid out two to a row,
-with its lights and ACs placed inside and a piece of furniture that says what the room
-is. Every lamp and AC is linked to its real device (`link: {service, id}`), so the
-panel controls the real thing. A plan.json without "generatedBy": "hub" is the user's
-own and is used as it is.
+A hub with no plan.json starts from Riley's Studio, the panel's bundled default home
+(`plans/riley.json`), with its lamps and ACs linked by name to the devices the drivers
+found (`seed`). Without that file, each room named in devices.json becomes a simple
+4.5 × 4 m box, laid out two to a row, with its lights and ACs placed inside and a piece
+of furniture that says what the room is (`build`). Every lamp and AC is linked to its
+real device (`link: {service, id}`), so the panel controls the real thing. A plan.json
+without "generatedBy": "hub" or "seededBy": "hub" is the user's own and is used as it is.
 """
 from __future__ import annotations
 
+import copy
+import json
 import re
+from pathlib import Path
 
 W, D = 4.5, 4.0  # a room's width and depth, in metres
 
@@ -34,6 +39,59 @@ def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "room"
 
 
+def named(names: dict, kind: str, dev: dict) -> dict:
+    """A device as a driver describes it, with its name and room from devices.json."""
+    given = (names.get(kind) or {}).get(dev["id"], {})
+    if not given and kind == "lights":
+        # A driver may learn a bulb under a new id (AiDot reissues device
+        # ids): the address or the app name in devices.json still matches.
+        for candidate in (names.get(kind) or {}).values():
+            if not isinstance(candidate, dict):
+                continue
+            if candidate.get("ip") and candidate["ip"] == dev.get("ip"):
+                given = candidate
+                break
+            if candidate.get("name") and candidate["name"] == dev.get("name"):
+                given = candidate
+                break
+    return {**dev, **(given if isinstance(given, dict) else {})}
+
+
+def template(web: Path) -> dict | None:
+    """Riley's Studio as the panel ships it: the built site's copy, else the repo's."""
+    for path in (web / "plans" / "riley.json", Path(__file__).resolve().parent.parent / "web" / "public" / "plans" / "riley.json"):
+        try:
+            plan = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(plan, dict) and isinstance(plan.get("rooms"), list):
+            return plan
+    return None
+
+
+def seed(base: dict, names: dict, lights: list[dict], acs: list[dict]) -> dict:
+    """`base` (Riley's Studio) with each unlinked lamp and AC linked to the found device of
+    the same name (devices.json's name, or the driver's), so "Door Light" and "Bathroom Light"
+    find their AiDot bulbs. Links already in the file are kept; a device links to one item."""
+    plan = copy.deepcopy(base)
+    plan["seededBy"] = "hub"
+    for key, found, service in (("lights", lights, "wiz"), ("acs", acs, "mrcool")):
+        items = [i for i in plan.get(key) or [] if isinstance(i, dict)]
+        devices = [named(names, key, d) for d in found]
+        taken = {(i["link"].get("service"), i["link"].get("id")) for i in items if isinstance(i.get("link"), dict)}
+        for item in items:
+            if (item.get("link") or {}).get("id"):
+                continue
+            want = str(item.get("name") or "").strip().casefold()
+            for dev in devices:
+                link = (dev.get("service") or service, dev["id"])
+                if want and link not in taken and str(dev.get("name") or "").strip().casefold() == want:
+                    item["link"] = {"service": link[0], "id": link[1]}
+                    taken.add(link)
+                    break
+    return plan
+
+
 def build(names: dict, lights: list[dict], acs: list[dict]) -> dict:
     """`names` is devices.json; `lights` and `acs` are what the drivers found
     (`describe()` of each). Devices without a room in devices.json go in "Home"."""
@@ -43,23 +101,11 @@ def build(names: dict, lights: list[dict], acs: list[dict]) -> dict:
             rooms.append(r)
 
     def entry(kind: str, dev: dict) -> dict:
-        given = (names.get(kind) or {}).get(dev["id"], {})
-        if not given and kind == "lights":
-            # A driver may learn a bulb under a new id (AiDot reissues device
-            # ids): the address or the app name in devices.json still matches.
-            for candidate in (names.get(kind) or {}).values():
-                if not isinstance(candidate, dict):
-                    continue
-                if candidate.get("ip") and candidate["ip"] == dev.get("ip"):
-                    given = candidate
-                    break
-                if candidate.get("name") and candidate["name"] == dev.get("name"):
-                    given = candidate
-                    break
+        given = named(names, kind, dev)
         room = given.get("room") or "Home"
         if room not in rooms:
             rooms.append(room)
-        return {**dev, **given, "room": room}
+        return {**given, "room": room}
 
     placed_lights = [entry("lights", l) for l in lights]
     placed_acs = [entry("acs", a) for a in acs]
