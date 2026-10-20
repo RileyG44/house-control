@@ -251,8 +251,8 @@ export function createToaster(host) {
     show(text, { action = null, tone = '', duration = action ? 5000 : 2600 } = {}) {
       clearTimeout(timer);
       el.className = `ed-toast${tone ? ` ${tone}` : ''}`;
-      el.replaceChildren(h('span.ed-toast-text', text),
-        action ? h('button.ed-toast-action', { type: 'button', onclick: () => { hide(); haptic('light'); action.onClick(); } }, action.label) : null);
+      el.replaceChildren(h('span.ed-toast-text', text));
+      if (action) el.append(h('button.ed-toast-action', { type: 'button', onclick: () => { hide(); haptic('light'); action.onClick(); } }, action.label));
       void el.offsetWidth;
       el.classList.add('show');
       timer = setTimeout(hide, duration);
