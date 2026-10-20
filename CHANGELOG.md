@@ -20,6 +20,14 @@ What changed in each release of House Control. The Mac app is on
   plan picker as **Demo apartment** and **Demo studio**.
 - The AI's floor plan tools take polygon rooms, door hinges and curtains, and the new furniture.
 
+### TV
+
+- **The TV in the model** shows what the real TV is showing: the app's logo on its screen, lit in the app's colours,
+  and dark when the TV is off. It comes from tv-remote on the Mac through the hub, live within a couple of seconds.
+- **A remote for the TV:** tap the TV (in the model or its tile) for a sheet with its apps, a touch pad, volume, and
+  search across the streaming apps: pick a title and the TV opens it in the app that has it. In the editor, a TV
+  piece's **Linked TV** chooses which TV it shows (or none).
+
 ### Mac
 
 - **Open at Login**, in the menu bar icon's right-click menu and in the panel's gear menu: House Control starts with

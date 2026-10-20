@@ -182,3 +182,23 @@ Native Swift widgets / Dynamic Island TV status, the AI-access agent's TV tools,
   pad, volume and search results (simulated TV + canned search in the browser preview).
 - On the Mac: the model shows the real TV's state within ~2 s of a change on the TV; opening
   an app, the pad, volume and a search → play work against the real TV.
+
+## Status
+
+Built (October 2026), everything above except the "Done when" checks that need the real TV:
+
+- **Hub**: `hub/tv.py` with `GET /api/tv`, `GET /api/tv/search`, `POST /api/tv/{id}` and the
+  `{"tv": …}` event on `/api/events`; tests in `hub/tests/test_tv.py` against a pretend
+  tv-remote and a canned JustWatch answer (`hub/tests/justwatch_search.json`). tv-remote's URL:
+  `HOUSE_TV_URL`, else `~/.house-hub/tv.json` (`{"url": "http://192.168.0.188:8765"}`), else
+  port 8765 on the Mac's LAN address.
+- **Mac app**: `hubRequest` (only `api/tv…` paths) through `LocalHubClient.request`; not compiled
+  here (no Swift toolchain), so the first build on the Mac is its check. The iPhone app has no
+  `hubRequest`; the panel stops asking after one unanswered call and shows no TV.
+- **Web**: `web/src/tv/` (client, logos, simulated TV, remote controls), the lit screen and its
+  pick target in `web/src/three/tv.js`, the TV tile and sheet in `ui/panel.js`, and **Linked TV**
+  (Automatic / None / each TV) on a TV piece's page in the editor. An AI's plan edits keep a TV
+  piece's `device`. A plain browser (or `?tv=demo`) gets the simulated TV and a canned search.
+- **Not yet checked against the real TV**: the ~2 s update, app launches and deep links, and
+  live JustWatch answers (unreachable from where this was built; the query is the one
+  tv-remote uses, with `posterUrl` added).
