@@ -846,3 +846,291 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
     animation-duration: 1ms !important; transition-duration: 1ms !important;
   }
 }
+
+/* ---------- the TV: its tile, and its sheet (the launcher and remote) ---------- */
+
+.tile.tv { grid-column: 1 / -1; cursor: pointer; }
+.tile.tv .bubble.logo { overflow: hidden; background: #000; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1); }
+.tile.tv .bubble.logo .tv-logo { width: 100%; height: 100%; display: block; }
+.tile.tv.on .mini-power { background: color-mix(in srgb, var(--c) 80%, #1a1d26); color: #fff; }
+.mini-power:disabled { opacity: 0.4; cursor: default; }
+.round.power:disabled { opacity: 0.45; cursor: default; }
+
+.panel-toast.note { color: var(--text); background: rgba(22, 28, 46, 0.94); border-color: var(--line); }
+
+.sheet.tv { padding-bottom: 0; }
+.tv-scroll {
+  flex: 1;
+  min-height: 0;
+  margin: 6px -20px 0;
+  padding: 8px 20px 22px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 20px), transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 20px), transparent 100%);
+}
+.tv-scroll::-webkit-scrollbar { display: none; }
+.tv-scroll > :first-child { margin-top: 0; }
+
+.tv-problem { margin: 4px 0 6px; }
+.tv-problem .icon { color: #ffb4a8; }
+
+.tv-label {
+  margin: 16px 4px 8px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* Now on: the app on the screen */
+.tv-now {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 4px; padding: 7px 8px 7px 7px; border-radius: 17px;
+  background: var(--glass); border: 1px solid var(--line);
+  animation: tile-in 420ms var(--ease) both;
+}
+.tv-now-logo { width: 34px; height: 34px; border-radius: 10px; overflow: hidden; flex: none; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1); }
+.tv-now-logo .tv-logo { width: 100%; height: 100%; display: block; }
+.tv-now-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tv-now-text span { font-size: 11px; color: var(--muted); }
+.tv-now-text b { font-size: 13.5px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tv-now-home {
+  width: 32px; height: 32px; border-radius: 50%; flex: none;
+  display: grid; place-items: center; color: var(--muted);
+  background: rgba(255, 255, 255, 0.07);
+  transition: background 180ms, color 180ms, transform 240ms var(--spring);
+}
+@media (hover: hover) { .tv-now-home:hover { background: rgba(255, 255, 255, 0.14); color: var(--text); } }
+.tv-now-home:active { transform: scale(0.88); }
+
+/* Apps: a row that scrolls sideways, a grid where the sheet is wide */
+.tv-apps {
+  display: flex; gap: 10px;
+  margin: 0 -20px; padding: 3px 20px 4px;
+  overflow-x: auto; scrollbar-width: none;
+  scroll-snap-type: x proximity; scroll-padding: 0 20px;
+}
+.tv-apps::-webkit-scrollbar { display: none; }
+.sheet.tv { container-type: inline-size; }
+@container (min-width: 560px) {
+  .tv-apps { flex-wrap: wrap; overflow: visible; margin: 0; padding: 3px 0 4px; }
+}
+.tv-app {
+  flex: none; width: 64px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  scroll-snap-align: start;
+}
+.tv-app-icon {
+  position: relative; width: 58px; height: 58px; border-radius: 17px; overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 6px 14px -8px rgba(0, 0, 0, 0.7);
+  transition: transform 300ms var(--spring), box-shadow 260ms;
+}
+.tv-app-icon .tv-logo { width: 100%; height: 100%; display: block; }
+.tv-app:active .tv-app-icon { transform: scale(0.9); }
+@media (hover: hover) { .tv-app:hover .tv-app-icon { transform: translateY(-2px); } }
+.tv-app-name { max-width: 64px; font-size: 11px; font-weight: 550; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 200ms; }
+.tv-app-dot {
+  position: absolute; top: 5px; right: 5px; width: 8px; height: 8px; border-radius: 50%;
+  background: #4ade80; box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.55), 0 0 8px #4ade80;
+  opacity: 0; transform: scale(0.4); transition: opacity 200ms, transform 300ms var(--spring);
+}
+.tv-app.current .tv-app-icon { box-shadow: 0 0 0 2px #0b0f1c, 0 0 0 4px rgba(255, 255, 255, 0.92); }
+.tv-app.current .tv-app-dot { opacity: 1; transform: none; }
+.tv-app.current .tv-app-name { color: var(--text); font-weight: 650; }
+.tv-app.opening .tv-app-icon { animation: tv-opening 900ms ease-in-out infinite; }
+@keyframes tv-opening { 50% { transform: scale(0.93); opacity: 0.7; } }
+
+/* The remote: Back and Home, the pad, Play/Pause and Mute */
+.tv-remote {
+  display: grid;
+  grid-template-columns: auto minmax(168px, 224px) auto;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  transition: opacity 260ms;
+}
+.tv-remote.asleep .tv-pad, .tv-remote.unreachable .tv-key { opacity: 0.55; }
+.tv-keys { display: flex; flex-direction: column; gap: 16px; }
+.tv-key { width: 46px; height: 46px; }
+.tv-key.active { background: rgba(255, 105, 95, 0.2); border-color: rgba(255, 130, 120, 0.4); color: #ff9a90; }
+.tv-playpause { display: flex; align-items: center; justify-content: center; gap: 0; }
+.tv-playpause .icon:first-child { margin-right: -2px; }
+
+.tv-pad {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.025) 72%),
+    rgba(0, 0, 0, 0.22);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.09) inset,
+    0 1px 0 0 rgba(255, 255, 255, 0.1) inset,
+    0 18px 34px -18px rgba(0, 0, 0, 0.8);
+  touch-action: none;
+  cursor: pointer;
+  outline: none;
+  transition: opacity 260ms, box-shadow 200ms;
+}
+.tv-pad:focus-visible { box-shadow: 0 0 0 2px var(--accent), 0 18px 34px -18px rgba(0, 0, 0, 0.8); }
+.tv-press {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(from -45deg, rgba(150, 190, 255, 0.24) 0deg 90deg, transparent 90deg);
+  -webkit-mask-image: radial-gradient(circle, transparent 29%, #000 30%);
+  mask-image: radial-gradient(circle, transparent 29%, #000 30%);
+  opacity: 0;
+  transition: opacity 220ms;
+  pointer-events: none;
+}
+.tv-pad[data-press=up] .tv-press, .tv-pad[data-press=right] .tv-press,
+.tv-pad[data-press=down] .tv-press, .tv-pad[data-press=left] .tv-press { opacity: 1; transition: opacity 60ms; }
+.tv-pad[data-press=right] .tv-press { transform: rotate(90deg); }
+.tv-pad[data-press=down] .tv-press { transform: rotate(180deg); }
+.tv-pad[data-press=left] .tv-press { transform: rotate(270deg); }
+.tv-arrow { position: absolute; color: var(--muted); pointer-events: none; transition: color 120ms, transform 160ms var(--spring); }
+.tv-arrow.up { top: 9%; left: 50%; transform: translateX(-50%); }
+.tv-arrow.down { bottom: 9%; left: 50%; transform: translateX(-50%); }
+.tv-arrow.left { left: 9%; top: 50%; transform: translateY(-50%); }
+.tv-arrow.right { right: 9%; top: 50%; transform: translateY(-50%); }
+.tv-pad[data-press=up] .tv-arrow.up, .tv-pad[data-press=down] .tv-arrow.down,
+.tv-pad[data-press=left] .tv-arrow.left, .tv-pad[data-press=right] .tv-arrow.right { color: #fff; }
+.tv-ok {
+  position: absolute; inset: 29%; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 14px; font-weight: 700; letter-spacing: 0.06em; color: var(--text);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.08));
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset, 0 8px 18px -8px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  transition: transform 200ms var(--spring), background 120ms;
+}
+.tv-pad[data-press=ok] .tv-ok { transform: scale(0.92); background: rgba(150, 190, 255, 0.3); transition: transform 80ms, background 60ms; }
+
+/* Volume */
+.tv-volume-row { margin-top: 18px; }
+.tv-volume { display: flex; align-items: center; gap: 10px; }
+.tv-step { width: 40px; height: 40px; flex: none; }
+.tv-track {
+  position: relative; flex: 1; min-width: 0; height: 44px; border-radius: 15px;
+  display: flex; align-items: center; gap: 8px; padding: 0 14px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.36);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+  cursor: ew-resize; touch-action: none; outline: none;
+}
+.tv-track:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.tv-fill {
+  position: absolute; inset: 0 auto 0 0; width: calc(var(--p, 0) * 100%);
+  background: linear-gradient(90deg, rgba(90, 150, 255, 0.34), rgba(150, 195, 255, 0.58));
+  transition: width 260ms var(--ease);
+}
+.tv-track.dragging .tv-fill { transition: none; }
+.tv-speaker, .tv-level { position: relative; }
+.tv-speaker { color: var(--text); }
+.tv-level { margin-left: auto; font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.tv-track.muted .tv-fill { background: rgba(255, 255, 255, 0.1); }
+.tv-track.muted .tv-speaker { color: #ff9a90; }
+.tv-track.muted .tv-level { color: var(--muted); }
+
+/* Search */
+.tv-search {
+  display: flex; align-items: center; gap: 9px;
+  height: 44px; padding: 0 8px 0 13px; border-radius: 15px;
+  color: var(--muted);
+  background: var(--glass); border: 1px solid var(--line);
+  transition: border-color 200ms, background 200ms;
+  cursor: text;
+}
+.tv-search:focus-within { border-color: rgba(120, 175, 255, 0.55); background: var(--glass-hi); }
+.tv-search-input {
+  flex: 1; min-width: 0; height: 100%;
+  font: inherit; font-size: 14px; color: var(--text);
+  background: none; border: 0; outline: none; padding: 0;
+  -webkit-appearance: none; appearance: none;
+  user-select: text; -webkit-user-select: text;
+}
+.tv-search-input::placeholder { color: var(--faint); }
+.tv-search-input::-webkit-search-cancel-button { display: none; }
+.tv-search-clear {
+  width: 24px; height: 24px; border-radius: 50%; flex: none;
+  display: grid; place-items: center; color: var(--text); background: rgba(255, 255, 255, 0.14);
+}
+.tv-results { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.tv-results:empty { display: none; }
+.tv-results-state { display: flex; align-items: center; gap: 8px; padding: 8px 6px; font-size: 12.5px; color: var(--muted); }
+.tv-results-state.error { color: #ffb4a8; }
+.tv-spin { display: inline-grid; animation: tv-spin 0.9s linear infinite; }
+@keyframes tv-spin { to { transform: rotate(360deg); } }
+.tv-result {
+  display: flex; align-items: center; gap: 11px;
+  padding: 7px 8px 7px 7px; border-radius: 16px;
+  background: var(--glass); border: 1px solid var(--line);
+  animation: tile-in 360ms var(--ease) both;
+  transition: background 200ms, transform 280ms var(--spring);
+}
+.tv-result.playable { cursor: pointer; }
+@media (hover: hover) { .tv-result.playable:hover { background: var(--glass-hi); } }
+.tv-result.playable:active { transform: scale(0.98); }
+.tv-poster {
+  position: relative; flex: none; width: 40px; height: 58px; border-radius: 8px; overflow: hidden;
+  display: grid; place-items: center;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--tint) 70%, #10131c), color-mix(in srgb, var(--tint) 22%, #0a0e1a));
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+}
+.tv-poster-letter { font-size: 19px; font-weight: 750; color: rgba(255, 255, 255, 0.85); }
+.tv-poster img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 260ms; }
+.tv-poster.loaded img { opacity: 1; }
+.tv-result-text { flex: 1; min-width: 0; }
+.tv-result-title { font-size: 13.5px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tv-result-sub { margin-top: 2px; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tv-result-note { margin-top: 3px; font-size: 11.5px; color: var(--faint); line-height: 1.3; }
+.tv-result.unavailable .tv-poster { opacity: 0.6; }
+.tv-result-apps { display: flex; gap: 6px; flex: none; }
+.tv-offer {
+  width: 32px; height: 32px; border-radius: 10px; overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+  transition: transform 260ms var(--spring);
+}
+.tv-offer .tv-logo { width: 100%; height: 100%; display: block; }
+@media (hover: hover) { .tv-offer:hover { transform: translateY(-2px); } }
+.tv-offer:active { transform: scale(0.88); }
+.tv-extra { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.tv-extra-row {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 44px; padding: 7px 12px 7px 9px; border-radius: 14px;
+  text-align: left; font-size: 13px; color: var(--text);
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  transition: background 180ms, transform 260ms var(--spring);
+}
+@media (hover: hover) { .tv-extra-row:hover { background: var(--glass); } }
+.tv-extra-row:active { transform: scale(0.98); }
+.tv-extra-row b { font-weight: 650; }
+.tv-extra-row > span:last-child { min-width: 0; }
+.tv-extra-row small { display: block; font-size: 11px; color: var(--muted); }
+.tv-extra-icon {
+  width: 28px; height: 28px; border-radius: 9px; flex: none;
+  display: grid; place-items: center; color: #a9cbff; background: rgba(61, 139, 255, 0.16);
+}
+
+html.ios .tv-app { width: 68px; }
+html.ios .tv-app-icon { width: 62px; height: 62px; border-radius: 18px; }
+html.ios .tv-app-name { font-size: 12px; max-width: 68px; }
+html.ios .tv-label { font-size: 11.5px; }
+html.ios .tv-now-text b { font-size: 15px; }
+html.ios .tv-now-text span { font-size: 12px; }
+html.ios .tv-remote { grid-template-columns: auto minmax(180px, 240px) auto; }
+html.ios .tv-key { width: 52px; height: 52px; }
+html.ios .tv-keys { gap: 20px; }
+html.ios .tv-ok { font-size: 16px; }
+html.ios .tv-step { width: 46px; height: 46px; }
+html.ios .tv-track { height: 50px; border-radius: 17px; }
+html.ios .tv-level { font-size: 14px; }
+html.ios .tv-search { height: 48px; border-radius: 16px; }
+html.ios .tv-search-input { font-size: 16px; } /* smaller and Safari zooms in on focus */
+html.ios .tv-result-title { font-size: 15px; }
+html.ios .tv-result-sub, html.ios .tv-result-note { font-size: 12.5px; }
+html.ios .tv-offer { width: 36px; height: 36px; border-radius: 11px; }
+html.ios .tv-extra-row { min-height: 50px; font-size: 14px; }
+html.ios .tv-scroll { padding-bottom: calc(var(--safe-bottom) + 22px); }
+html.ios .sheet.tv { padding-bottom: 0; }

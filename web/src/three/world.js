@@ -8,6 +8,8 @@ import { buildHouse } from './house.js';
 import { buildFurniture } from './furniture.js';
 import { LightUnit } from './lights.js';
 import { ACUnit } from './ac.js';
+import { TvUnit } from './tv.js';
+import { tv, tvLinks } from '../tv/client.js';
 
 export const STAGE_BG = '#0a0e1a';
 
@@ -46,7 +48,8 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
 
   const house = buildHouse(config, camDir);
   scene.add(house.group);
-  scene.add(buildFurniture(config.furniture));
+  const furniture = buildFurniture(config.furniture);
+  scene.add(furniture);
 
   const lights = new Map();
   for (const cfg of config.lights) {
@@ -60,7 +63,10 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     acs.set(cfg.id, unit);
     scene.add(unit.group);
   }
-  const hitTargets = [...[...lights.values()].map((u) => u.hit), ...[...acs.values()].map((u) => u.hit), ...house.floors];
+  // Every TV piece shows the real TV it is linked to (tv/client.js), or stays dark.
+  const tvs = furniture.userData.tvs.map((piece) => new TvUnit(piece));
+  const hitTargets = [...[...lights.values()].map((u) => u.hit), ...[...acs.values()].map((u) => u.hit),
+    ...tvs.map((u) => u.hit), ...house.floors];
 
   // Night-time ambience: enough to read the model with every lamp off.
   scene.add(new THREE.HemisphereLight(0x8ea6ff, 0x0b0e17, 0.42));
@@ -145,6 +151,12 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
       const r = config.rooms.find((x) => x.id === f.id);
       box = new THREE.Box3(new THREE.Vector3(r.x, 0, r.z), new THREE.Vector3(r.x + r.w, H * 0.75, r.z + r.d));
       fill = 0.84;
+    } else if (f?.kind === 'tv' && tvOf(f.id)) {
+      // The TV from in front, close enough to read its screen.
+      const unit = tvOf(f.id);
+      box = unit.hit.geometry.boundingBox.clone().applyMatrix4(unit.hit.matrixWorld);
+      box.expandByVector(new THREE.Vector3(0.45, 0.15, 0.45));
+      fill = 0.86;
     } else if (f?.kind === 'ac') {
       const unit = acs.get(f.id);
       const p = unit.group.position;
@@ -220,6 +232,20 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     wake();
   }
 
+  function tvOf(id) {
+    return id ? tvs.find((u) => u.id === id) : null;
+  }
+
+  function syncTvs(state, opts = {}) {
+    const links = tvLinks(config.furniture, state);
+    for (const unit of tvs) {
+      unit.link(links.find((l) => l.index === unit.index)?.id ?? null);
+      unit.apply(unit.id ? state.devices.find((d) => d.id === unit.id) : null, opts);
+    }
+    wake();
+  }
+  const unsubscribeTv = tvs.length ? tv.subscribe((state) => syncTvs(state)) : () => {};
+
   const unsubscribe = store.on((change) => {
     if (change.type === 'tick') return;
     if (change.type === 'light') lights.get(change.id).apply(store.state.lights[change.id]);
@@ -239,7 +265,8 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     const r = canvas.getBoundingClientRect();
     ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
     raycaster.setFromCamera(ndc, camera);
-    const hits = raycaster.intersectObjects(hitTargets, false);
+    // A TV piece that shows no real TV is only furniture.
+    const hits = raycaster.intersectObjects(hitTargets, false).filter((h) => h.object.userData.kind !== 'tv' || h.object.userData.id);
     if (!hits.length) return null;
     // Devices win over the floor they stand on.
     const device = hits.find((h) => h.object.userData.kind !== 'room');
@@ -247,6 +274,7 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
   }
 
   function unitOf(t) {
+    if (t?.kind === 'tv') return tvOf(t.id);
     return t?.kind === 'light' ? lights.get(t.id) : t?.kind === 'ac' ? acs.get(t.id) : null;
   }
 
@@ -364,6 +392,7 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     if (tween) { stepTween(now); active = true; } else active = updateRig(dt);
     for (const unit of lights.values()) active = unit.update(dt) || active;
     for (const unit of acs.values()) active = unit.update(dt) || active;
+    for (const unit of tvs) active = unit.update(dt) || active;
     if (shadowFrames > 0) { renderer.shadowMap.needsUpdate = true; shadowFrames--; active = true; }
     if (active || awake > 0) {
       composer.render(dt);
@@ -394,6 +423,7 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
   const world = {
     lights,
     acs,
+    tvs,
 
     setInsets(top, bottom) { topInset = top; bottomInset = bottom; resize(); },
     resize,
@@ -402,8 +432,9 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
       topView = false;
       rig.focus = next;
       rig.zoom = 1;
-      rig.goal.az = baseAz + (next?.kind === 'ac' ? (WALL_SIDE[acs.get(next.id).cfg.wall] ?? 0) : 0);
-      rig.goal.el = next?.kind === 'ac' ? 30 : config.camera.elevation;
+      rig.goal.az = baseAz + (next?.kind === 'ac' ? (WALL_SIDE[acs.get(next.id).cfg.wall] ?? 0)
+        : next?.kind === 'tv' && tvOf(next.id) ? facing(tvOf(next.id).item.rot || 0) : 0);
+      rig.goal.el = next?.kind === 'ac' ? 30 : next?.kind === 'tv' && tvOf(next.id) ? 32 : config.camera.elevation;
       frameGoal();
       wake();
     },
@@ -470,6 +501,8 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
 
     dispose() {
       unsubscribe();
+      unsubscribeTv();
+      for (const unit of tvs) unit.dispose();
       tween?.resolve();
       tween = null;
       running = false;
@@ -487,13 +520,21 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
         updateRig(0.05);
         for (const unit of lights.values()) unit.update(0.05);
         for (const unit of acs.values()) unit.update(0.05);
+        for (const unit of tvs) unit.update(0.05);
       }
       renderer.shadowMap.needsUpdate = true;
       composer.render(0);
     },
   };
 
+  // The TV's front turned towards the camera, as far as the orbit allows.
+  function facing(rot) {
+    const d = ((((rot - baseAz) % 360) + 540) % 360) - 180;
+    return clamp(d, -30, 30);
+  }
+
   syncAll({ instant: true });
+  if (tvs.length) syncTvs(tv.state, { instant: true });
   resize();
   updateRig(0, true);
   return world;

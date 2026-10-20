@@ -126,6 +126,8 @@ if (isHub) {
     try { update = JSON.parse(ev.data); } catch { return; }
     if (update.reload) {
       planChanged(update);
+    } else if (update.tv) {
+      incoming.tvState?.(update.tv); // the TV (hub/tv.py), for tv/client.js
     } else incoming.applyRemote?.(update);
   };
 }

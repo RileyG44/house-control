@@ -59,6 +59,14 @@ function chair(color = BLACK) {
   return group(...legs(0.42, 0.42, 0.44, m, 0.04, 0.015), at(box(0.44, 0.05, 0.44, m, { r: 0.02 }), 0, 0.42, 0), back);
 }
 
+// A TV's panel: glossy black until three/tv.js lights it with what the real TV shows.
+// Its own material (never the shared cache), since each screen shows its own picture.
+function tvScreen(w, h) {
+  const screen = box(w, h, 0.01, new THREE.MeshStandardMaterial({ color: '#030406', roughness: 0.16, metalness: 0.3 }), { r: 0 });
+  screen.userData.size = [w, h];
+  return screen;
+}
+
 function doorLines(width, height, y, z, count, material) {
   const out = [];
   for (let i = 1; i < count; i++) out.push(at(box(0.008, height, 0.006, material, { r: 0 }), -width / 2 + (width / count) * i, y, z));
@@ -102,17 +110,17 @@ const builders = {
   tv({ width = 1.7 }) {
     const sw = width * 0.84;
     const sh = sw * 0.5625;
-    const screen = new THREE.MeshStandardMaterial({
-      color: '#05070c', roughness: 0.25, emissive: '#27407a', emissiveIntensity: 0.35,
-    });
-    return group(
+    const screen = tvScreen(sw - 0.02, sh - 0.02);
+    const g = group(
       at(box(width, 0.36, 0.4, mat(DARK_WOOD, { rough: 0.6 }), { r: 0.015 }), 0, 0.1, 0),
       ...legs(width, 0.4, 0.1, mat(BLACK), 0.08, 0.015),
       ...doorLines(width, 0.3, 0.13, 0.2, 3, mat(BLACK)),
       at(box(sw + 0.03, sh + 0.03, 0.035, mat(BLACK, { rough: 0.4 }), { r: 0.008 }), 0, 0.72, -0.15),
-      at(box(sw - 0.02, sh - 0.02, 0.01, screen, { r: 0 }), 0, 0.745, -0.129),
+      at(screen, 0, 0.745, -0.129),
       at(box(0.5, 0.07, 0.09, mat('#2a2c33', { rough: 0.7 }), { r: 0.02 }), 0, 0.46, 0.05),
     );
+    g.userData.screen = screen;
+    return g;
   },
 
   sideboard({ width = 1.6 }) {
@@ -409,7 +417,7 @@ const builders = {
     const seam = mat('#3d2a1d');
     const sw = Math.max(0.4, tv ?? width - 0.05);
     const sh = sw * 0.5625;
-    const screen = new THREE.MeshStandardMaterial({ color: '#05070c', roughness: 0.25, emissive: '#27407a', emissiveIntensity: 0.35 });
+    const screen = tvScreen(sw - 0.02, sh - 0.02);
     const g = group(
       at(box(width, 0.76, d, wood, { r: 0.012 }), 0, 0, 0),
       at(box(0.006, 0.66, 0.005, seam, { r: 0 }), 0, 0.06, d / 2 + 0.001),
@@ -418,9 +426,10 @@ const builders = {
       at(box(0.24, 0.015, 0.16, mat(BLACK, { rough: 0.4 }), { r: 0.005 }), 0, 0.795, -0.06),
       at(box(0.05, 0.1, 0.03, mat(BLACK, { rough: 0.4 }), { r: 0.005 }), 0, 0.81, -0.08),
       at(box(sw + 0.02, sh + 0.02, 0.04, mat(BLACK, { rough: 0.4 }), { r: 0.008 }), 0, 0.88, -0.08),
-      at(box(sw - 0.02, sh - 0.02, 0.01, screen, { r: 0 }), 0, 0.89, -0.055),
+      at(screen, 0, 0.89, -0.055),
     );
     for (let i = 1; i < 3; i++) g.add(at(box(width / 2 - 0.04, 0.006, 0.005, seam, { r: 0 }), -width / 4, 0.06 + (0.66 / 3) * i, d / 2 + 0.001));
+    g.userData.screen = screen;
     return g;
   },
 
@@ -578,15 +587,18 @@ export function footprint(item) {
 // Pieces that do not stand on the floor unless the plan's `y` says so.
 export const BASE_Y = { microwave: 0.9, closetRod: 1.75 };
 
+// The root's userData.tvs lists every TV piece: { index (in the plan), item, group, screen, box }.
 export function buildFurniture(items) {
   const root = new THREE.Group();
-  for (const item of items) {
+  root.userData.tvs = [];
+  for (const [index, item] of items.entries()) {
     const make = builders[item.type];
     if (!make || !Array.isArray(item.pos)) {
       console.warn(`[plan] skipping furniture of unknown type "${item.type}"`);
       continue;
     }
     const g = make(item);
+    if (g.userData.screen) root.userData.tvs.push({ index, item, group: g, screen: g.userData.screen, box: new THREE.Box3().setFromObject(g) });
     g.position.set(item.pos[0], item.y ?? BASE_Y[item.type] ?? 0, item.pos[1]);
     g.rotation.y = THREE.MathUtils.degToRad(item.rot || 0);
     const flat = g.userData.flat;

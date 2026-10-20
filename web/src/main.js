@@ -7,6 +7,7 @@ import { h, openMenu } from './ui/dom.js';
 import { icon } from './ui/icons.js';
 import { isNative, isHub, isPhone, post, incoming, haptic, CLIENT_ID, listenForPlanChanges } from './bridge.js';
 import { publishWidgets, runWidgetAction } from './widgets.js';
+import { tv } from './tv/client.js';
 
 const DEMO_PLANS = [
   { id: 'riley', name: 'Riley’s Studio' },
@@ -138,7 +139,7 @@ function mountHome(raw, { first = false, editing: underEditor = false, grown = f
       onPick(target) {
         if (!target) return;
         if (target.kind === 'light') { haptic('light'); store.toggleLight(target.id); }
-        else if (target.kind === 'ac') panel.openSheet(target);
+        else if (target.kind === 'ac' || target.kind === 'tv') panel.openSheet(target);
         else if (target.kind === 'room') panel.selectRoom(target.id);
       },
     });
@@ -161,8 +162,8 @@ function mountHome(raw, { first = false, editing: underEditor = false, grown = f
   const ro = new ResizeObserver(() => (isPhone && !m.editing ? m.applyInsets() : world.resize()));
   ro.observe(panel.canvas);
 
-  const show = () => { if (m.editing) return; world.setRunning(true); world.intro(); };
-  const hide = () => { world.setRunning(false); };
+  const show = () => { tv.setVisible(true); if (m.editing) return; world.setRunning(true); world.intro(); };
+  const hide = () => { tv.setVisible(false); world.setRunning(false); };
   incoming.shown = show;
   incoming.hidden = () => { hide(); panel.closeSheet(); if (panel.room !== 'all') panel.selectRoom('all'); };
   incoming.setNotch = (x) => panel.setNotch(x);
@@ -194,7 +195,17 @@ function mountHome(raw, { first = false, editing: underEditor = false, grown = f
     if (store.acCfg.has(id)) panel.openSheet({ kind: 'ac', id });
     else if (store.lightCfg.has(id)) panel.openSheet({ kind: 'light', id });
     else if (config.rooms.some((r) => r.id === id)) { panel.closeSheet(); panel.selectRoom(id); }
+    else openTvWhenKnown(id);
   };
+  // A TV is known once the TV has answered (it may be linked to the plan automatically).
+  function openTvWhenKnown(id) {
+    if (!id || panel.openTv(id) || tv.ready) return;
+    const off = tv.subscribe(() => {
+      if (!tv.ready) return;
+      off();
+      if (home === m) panel.openTv(id);
+    });
+  }
   // AI Access: an AI assistant's requests are run here, where the state of every device lives.
   const agent = createAgent({
     store, config, raw,
@@ -213,6 +224,10 @@ function mountHome(raw, { first = false, editing: underEditor = false, grown = f
   panel.setAgentLive(agentLive);
   incoming.openAtLogin = (s) => { openAtLogin = s; };
 
+  tv.onError = (message) => {
+    panel.toast(message);
+    haptic('error');
+  };
   store.onDeviceError = (id, message) => {
     const name = store.lightCfg.get(id)?.name || store.acCfg.get(id)?.name || id;
     panel.toast(`${name}: ${message}`);
@@ -265,13 +280,14 @@ function mountHome(raw, { first = false, editing: underEditor = false, grown = f
     const opened = window.__HOUSE_BOOT__?.openDevice || new URLSearchParams(location.search).get('device');
     if (store.acCfg.has(opened)) panel.openSheet({ kind: 'ac', id: opened });
     else if (store.lightCfg.has(opened)) panel.openSheet({ kind: 'light', id: opened });
+    else openTvWhenKnown(opened);
     if (!isNative) show();
     post('ready', { summary: store.summary() });
   } else if (!underEditor) {
     world.setRunning(true);
   }
   if (isNative) publishWidgets(config, store);
-  window.__house = { store, world, panel, config, edit: () => openEditor() }; // handy in the dev console
+  window.__house = { store, world, panel, config, tv, edit: () => openEditor() }; // handy in the dev console
 
   function dispose() {
     lifetime.abort();
