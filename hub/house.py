@@ -33,6 +33,7 @@ sys.path.insert(0, str(HERE))
 import plan as plans  # noqa: E402
 from aidot_lan import AidotError, AidotLanClient  # noqa: E402
 from mrcool import MrcoolClient, MrcoolError  # noqa: E402
+from tv import TvRemote, default_url as tv_url  # noqa: E402
 from wiz import Light, WizClient, WizError  # noqa: E402
 
 PORT = int(os.environ.get("HOUSE_HUB_PORT", "8766"))
@@ -81,6 +82,8 @@ class Hub:
         self.links: dict[str, tuple[str, str]] = {}   # plan id -> (service, device id)
         self.state: dict = {"lights": {}, "acs": {}, "features": {}, "offline": []}
         self.listeners: set[asyncio.Queue] = set()
+        # The TV, through tv-remote: read often while a panel is open.
+        self.tv = TvRemote(tv_url(conf, local_ip), self._publish, watched=lambda: bool(self.listeners))
         self._tasks: list[asyncio.Task] = []
         self._ac_due = 0.0
 
@@ -106,6 +109,7 @@ class Hub:
 
     async def start(self) -> None:
         self.http = aiohttp.ClientSession()
+        self.tv.http = self.http
         self.mrcool = MrcoolClient(self.conf / "mrcool.json", self.http)
         self.aidot = AidotLanClient(self.conf / "aidot.json", self.http)
         self._recall_lights()
@@ -130,7 +134,8 @@ class Hub:
                        asyncio.create_task(self._loop(self._poll_aidot_loop, LIGHT_POLL)),
                        asyncio.create_task(self._loop(self._poll_acs, 15.0)),
                        asyncio.create_task(self._loop(self._sync_panel_plan, 5.0)),
-                       asyncio.create_task(self._loop(self.discover, DISCOVER_EVERY))]
+                       asyncio.create_task(self._loop(self.discover, DISCOVER_EVERY)),
+                       asyncio.create_task(self.tv.run())]
 
     async def stop(self) -> None:
         for t in self._tasks:
@@ -503,6 +508,9 @@ def make_app(hub: Hub) -> web.Application:
         try:
             first = {k: hub.state[k] for k in ("lights", "acs", "features")}
             await resp.write(f"data: {json.dumps(first)}\n\n".encode())
+            if hub.tv.state is not None:
+                # Its own event, so a reader of the first event only (the Mac app) sees what it always did.
+                await resp.write(f"data: {json.dumps({'tv': hub.tv.state})}\n\n".encode())
             while True:
                 try:
                     msg = await asyncio.wait_for(q.get(), 20)
@@ -530,6 +538,23 @@ def make_app(hub: Hub) -> web.Application:
 
     async def devices(_):
         return web.json_response(hub.devices())
+
+    # ---------- the TV (tv.py) ----------
+
+    async def tv_state(_):
+        return web.json_response(await hub.tv.current(), headers={"Cache-Control": "no-store"})
+
+    async def tv_action(request):
+        try:
+            body = await request.json()
+        except ValueError:
+            return web.json_response({"error": "Send JSON"}, status=400)
+        result, status = await hub.tv.act(request.match_info["id"], body)
+        return web.json_response(result, status=status)
+
+    async def tv_search(request):
+        result, status = await hub.tv.search(request.query.get("q", ""))
+        return web.json_response(result, status=status)
 
     async def plan(_):
         return web.json_response(hub.plan, headers={"Cache-Control": "no-store", "X-Plan-Rev": str(hub.plan_rev)})
@@ -601,6 +626,9 @@ def make_app(hub: Hub) -> web.Application:
     app.router.add_get("/api/events", events)
     app.router.add_post("/api/call", call)
     app.router.add_get("/api/devices", devices)
+    app.router.add_get("/api/tv", tv_state)
+    app.router.add_get("/api/tv/search", tv_search)
+    app.router.add_post("/api/tv/{id}", tv_action)
     app.router.add_get("/api/plan", plan)
     app.router.add_post("/api/rescan", rescan)
     app.router.add_post("/api/mrcool", mrcool_key)

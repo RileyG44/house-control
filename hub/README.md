@@ -101,6 +101,20 @@ portal's Home Assistant page: `{"api_key": "PASTE-IT-HERE"}` to the same address
 Cielo's cloud is rate limited, so the hub reads the AC every 90 seconds; a change made in
 the panel shows at once.
 
+### The TV
+
+The Google TV is driven by **tv-remote**, a separate service on this Mac (`~/tv-remote`,
+port 8765). The hub reads it every 2 seconds while a panel is open, shows the TV's state in
+the model (off, or the app it is in), and passes the panel's remote on to it: the pad,
+volume, opening an app and playing a title found in the streaming catalog (JustWatch). The
+hub finds tv-remote at this Mac's LAN address, port 8765; `HOUSE_TV_URL` or
+`~/.house-hub/tv.json` (`{"url": "http://192.168.0.188:8765"}`) says otherwise. If it does
+not answer, the panel says so and everything else works as before.
+
+`GET /api/tv` is the TV's state, `POST /api/tv/<id>` with `{"action": …}` drives it (only the
+remote's own keys, `volume`, `text`, `search`, `open` an app and `play` a checked link), and
+`GET /api/tv/search?q=…` searches the catalog. See [docs/tv-remote.md](../docs/tv-remote.md).
+
 ## How it fits together
 
 ```
@@ -113,6 +127,7 @@ iPhone / Mac browser ── HTTP ──▶ hub (house.py, port 8766) ── UDP 
 - `wiz.py` — WiZ discovery and control.
 - `aidot_lan.py` — AiDot sign-in and local control, over `python-aidot`.
 - `mrcool.py` — the Cielo client (Open API key, or the MRCOOL account Alexa uses).
+- `tv.py` — the TV through tv-remote, and the streaming catalog search.
 - `plan.py` — the starting floor plan: Riley's Studio linked by name, or boxes made from `devices.json`.
 
 The panel is the same web UI the Mac and iPhone apps use (`../web`). Served by the hub it
@@ -141,3 +156,4 @@ with a `/tmp/hub/devices.json` that gives those lights `"ip": "127.0.0.2"` and s
 | `HOUSE_HUB_PORT` | `8766` | The panel's port |
 | `HOUSE_HUB_DIR` | `~/.house-hub` | Names, plan, Cielo key, log |
 | `HOUSE_HUB_WEB` | `../web/dist` | The built panel |
+| `HOUSE_TV_URL` | `http://<LAN IP>:8765` | tv-remote, the TV's service |

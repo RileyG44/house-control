@@ -1,0 +1,131 @@
+{
+  "_note": "A trimmed JustWatch popularTitles answer in the shape of tv.QUERY (written from the query, not captured).",
+  "data": {
+    "popularTitles": {
+      "edges": [
+        {
+          "node": {
+            "objectType": "SHOW",
+            "content": {
+              "title": "Stranger Things",
+              "originalReleaseYear": 2016,
+              "fullPath": "/us/tv-show/stranger-things",
+              "shortDescription": "When a young boy vanishes, a small town uncovers a mystery.",
+              "posterUrl": "/poster/323146457/{profile}/stranger-things.{format}"
+            },
+            "offers": [
+              {
+                "monetizationType": "FLATRATE",
+                "standardWebURL": "https://www.netflix.com/title/80057281",
+                "tvLink": "intent://www.netflix.com/title/80057281#Intent;scheme=https;package=com.netflix.ninja;end",
+                "package": { "clearName": "Netflix", "technicalName": "netflix" }
+              },
+              {
+                "monetizationType": "ADS",
+                "standardWebURL": "https://www.netflix.com/title/80057281",
+                "tvLink": null,
+                "package": { "clearName": "Netflix basic with Ads", "technicalName": "netflixbasicwithads" }
+              }
+            ]
+          }
+        },
+        {
+          "node": {
+            "objectType": "SHOW",
+            "content": {
+              "title": "The Bear",
+              "originalReleaseYear": 2022,
+              "fullPath": "/us/tv-show/the-bear",
+              "shortDescription": "A young chef returns to Chicago to run his family's sandwich shop.",
+              "posterUrl": "/poster/305563428/{profile}/the-bear.{format}"
+            },
+            "offers": [
+              {
+                "monetizationType": "FLATRATE",
+                "standardWebURL": "https://www.hulu.com/series/the-bear-05eb6a8e-90ed-4947-8c0b-e6536cbddd5f",
+                "tvLink": null,
+                "package": { "clearName": "Hulu", "technicalName": "hulu" }
+              },
+              {
+                "monetizationType": "FLATRATE",
+                "standardWebURL": "https://www.disneyplus.com/series/the-bear/1aNbB0hl5LS9",
+                "tvLink": "intent://www.disneyplus.com/series/the-bear/1aNbB0hl5LS9#Intent;scheme=https;package=com.netflix.ninja;end",
+                "package": { "clearName": "Disney Plus", "technicalName": "disneyplus" }
+              },
+              {
+                "monetizationType": "BUY",
+                "standardWebURL": "https://tv.apple.com/us/show/the-bear/umc.cmc.1mpvizchqkqfvx3ox9c7w3vnr",
+                "tvLink": null,
+                "package": { "clearName": "Apple TV", "technicalName": "itunes" }
+              }
+            ]
+          }
+        },
+        {
+          "node": {
+            "objectType": "MOVIE",
+            "content": {
+              "title": "Dune: Part Two",
+              "originalReleaseYear": 2024,
+              "fullPath": "/us/movie/dune-part-two",
+              "shortDescription": "Paul Atreides unites with the Fremen.",
+              "posterUrl": "/poster/313118777/{profile}/dune-part-two.{format}"
+            },
+            "offers": [
+              {
+                "monetizationType": "RENT",
+                "standardWebURL": "https://tv.apple.com/us/movie/dune-part-two/umc.cmc.4ipmzmoey1k8mz9ztcd5gs0j3",
+                "tvLink": null,
+                "package": { "clearName": "Apple TV", "technicalName": "itunes" }
+              },
+              {
+                "monetizationType": "BUY",
+                "standardWebURL": "https://tv.apple.com/us/movie/dune-part-two/umc.cmc.4ipmzmoey1k8mz9ztcd5gs0j3",
+                "tvLink": null,
+                "package": { "clearName": "Apple TV", "technicalName": "itunes" }
+              },
+              {
+                "monetizationType": "RENT",
+                "standardWebURL": "https://www.amazon.com/gp/video/detail/B0CVQ7Q6XG",
+                "tvLink": null,
+                "package": { "clearName": "Amazon Video", "technicalName": "amazon" }
+              }
+            ]
+          }
+        },
+        {
+          "node": {
+            "objectType": "MOVIE",
+            "content": {
+              "title": "Big Buck Bunny",
+              "originalReleaseYear": 2008,
+              "fullPath": "/us/movie/big-buck-bunny",
+              "shortDescription": null,
+              "posterUrl": null
+            },
+            "offers": [
+              {
+                "monetizationType": "FREE",
+                "standardWebURL": "https://youtu.be/aqz-KE-bpKQ?t=30",
+                "tvLink": null,
+                "package": { "clearName": "YouTube", "technicalName": "youtubefree" }
+              },
+              {
+                "monetizationType": "FREE",
+                "standardWebURL": "https://evil.example/watch?v=aqz-KE-bpKQ",
+                "tvLink": null,
+                "package": { "clearName": "Tubi TV", "technicalName": "tubitv" }
+              },
+              {
+                "monetizationType": "FLATRATE",
+                "standardWebURL": "https://example.com/bunny",
+                "tvLink": null,
+                "package": { "clearName": "Some Service", "technicalName": "someservice" }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
