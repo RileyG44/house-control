@@ -354,7 +354,10 @@ class TvRemote:
                     sample = nowplaying.from_adb(await self.adb.sessions(host), dev["app"], at)
             last = old.get(dev["id"])
             if time.monotonic() < self._settle.get(dev["id"], 0) and nowplaying.same_title(last, sample):
-                sample = last  # a seek just asked for: the TV is still catching up
+                # A seek just asked for: the TV may still report where it was. The position
+                # asked for stands; a pause or play pressed meanwhile still counts.
+                sample = last if sample["state"] == last["state"] else \
+                    {**sample, "position": nowplaying.position_at(last, at), "at": round(at, 3)}
             dev["nowPlaying"] = nowplaying.steady(last, sample)
 
     def close(self) -> None:

@@ -266,6 +266,13 @@ def test_hub_seek_and_skip(tmp_path, monkeypatch):
             cast.snap["nowPlaying"]["position"] = 420
             await hub.tv.refresh()
             assert hub.tv.state["devices"][0]["nowPlaying"]["position"] == 0
+            # A pause pressed meanwhile still shows, where the seek put it.
+            cast.snap["nowPlaying"]["state"] = "playing"
+            await hub.tv.refresh()
+            np = hub.tv.state["devices"][0]["nowPlaying"]
+            assert np["state"] == "playing" and np["position"] < 2
+            cast.snap["nowPlaying"]["state"] = "paused"
+            await hub.tv.refresh()
             hub.tv._settle.clear()
             await hub.tv.refresh()
             assert hub.tv.state["devices"][0]["nowPlaying"]["position"] == 420

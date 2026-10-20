@@ -92,6 +92,15 @@ def from_cast(snap: dict | None, app: dict | None, at: float) -> dict | None:
     }
 
 
+def position_at(np: dict, at: float) -> float | None:
+    """Where `np` is at the time `at`, given the clock runs while it plays."""
+    if np.get("position") is None:
+        return None
+    moved = at - np["at"] if np["state"] == "playing" else 0
+    top = np.get("duration")
+    return round(min(np["position"] + moved, top) if top else np["position"] + moved, 2)
+
+
 def steady(last: dict | None, sample: dict | None) -> dict | None:
     """`sample`, unless it only says what `last` already did: a playing position that moved
     on as it should (or a paused one that didn't move). Panels work the position out between
@@ -103,8 +112,7 @@ def steady(last: dict | None, sample: dict | None) -> dict | None:
         return sample
     if sample["position"] is None or last["position"] is None:
         return last if sample["position"] == last["position"] else sample
-    expected = last["position"] + (sample["at"] - last["at"] if last["state"] == "playing" else 0)
-    return last if abs(sample["position"] - expected) < DRIFT else sample
+    return last if abs(sample["position"] - position_at(last, sample["at"])) < DRIFT else sample
 
 
 def same_title(a: dict | None, b: dict | None) -> bool:
