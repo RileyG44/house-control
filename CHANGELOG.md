@@ -20,8 +20,19 @@ What changed in each release of House Control. The Mac app is on
   plan picker as **Demo apartment** and **Demo studio**.
 - The AI's floor plan tools take polygon rooms, door hinges and curtains, and the new furniture.
 
+### Panel
+
+- **Tiles in your own order.** Touch and hold a tile (or press and hold with the mouse) and drag it: the TV above
+  the AC, a lamp to the other side of the grid. The others slide out of the way, and it settles where you let go,
+  with a tap you can feel on the iPhone and on a Mac's trackpad. Tiles move within their room; Option + arrow keys
+  move the selected one. The order is part of the floor plan, so the Mac, the iPhone and the hub's site all show it.
+
 ### TV
 
+- **Now playing** on the TV remote: what's on (the show and episode, or the video and its channel) with its
+  picture, play and pause, back 10 s and ahead 30 s, and a slider to jump anywhere in it. The TV's tile says what's
+  on too. It comes from the TV over Cast through the hub (`pip install -r hub/requirements.txt` adds pychromecast),
+  or from adb for apps that don't tell Cast.
 - **The TV in the model** shows what the real TV is showing: the app's logo on its screen, lit in the app's colours,
   and dark when the TV is off. It comes from tv-remote on the Mac through the hub, live within a couple of seconds.
 - **A remote for the TV:** tap the TV (in the model or its tile) for a sheet with its apps, a touch pad, volume, and
