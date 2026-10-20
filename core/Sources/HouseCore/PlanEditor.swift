@@ -270,11 +270,14 @@ public struct PlanEditor {
         return added
     }
 
-    /// Removes a lamp or an AC, and its mentions in the scenes.
+    /// Removes a lamp or an AC, and its mentions in the scenes and the panel's tile order.
     public mutating func remove(_ id: String) {
         guard let (key, i) = index(of: id), var list = plan[key] as? [[String: Any]] else { return }
         list.remove(at: i)
         plan[key] = list
+        if let order = plan["tileOrder"] as? [Any] {
+            plan["tileOrder"] = order.filter { ($0 as? String) != id }
+        }
         guard var scenes = plan["scenes"] as? [[String: Any]] else { return }
         for s in scenes.indices {
             for map in ["lights", "acs"] {

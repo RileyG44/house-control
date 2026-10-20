@@ -90,11 +90,13 @@ final class PlanEditorTests: XCTestCase {
 
         var plan = editor.plan
         plan["scenes"] = [["id": "s", "lights": ["living.light": ["on": true], "*": ["on": false]]]]
+        plan["tileOrder"] = ["tv:79519fff", "living.light", "living.ac"]
         editor = PlanEditor(plan: plan)
         editor.remove("living.light")
         XCTAssertEqual(editor.items.map(\.id), ["living.ac"])
         let rules = (editor.plan["scenes"] as! [[String: Any]])[0]["lights"] as! [String: Any]
         XCTAssertEqual(Array(rules.keys), ["*"])
+        XCTAssertEqual(editor.plan["tileOrder"] as? [String], ["tv:79519fff", "living.ac"])
     }
 
     func testFixtureGuess() {

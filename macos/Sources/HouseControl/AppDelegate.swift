@@ -277,6 +277,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// The panel's tiles were dragged into a new order (the plan's `tileOrder`). The panel
+    /// already shows it, so it is not loaded again; the editor, the hub's links and the
+    /// phones take the saved plan. A demo home shown while the user has one of their own is
+    /// not saved over it (the panel keeps that order in the page instead).
+    private func savePanelOrder(_ config: [String: Any], _ message: [String: Any]) {
+        guard plans.activePlan == "custom" || !plans.hasCustomPlan else {
+            panel.host.reply(to: message, ["error": "The order of a demo home is not saved over your own home."])
+            return
+        }
+        do {
+            try plans.saveCustom(config)
+        } catch {
+            panel.host.reply(to: message, ["error": error.localizedDescription])
+            return
+        }
+        seenPlanRevision = plans.customPlanRevision // not news to the file watcher
+        reloadLinks()
+        panel.host.reply(to: message, ["ok": true, "path": plans.customPlanURL.path])
+        if let editor, let plan = plans.customPlan() { editor.host.call("planArrived", plan, "the panel") }
+        sync.broadcast()
+    }
+
     @objc private func reloadAll() {
         seenPlanRevision = plans.customPlanRevision
         reloadLinks()
@@ -401,12 +423,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "openAgent": openAgent()
         case "revealPlan": revealPlan()
         case "openEditor": openEditor()
+        case "haptic":
+            // A tile picked up, passing a place, settling (Force Touch trackpads).
+            let pattern: NSHapticFeedbackManager.FeedbackPattern
+            switch message["kind"] as? String {
+            case "medium", "heavy": pattern = .levelChange
+            case "error": pattern = .generic
+            default: pattern = .alignment
+            }
+            NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .now)
         case "quit": NSApp.terminate(nil)
         case "setOpenAtLogin": setOpenAtLogin(message["on"] as? Bool ?? false)
 
         // Editor
         case "savePlan":
             guard let config = message["config"] as? [String: Any] else { return }
+            if host === panel.host {
+                savePanelOrder(config, message)
+                return
+            }
             do {
                 try plans.saveCustom(config)
                 reloadAll()

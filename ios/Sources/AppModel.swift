@@ -266,6 +266,15 @@ final class AppModel {
             widgets.publish(message)
         case "haptic":
             Haptics.shared.play(message["kind"] as? String ?? "light")
+        case "savePlan":
+            // The tiles were dragged into a new order (the plan's `tileOrder`).
+            guard let config = message["config"] as? [String: Any] else { return }
+            do {
+                try saveTileOrder(config)
+                web.reply(to: message, ["ok": true])
+            } catch {
+                web.reply(to: message, ["error": error.localizedDescription])
+            }
         case "openSettings":
             settingsPath = []
             showSettings = true
@@ -331,6 +340,24 @@ final class AppModel {
         try plans.saveCustom(data: data)
         reloadHome()
         sync.sendPlan(data) // when the Mac is away, the next sync sends it
+    }
+
+    /// Stores the plan with the panel's tiles in a new order. The panel already shows it, so
+    /// the page is not loaded again; the Mac gets it as it gets any saved plan. A demo home
+    /// shown while the user has one of their own is not saved over it.
+    func saveTileOrder(_ plan: [String: Any]) throws {
+        guard plans.activePlan == "custom" || !plans.hasCustomPlan else {
+            throw NSError(domain: "HouseControl", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "The order of a demo home is not saved over your own home."])
+        }
+        let data = try PlanStore.encode(plan)
+        _ = try PlanStore.validate(data)
+        try plans.saveCustom(data: data)
+        activePlan = plans.activePlan
+        hasCustomPlan = plans.hasCustomPlan
+        customPlanName = plans.customPlanName
+        reloadLinks()
+        sync.sendPlan(data)
     }
 
     /// Starts a new home on this phone: an empty one with one room, or a copy of a demo
