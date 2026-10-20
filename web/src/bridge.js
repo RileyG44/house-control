@@ -72,18 +72,60 @@ async function hubCall(type, payload) {
 // event `by` this id, which the page ignores (it already shows that plan).
 export const CLIENT_ID = (crypto.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
 
+let queuedPlanChange = null;
+let readingPlan = false;
+let planRetry = 0;
+function planChanged(update) {
+  if (update?.by === CLIENT_ID) return;
+  queuedPlanChange = update;
+  drainPlanChanges();
+}
+async function drainPlanChanges() {
+  if (readingPlan || !incoming.planChanged) return;
+  clearTimeout(planRetry);
+  readingPlan = true;
+  try {
+    while (queuedPlanChange) {
+      const update = queuedPlanChange;
+      queuedPlanChange = null;
+      try { await incoming.planChanged(update); }
+      catch {
+        // Keep the page and unsaved edits during a disconnect. Serialize reads so
+        // a slower old response cannot replace a more recent plan.
+        queuedPlanChange ||= update;
+        planRetry = setTimeout(drainPlanChanges, 5000);
+        break;
+      }
+    }
+  } finally { readingPlan = false; }
+}
+export function listenForPlanChanges(listener) {
+  incoming.planChanged = listener;
+  drainPlanChanges(); // a change may have arrived while the 3D panel was mounting
+}
+
 // Device state from the hub, for incoming.applyRemote. Reconnects by itself (EventSource
 // does). When the hub's floor plan changed (a new light was found, a plan was saved on
 // another screen) the page takes it in place (planChanged: the panel swaps itself, an open
 // editor merges it); a page without that handler reloads.
 if (isHub) {
   const events = new EventSource('./api/events');
+  let connected = false;
+  events.onopen = () => {
+    // SSE sends current device state on reconnect, but plan events emitted while
+    // offline are gone. Reconcile the plan as well, without reloading the page.
+    if (connected) planChanged({ by: null });
+    connected = true;
+  };
+  window.addEventListener('online', () => planChanged({ by: null }));
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) planChanged({ by: null });
+  });
   events.onmessage = (ev) => {
     let update;
     try { update = JSON.parse(ev.data); } catch { return; }
     if (update.reload) {
-      if (incoming.planChanged) incoming.planChanged(update);
-      else location.reload();
+      planChanged(update);
     } else incoming.applyRemote?.(update);
   };
 }

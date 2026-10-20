@@ -389,7 +389,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "widgets":
             if host === panel.host { widgets.publish(message) }
         case "close":
-            panel.hide()
+            if let editor, host === editor.host { editor.close() }
+            else { panel.hide() }
         case "selectPlan":
             if let plan = message["plan"] as? String {
                 plans.select(plan)

@@ -9,7 +9,7 @@ import { createWorld } from '../three/world.js';
 import { lightColor } from '../three/lights.js';
 import { h } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
-import { isNative, isHub, isPhone, call, post, haptic, incoming, CLIENT_ID } from '../bridge.js';
+import { isNative, isHub, isPhone, call, post, haptic, incoming, CLIENT_ID, listenForPlanChanges } from '../bridge.js';
 import * as M from './model.js';
 import { createPlan } from './plan.js';
 import { createSheet } from './sheet.js';
@@ -132,6 +132,7 @@ export function createEditor(host, opts) {
 
   let gestureBefore = null;
   let deferredRemote = null;
+  let remoteEpoch = 0;
   const plan = createPlan({
     doc: () => doc,
     sel: () => sel,
@@ -146,6 +147,10 @@ export function createEditor(host, opts) {
         afterChange();
       } else plan.render();
       if (deferredRemote) { const [raw, from] = deferredRemote; deferredRemote = null; adoptRemote(raw, from); }
+    },
+    idle() {
+      if (deferredRemote) { const [raw, from] = deferredRemote; deferredRemote = null; adoptRemote(raw, from); }
+      if (refreshWanted) refreshSheet();
     },
     insets,
     units: () => M.unitsOf(doc),
@@ -587,9 +592,12 @@ export function createEditor(host, opts) {
     status = 'saving';
     renderStatus();
     const config = JSON.parse(JSON.stringify(doc));
+    const epoch = remoteEpoch;
     try {
       await call('savePlan', isHub ? { config, client: CLIENT_ID } : { config });
-      savedCanon = sent;
+      // A remote save can arrive before this request's response. Keep that newer
+      // baseline so our pending local edit is actually written over it once more.
+      if (epoch === remoteEpoch) savedCanon = sent;
       clearTimeout(retryTimer);
       status = canon(doc) === savedCanon ? 'saved' : 'saving';
       renderStatus();
@@ -609,9 +617,10 @@ export function createEditor(host, opts) {
   function adoptRemote(raw, from = 'another screen') {
     if (destroyed || !raw) return;
     // Never under a finger: taken when the drag ends.
-    if (plan.busy) { deferredRemote = [raw, from]; return; }
+    if (plan.pressed) { deferredRemote = [raw, from]; return; }
     const theirs = canon(raw);
     if (theirs === canon(doc)) { savedCanon = theirs; if (status !== 'preview') { status = 'saved'; renderStatus(); } return; }
+    remoteEpoch++;
     if (unsaved()) {
       // Last writer wins: ours is about to be saved over it.
       savedCanon = theirs;
@@ -939,19 +948,25 @@ export async function bootEditor(app) {
     canSave: isNative || isHub,
     showDone,
     section: boot.section || new URLSearchParams(location.search).get('section') || '',
-    onDone: () => leave(),
+    onDone: async (doc) => {
+      if (!isNative && !isHub) {
+        editor.destroy();
+        editor.el.remove();
+        const { showPreviewPanel } = await import('../main.js');
+        await showPreviewPanel(doc);
+      } else leave();
+    },
   });
 
   // A plan saved on the other device (the hub, the paired iPhone) while this is open.
   incoming.planArrived = (config, from) => editor.adoptRemote(config, from || 'your other device');
   // Served by the hub: a plan saved anywhere else arrives as a reload event.
-  incoming.planChanged = async (update) => {
+  listenForPlanChanges(async (update) => {
     if (update?.by === CLIENT_ID) return;
-    try {
-      const res = await fetch('./api/plan', { cache: 'no-store' });
-      editor.adoptRemote(await res.json(), 'another screen');
-    } catch { /* the hub is restarting; the next event brings it */ }
-  };
+    const res = await fetch('./api/plan', { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    editor.adoptRemote(await res.json(), 'another screen');
+  });
   post('ready');
   return editor;
 }

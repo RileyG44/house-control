@@ -1,5 +1,7 @@
 # Build output
 node_modules/
+.venv/
+__pycache__/
 web/dist/
 build/
 macos/.build/

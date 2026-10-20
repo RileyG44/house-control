@@ -80,6 +80,7 @@ final class WebHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         controller.removeAllUserScripts()
         var boot = bootProvider()
         boot["mode"] = mode
+        if mode == "editor" { boot["canClose"] = true }
         let json = WebJSON.literal(boot)
         controller.addUserScript(WKUserScript(source: "window.__HOUSE_BOOT__ = \(json);",
                                               injectionTime: .atDocumentStart, forMainFrameOnly: true))

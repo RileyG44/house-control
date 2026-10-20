@@ -30,6 +30,10 @@ final class EditorController: NSObject, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
     }
 
+    func close() {
+        window.close()
+    }
+
     func windowWillClose(_ notification: Notification) {
         onClose?()
     }

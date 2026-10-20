@@ -1038,8 +1038,12 @@ export function createPlan(ctl) {
     lastTap = { t: now, x: pt[0], y: pt[1] };
     ctl.select(null, { via: 'plan', tap: true });
   };
-  svg.addEventListener('pointerup', release);
-  svg.addEventListener('pointercancel', release);
+  const endPointer = (ev) => {
+    release(ev);
+    if (!pointers.size) ctl.idle?.();
+  };
+  svg.addEventListener('pointerup', endPointer);
+  svg.addEventListener('pointercancel', endPointer);
   svg.addEventListener('pointerleave', (ev) => { if (ev.pointerType === 'mouse' && !pointers.size) hover(null); });
 
   function startPinch() {

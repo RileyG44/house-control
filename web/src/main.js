@@ -5,7 +5,7 @@ import { createPanel } from './ui/panel.js';
 import { createAgent } from './agent/tools.js';
 import { h, openMenu } from './ui/dom.js';
 import { icon } from './ui/icons.js';
-import { isNative, isHub, isPhone, post, incoming, haptic, CLIENT_ID } from './bridge.js';
+import { isNative, isHub, isPhone, post, incoming, haptic, CLIENT_ID, listenForPlanChanges } from './bridge.js';
 import { publishWidgets, runWidgetAction } from './widgets.js';
 
 const DEMO_PLANS = [
@@ -22,8 +22,8 @@ const isElectron = /Electron/.test(navigator.userAgent);
 if (isElectron) document.documentElement.classList.add('electron');
 // The panel is a sheet of glass over the desktop (Liquid Glass in the Mac app, a blur in
 // a browser); the phone layout fills the screen and stays opaque.
-const mode = window.__HOUSE_BOOT__?.mode || new URLSearchParams(location.search).get('mode') || 'panel';
-const glass = mode === 'panel' && !isPhone;
+let mode = window.__HOUSE_BOOT__?.mode || new URLSearchParams(location.search).get('mode') || 'panel';
+let glass = mode === 'panel' && !isPhone;
 if (glass) document.documentElement.classList.add('glass');
 
 // ?safeTop=62&safeBottom=34 stands in for a phone's safe areas when its layout is looked at in a browser.
@@ -48,10 +48,10 @@ function fatal(title, error) {
   post('ready', { error: String(error?.message || error) });
 }
 
-async function boot() {
+async function boot(initialRaw = null) {
   let raw;
   try {
-    raw = await loadRawConfig();
+    raw = initialRaw || await loadRawConfig();
     normalize(structuredClone(raw));
   } catch (error) {
     fatal('Could not open this home', error);
@@ -65,17 +65,11 @@ async function boot() {
   }
   // Served by the hub: a plan saved on another screen (or new devices found) arrives as a
   // reload event. The panel swaps itself in place; an open editor takes it in.
-  incoming.planChanged = async (update) => {
+  listenForPlanChanges(async (update) => {
     if (update?.by === CLIENT_ID) return; // our own save coming back
-    let next;
-    try {
-      const res = await fetch('./api/plan', { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      next = await res.json();
-    } catch {
-      location.reload();
-      return;
-    }
+    const res = await fetch('./api/plan', { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const next = await res.json();
     if (editing) {
       if (editing.editor) editing.editor.adoptRemote(next, 'another screen');
       else editing.pending = next;
@@ -83,7 +77,21 @@ async function boot() {
     }
     if (JSON.stringify(next) === JSON.stringify(home.raw)) return;
     swapHome(next);
-  };
+  });
+}
+
+// A standalone browser preview has no server to keep its edits through a navigation.
+// Mount its edited document directly, just as Done in the in-panel editor does.
+export async function showPreviewPanel(raw) {
+  mode = 'panel';
+  glass = !isPhone;
+  document.documentElement.classList.remove('mode-editor');
+  document.documentElement.classList.toggle('glass', glass);
+  const url = new URL(location.href);
+  url.searchParams.delete('mode');
+  url.searchParams.delete('section');
+  history.replaceState(null, '', url);
+  await boot(raw);
 }
 
 /**
@@ -287,6 +295,8 @@ function swapHome(raw) {
     return;
   }
   home = next;
+  old.card.inert = true;
+  old.card.setAttribute('aria-hidden', 'true');
   next.card.classList.add('swap-in');
   old.card.classList.add('swap-out');
   void next.card.offsetWidth;
