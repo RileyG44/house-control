@@ -38,6 +38,12 @@ function lightTile(ctx, light, size = 40) {
   return t;
 }
 
+// "3.6 m × 2.2 m" for a rectangular room; a polygon room by its area.
+const roomSize = (r, units) => (M.isPoly(r) ? M.fmtArea(M.area(r), units) : M.fmtSize(r.rect[2], r.rect[3], units));
+
+// A catalog chip for a piece of furniture, drawn as it looks on the plan.
+const furnitureChip = (t, px) => ({ value: t, label: M.furnitureName(t), glyph: thumbnail({ type: t, ...(t === 'rug' ? { color: '#5a6b8f' } : t === 'counter' ? { sink: 'single' } : {}) }, px) });
+
 const linkName = (item) => {
   const l = linkOf(item);
   return l ? SERVICES[l.service]?.short || l.service : 'Simulated';
@@ -87,7 +93,7 @@ export function homePage(ctx) {
             const devices = c.lights.length + c.acs.length;
             return row({
               lead: floorChip(r.floor), title: r.name || r.id, key: `room-${r.id}`,
-              subtitle: `${M.fmtSize(r.rect[2], r.rect[3], units)} · ${devices ? count(devices, 'device') : 'no devices'}`,
+              subtitle: `${roomSize(r, units)} · ${devices ? count(devices, 'device') : 'no devices'}`,
               chevron: true, onClick: () => ctx.select({ kind: 'room', id: r.id }, { reveal: true }),
             });
           })),
@@ -189,11 +195,11 @@ export function addPage(ctx, { filter = null, scrollTo = null, room = null } = {
         })]));
       }
       if (want('furniture')) {
-        body.push(group('Furniture', [chipGrid({
-          key: 'furniture', columns: 4, size: 'small',
-          items: M.FURNITURE_ORDER.map((t) => ({ value: t, label: M.furnitureName(t), glyph: thumbnail({ type: t, ...(t === 'rug' ? { color: '#5a6b8f' } : {}) }, 40) })),
+        M.FURNITURE_GROUPS.forEach((g, i) => body.push(group(i ? g.name : `Furniture · ${g.name}`, [chipGrid({
+          key: i ? `furniture-${i}` : 'furniture', columns: 4, size: 'small',
+          items: g.types.filter((t) => M.FURNITURE_ORDER.includes(t)).map((t) => furnitureChip(t, 40)),
           onPick: (v) => ctx.addFurniture(v, into),
-        })]));
+        })])));
       }
       const chip = into ? h('button.ed-target', { type: 'button', onclick: () => ctx.push(roomPickerPage(ctx, {
         title: 'Add to', current: () => target, onPick: (id) => { target = id; ctx.pop(); },
@@ -228,7 +234,7 @@ export function roomPickerPage(ctx, { title = 'Room', current, onPick }) {
       return {
         head: { tile: tile('home', TINT.room, 40), title, subtitle: 'Choose a room' },
         body: [group(null, doc.rooms.map((r) => row({
-          lead: floorChip(r.floor), title: r.name || r.id, subtitle: M.fmtSize(r.rect[2], r.rect[3], ctx.units),
+          lead: floorChip(r.floor), title: r.name || r.id, subtitle: roomSize(r, ctx.units),
           check: current() === r.id, key: `pick-${r.id}`, onClick: () => onPick(r.id),
         })))],
       };
@@ -240,6 +246,7 @@ export function roomPickerPage(ctx, { title = 'Room', current, onPick }) {
 
 export function roomPage(ctx, id) {
   const sel = { kind: 'room', id };
+  const cut = { corner: 2, length: 0.6 };
   return {
     key: `item:room:${id}`,
     short: 'Room',
@@ -252,6 +259,21 @@ export function roomPage(ctx, id) {
       const c = M.contentsOf(doc, r);
       const step = M.lengthStep(units);
       const last = doc.rooms.length === 1;
+      // Cut corner: which corner and how far along its walls, kept while the page is open.
+      const names = M.cornerNames(r);
+      cut.corner = Math.min(cut.corner, names.length - 1);
+      const most = M.maxCut(r, cut.corner);
+      ctx.markCorner?.(M.roomPoints(r)[cut.corner]);
+      const cutGroup = () => group('Cut corner', [
+        names.length <= 6 ? h('div.ed-row.ed-seg-full', segmented({
+          key: `cut-at-${id}`, value: String(cut.corner), label: 'Corner',
+          options: names.map((n, i) => ({ value: String(i), label: n })),
+          onChange: (v) => { cut.corner = Number(v); ctx.refresh(); },
+        })) : stepperRow({ title: 'Corner', key: `cut-at-${id}`, value: cut.corner + 1, format: (v) => String(v), min: 1, max: names.length, step: 1, onChange: (v) => { cut.corner = v - 1; ctx.refresh(); } }),
+        stepperRow({ title: 'Cut', key: `cut-len-${id}`, value: Math.min(cut.length, Math.max(0.1, most)), format: (v) => M.fmtLen(v, units), min: 0.1, max: Math.max(0.1, most), step: (v, dir) => M.stepLength(v, dir, step), onChange: (v) => { cut.length = v; ctx.refresh(); } }),
+        row({ icon: 'cut', tint: TINT.room, title: 'Cut corner', key: `cut-${id}`, disabled: most < 0.1,
+          onClick: () => { if (!ctx.change((d) => M.cutCorner(M.roomById(d, id), cut.corner, cut.length))) ctx.toast('That corner is too short to cut'); } }),
+      ], 'Turns the corner into a wall at an angle, like a bathroom with a door across its corner.');
       const inRoom = [
         ...c.lights.map((l) => row({ lead: tile(l.type === 'strip' ? 'strip' : l.type, TINT.light), title: l.name || l.id, subtitle: `${M.lightTypeName(l.type)} · ${linkName(l)}`, chevron: true, key: `in-${l.id}`, onClick: () => ctx.select({ kind: 'light', id: l.id }, { reveal: true }) })),
         ...c.acs.map((a) => row({ lead: tile('ac', TINT.ac), title: a.name || a.id, subtitle: `${a.wall} wall · ${linkName(a)}`, chevron: true, key: `in-${a.id}`, onClick: () => ctx.select({ kind: 'ac', id: a.id }, { reveal: true }) })),
@@ -265,7 +287,7 @@ export function roomPage(ctx, id) {
         }),
       ];
       return {
-        head: { tile: floorChip(r.floor, 40), title: r.name || r.id, subtitle: `${M.fmtSize(r.rect[2], r.rect[3], units)} · ${M.fmtArea(M.area(r), units)}` },
+        head: { tile: floorChip(r.floor, 40), title: r.name || r.id, subtitle: M.isPoly(r) ? `${M.fmtArea(M.area(r), units)} · ${count(r.poly.length, 'corner')}` : `${M.fmtSize(r.rect[2], r.rect[3], units)} · ${M.fmtArea(M.area(r), units)}` },
         actions: quickActions([
           { icon: 'bulb', label: 'Add light', onClick: () => ctx.push(addPage(ctx, { filter: 'light', room: r })) },
           { icon: 'door', label: 'Add door', onClick: () => ctx.addOpening('door', r) },
@@ -278,10 +300,15 @@ export function roomPage(ctx, id) {
             type: 'button', 'aria-pressed': String((r.floor || 'oak') === f.id),
             onclick: () => ctx.change((d) => { M.roomById(d, id).floor = f.id; }),
           }, floorChip(f.id, 30), h('span', f.name))))]),
-          group('Size', [
-            stepperRow({ title: 'Width', value: r.rect[2], format: (v) => M.fmtLen(v, units), step: (v, dir) => M.stepLength(v, dir, step), min: 0.8, max: 40, key: `w-${id}`, onChange: (v) => ctx.change((d) => resizeRoom(d, id, v, null), { key: `w-${id}` }) }),
-            stepperRow({ title: 'Depth', value: r.rect[3], format: (v) => M.fmtLen(v, units), step: (v, dir) => M.stepLength(v, dir, step), min: 0.8, max: 40, key: `d-${id}`, onChange: (v) => ctx.change((d) => resizeRoom(d, id, null, v), { key: `d-${id}` }) }),
-          ], 'Drag the room’s edges on the plan to resize it from any side.'),
+          M.isPoly(r) ? group('Size', [
+            row({ title: 'Area', value: M.fmtArea(M.area(r), units), key: `area-${id}` }),
+            row({ title: 'Corners', value: String(r.poly.length), key: `corners-${id}` }),
+          ], 'Drag its corners on the plan to reshape it. They snap to the grid, to other rooms and to 45°.')
+            : group('Size', [
+              stepperRow({ title: 'Width', value: r.rect[2], format: (v) => M.fmtLen(v, units), step: (v, dir) => M.stepLength(v, dir, step), min: 0.8, max: 40, key: `w-${id}`, onChange: (v) => ctx.change((d) => resizeRoom(d, id, v, null), { key: `w-${id}` }) }),
+              stepperRow({ title: 'Depth', value: r.rect[3], format: (v) => M.fmtLen(v, units), step: (v, dir) => M.stepLength(v, dir, step), min: 0.8, max: 40, key: `d-${id}`, onChange: (v) => ctx.change((d) => resizeRoom(d, id, null, v), { key: `d-${id}` }) }),
+            ], 'Drag the room’s edges on the plan to resize it from any side.'),
+          cutGroup(),
           inRoom.length ? group('In this room', inRoom) : null,
           group('Add to this room', [chipGrid({
             key: 'add-to', columns: 5, size: 'mini',
@@ -491,18 +518,33 @@ export function furniturePage(ctx, index) {
         body: [
           group('Type', [chipGrid({
             key: 'ftype', columns: 4, size: 'small', value: f.type,
-            items: M.FURNITURE_ORDER.map((t) => ({ value: t, label: M.furnitureName(t), glyph: thumbnail({ type: t, ...(t === 'rug' ? { color: '#5a6b8f' } : {}) }, 36) })),
+            items: M.FURNITURE_ORDER.map((t) => furnitureChip(t, 36)),
             onPick: (t) => set((it) => changeType(it, t)),
           })]),
           group('Size', [
             M.RESIZABLE.has(f.type) ? stepperRow({ title: 'Width', key: 'fw', value: f.width ?? M.DEFAULT_WIDTH[f.type] ?? fw, format: (v) => M.fmtLen(v, units), min: 0.3, max: 8, step: (v, dir) => M.stepLength(v, dir, step), onChange: (v) => set((it) => { it.width = v; }, `fw-${index}`) }) : null,
-            f.type === 'rug' ? stepperRow({ title: 'Width', key: 'rw', value: (f.size || [2, 1.4])[0], format: (v) => M.fmtLen(v, units), min: 0.5, max: 8, step: (v, dir) => M.stepLength(v, dir, step), onChange: (v) => set((it) => { it.size = [v, (it.size || [2, 1.4])[1]]; }, `rw-${index}`) }) : null,
-            f.type === 'rug' ? stepperRow({ title: 'Depth', key: 'rd', value: (f.size || [2, 1.4])[1], format: (v) => M.fmtLen(v, units), min: 0.5, max: 8, step: (v, dir) => M.stepLength(v, dir, step), onChange: (v) => set((it) => { it.size = [(it.size || [2, 1.4])[0], v]; }, `rd-${index}`) }) : null,
-            f.type === 'wardrobe' || f.type === 'bookshelf' ? stepperRow({ title: 'Height', key: 'fh', value: f.height ?? (f.type === 'wardrobe' ? 2.1 : 1.8), format: (v) => M.fmtLen(v, units), min: 0.6, max: 2.6, step: (v, dir) => M.stepLength(v, dir, M.heightStep(units)), onChange: (v) => set((it) => { it.height = v; }, `fh-${index}`) }) : null,
+            M.SIZED.has(f.type) ? stepperRow({ title: 'Width', key: 'rw', value: (f.size || M.DEFAULT_SIZE[f.type])[0], format: (v) => M.fmtLen(v, units), min: 0.4, max: 8, step: (v, dir) => M.stepLength(v, dir, step), onChange: (v) => set((it) => { it.size = [v, (it.size || M.DEFAULT_SIZE[it.type])[1]]; }, `rw-${index}`) }) : null,
+            M.SIZED.has(f.type) ? stepperRow({ title: 'Depth', key: 'rd', value: (f.size || M.DEFAULT_SIZE[f.type])[1], format: (v) => M.fmtLen(v, units), min: 0.4, max: 8, step: (v, dir) => M.stepLength(v, dir, step), onChange: (v) => set((it) => { it.size = [(it.size || M.DEFAULT_SIZE[it.type])[0], v]; }, `rd-${index}`) }) : null,
+            f.type === 'counter' ? stepperRow({ title: 'Depth', key: 'cd', value: f.depth ?? 0.62, format: (v) => M.fmtLen(v, units), min: 0.3, max: 1.2, step: (v, dir) => M.stepLength(v, dir, step), onChange: (v) => set((it) => { it.depth = v; }, `cd-${index}`) }) : null,
+            f.type === 'waterHeater' ? stepperRow({ title: 'Diameter', key: 'dia', value: f.diameter ?? 0.55, format: (v) => M.fmtLen(v, units), min: 0.3, max: 1, step: (v, dir) => M.stepLength(v, dir, M.heightStep(units)), onChange: (v) => set((it) => { it.diameter = v; }, `dia-${index}`) }) : null,
+            HEIGHTS[f.type] ? stepperRow({ title: 'Height', key: 'fh', value: f.height ?? HEIGHTS[f.type], format: (v) => M.fmtLen(v, units), min: 0.5, max: 2.6, step: (v, dir) => M.stepLength(v, dir, M.heightStep(units)), onChange: (v) => set((it) => { it.height = v; }, `fh-${index}`) }) : null,
+            f.type === 'tvCabinet' ? stepperRow({ title: 'TV size', key: 'tvw', value: f.tv ?? (f.width ?? 0.95) - 0.05, format: (v) => M.fmtLen(v, units), min: 0.4, max: 2.4, step: (v, dir) => M.stepLength(v, dir, step), onChange: (v) => set((it) => { it.tv = v; }, `tvw-${index}`) }) : null,
+            f.type === 'storageBins' ? stepperRow({ title: 'Stacked', key: 'stack', value: f.stack ?? 2, format: (v) => String(v), min: 1, max: 6, step: 1, onChange: (v) => set((it) => { it.stack = v; }, `stack-${index}`) }) : null,
+            LIFTED[f.type] ? stepperRow({ title: f.type === 'closetRod' ? 'Rod height' : 'Above the floor', key: 'fy', value: f.y ?? LIFTED[f.type], format: (v) => M.fmtLen(v, units), min: 0, max: (doc.wallHeight ?? 2.6) - 0.3, step: (v, dir) => M.stepLength(v, dir, M.heightStep(units)), onChange: (v) => set((it) => { it.y = v; }, `fy-${index}`) }) : null,
+            f.type === 'closetRod' ? toggleRow({ title: 'Clothes', key: 'clothes', value: f.clothes !== false, onChange: (on) => set((it) => { if (on) delete it.clothes; else it.clothes = false; }) }) : null,
             f.type === 'diningSet' ? stepperRow({ title: 'Chairs', key: 'chairs', value: f.chairs ?? 6, format: (v) => String(v), min: 2, max: 8, step: 1, onChange: (v) => set((it) => { it.chairs = v; }, `ch-${index}`) }) : null,
             f.type === 'island' ? stepperRow({ title: 'Stools', key: 'stools', value: f.stools ?? 3, format: (v) => String(v), min: 0, max: 4, step: 1, onChange: (v) => set((it) => { it.stools = v; }, `st-${index}`) }) : null,
             f.type === 'kitchen' ? toggleRow({ title: 'Upper cabinets', key: 'upper', value: f.upper !== false, onChange: (on) => set((it) => { it.upper = on; }) }) : null,
           ]),
+          f.type === 'counter' ? group('Sink', [
+            h('div.ed-row.ed-seg-full', segmented({
+              key: 'sink', value: f.sink || 'none', label: 'Sink',
+              options: [{ value: 'none', label: 'None' }, { value: 'single', label: 'Single' }, { value: 'double', label: 'Double' }],
+              onChange: (v) => set((it) => { it.sink = v; }),
+            })),
+            (f.sink || 'none') !== 'none' ? stepperRow({ title: 'From the middle', key: 'sinkat', value: f.sinkAt ?? 0, format: (v) => M.fmtLen(v, units), min: -4, max: 4, step: (v, dir) => M.stepLength(v, dir, step), onChange: (v) => set((it) => { it.sinkAt = v; }, `sinkat-${index}`) }) : null,
+          ]) : null,
+          f.type === 'counter' ? group('Countertop', [h('div.ed-row.ed-swatch-row', swatches({ key: 'top', colors: M.COUNTER_TOPS, value: f.top, onPick: (c) => set((it) => { if (c) it.top = c; else delete it.top; }) }))]) : null,
           group('Rotation', [
             h('div.ed-row.ed-stepper-row', h('span.ed-row-text', h('span.ed-row-title', 'Angle')),
               h('span.ed-rot-btns',
@@ -519,16 +561,22 @@ export function furniturePage(ctx, index) {
   };
 }
 
+// Pieces with a height of their own, and their default.
+const HEIGHTS = { wardrobe: 2.1, bookshelf: 1.8, dresser: 0.84, waterHeater: 1.5 };
+// Pieces that stand above the floor: the default `y`.
+const LIFTED = { microwave: 0.9, closetRod: 1.75 };
+
 // Another kind of piece in the same place, facing the same way.
 function changeType(it, t) {
   const keep = { type: t, pos: it.pos, rot: it.rot || 0 };
   if (M.RESIZABLE.has(t) && M.RESIZABLE.has(it.type) && it.width) keep.width = it.width;
   if (M.COLORABLE.has(t) && it.color) keep.color = it.color;
-  if (t === 'rug') keep.size = it.size || [2, 1.4];
+  if (M.SIZED.has(t)) keep.size = M.SIZED.has(it.type) && it.size ? it.size : [...M.DEFAULT_SIZE[t]];
+  if (t === 'counter') keep.sink = 'none';
   if (t === 'diningSet') keep.chairs = it.chairs ?? 4;
   if (t === 'island') keep.stools = it.stools ?? 3;
   if (t === 'kitchen' && 'upper' in it) keep.upper = it.upper;
-  if (it.y) keep.y = it.y;
+  if (it.y != null && LIFTED[t] && LIFTED[it.type]) keep.y = it.y;
   for (const k of Object.keys(it)) delete it[k];
   Object.assign(it, keep);
 }
@@ -564,8 +612,27 @@ export function openingPage(ctx, index) {
           group('Type', [h('div.ed-row.ed-seg-full', segmented({
             key: 'otype', value: type, label: 'Type',
             options: M.OPENING_TYPES.map((t) => ({ value: t.type, label: t.type === 'open' ? 'Open' : t.name })),
-            onChange: (v) => set((it) => { it.type = v; if (v === 'window') { it.sill ??= 0.85; it.head ??= 2.1; } }),
+            onChange: (v) => set((it) => {
+              it.type = v;
+              if (v === 'window') { it.sill ??= 0.85; it.head ??= 2.1; }
+              if (v !== 'door') { delete it.hinge; delete it.swing; }
+              if (v !== 'open') delete it.curtain;
+            }),
           }))]),
+          type === 'door' ? group('Door', [
+            segmentedRow({
+              title: 'Hinge', key: 'hinge', value: M.hingeSide(doc, o), small: true,
+              options: [{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }],
+              onChange: (v) => set((it, d) => M.setHingeSide(d, it, v)),
+            }),
+            segmentedRow({
+              title: 'Opens into', key: 'swing', value: M.swingOf(doc, o), small: true,
+              options: M.swingChoices(doc, o),
+              onChange: (v) => set((it) => { it.swing = v; }),
+            }),
+          ], 'Left or right as seen from the room it opens into.') : null,
+          type === 'open' ? group('Passage', [toggleRow({ title: 'Curtain', key: 'curtain', value: Boolean(o.curtain), onChange: (on) => set((it) => { if (on) it.curtain = true; else delete it.curtain; }) })],
+            'A shower or closet curtain on a rod, gathered at one end.') : null,
           group('Size', [
             stepperRow({ title: 'Width', key: 'ow', value: s.w, format: (v) => M.fmtLen(v, units), min: 0.4, max: onWall ? onWall.b - onWall.a : 6, step: (v, dir) => M.stepLength(v, dir, M.lengthStep(units)),
               onChange: (v) => set((it, d) => {
@@ -586,7 +653,7 @@ export function openingPage(ctx, index) {
 export function snapOpening(doc, o) {
   const s = M.openingSpan(o);
   const c = M.centerOf('opening', o);
-  const near = M.nearestWall(doc, c, { axis: s.axis }) || M.nearestWall(doc, c);
+  const near = M.nearestWall(doc, c, { dir: s.dir }) || M.nearestWall(doc, c);
   if (!near) return;
   M.setOpeningSpan(o, M.placeOnWall(near.line, M.snap(near.t), s.w));
 }

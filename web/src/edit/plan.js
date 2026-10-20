@@ -6,8 +6,9 @@
 import { h } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import { haptic } from '../bridge.js';
-import { wallSegments } from '../three/house.js';
+import { wallSegments, wallJoints } from '../three/house.js';
 import { footprint } from '../three/furniture.js';
+import { edgeDist, labelPoint, along, lineOf } from '../geom.js';
 import { MODE_COLORS } from '../three/ac.js';
 import { isLinked } from '../config.js';
 import { sv, glyph } from './glyphs.js';
@@ -21,6 +22,7 @@ const PAD = 26;          // air around the home when it is fitted
 const SNAP_PX = 10;      // edges closer than this on screen snap together
 const HOLD_MS = 300;     // touch and hold to pick something up
 const ZOOM = [0.5, 8];   // relative to the fitted scale
+const UNDER = new Set(['rug', 'shower']); // lie on the floor, under everything else
 
 let uid = 0;
 
@@ -188,10 +190,18 @@ export function createPlan(ctl) {
 
   function adapter(doc) {
     return {
-      rooms: doc.rooms.map((r) => ({ id: r.id, x: r.rect[0], z: r.rect[1], w: r.rect[2], d: r.rect[3] })),
-      openings: doc.openings.filter((o) => o.from && o.to && (o.from[0] === o.to[0] || o.from[1] === o.to[1]))
-        .map((o) => ({ type: o.type || 'door', from: o.from, to: o.to, sill: o.sill ?? 0.85, head: o.head ?? 2.1, src: o })),
+      rooms: doc.rooms.map((r) => ({ id: r.id, points: M.pointsOf(r), area: M.area(r) })),
+      openings: doc.openings.filter((o) => o.from && o.to)
+        .map((o) => ({ ...o, type: o.type || 'door', sill: o.sill ?? 0.85, head: o.head ?? 2.1, src: o })),
     };
+  }
+
+  // A band `t` wide along a..b metres of a segment (from its `from` end), as polygon corners.
+  function band(s, a, b, t) {
+    const [ux, uz] = s.dir;
+    const [nx, nz] = [-uz, ux];
+    const p = (d, k) => `${s.from[0] + ux * d + nx * k},${s.from[1] + uz * d + nz * k}`;
+    return [p(a, -t / 2), p(b, -t / 2), p(b, t / 2), p(a, t / 2)].join(' ');
   }
 
   const wrap = (key, cls, attrs, ...kids) => sv('g', { 'data-k': key, class: `ed-item ${cls}`, ...attrs }, sv('g', { class: 'ed-body' }, ...kids));
@@ -209,30 +219,46 @@ export function createPlan(ctl) {
     const floors = sv('g', { class: 'ed-floors' });
     const order = doc.rooms.map((r, i) => [r, i]).sort((p, q) => M.area(q[0]) - M.area(p[0]));
     for (const [r] of order) {
-      const [x, z, w, d] = r.rect;
       const kind = FLOOR_FILL[r.floor] ? r.floor : 'oak';
+      const shape = (attrs) => {
+        if (M.isPoly(r)) return sv('polygon', { points: r.poly.map((p) => p.join(',')).join(' '), ...attrs });
+        const [x, z, w, d] = r.rect;
+        return sv('rect', { x, y: z, width: w, height: d, ...attrs });
+      };
       floors.append(wrap(`room:${r.id}`, `ed-floor${M.sameSel(sel, { kind: 'room', id: r.id }) ? ' sel' : ''}`, {},
-        sv('rect', { x, y: z, width: w, height: d, fill: FLOOR_FILL[kind] }),
-        sv('rect', { x, y: z, width: w, height: d, fill: `url(#${id}-${PATTERN[kind]})`, class: 'ed-floor-pat' })));
+        shape({ fill: FLOOR_FILL[kind] }),
+        shape({ fill: `url(#${id}-${PATTERN[kind]})`, class: 'ed-floor-pat' })));
     }
 
     const walls = sv('g', { class: 'ed-walls' });
     const glass = sv('g', { class: 'ed-windows' });
     const conf = adapter(doc);
-    for (const s of wallSegments(conf)) {
+    const segments = wallSegments(conf);
+    const solid = new Set();
+    for (const s of segments) {
       const ext = s.kind === 'exterior';
       const t = ext ? EXT_T : INT_T;
-      const a = s.a - (s.freeA ? EXT_T / 2 : 0);
-      const bb = s.b + (s.freeB ? EXT_T / 2 : 0);
+      const a = s.extA ? -EXT_T / 2 : 0;
+      const bb = s.len + (s.extB ? EXT_T / 2 : 0);
       const type = s.opening?.type;
-      if (type === 'door' || type === 'open') continue;
-      if (type === 'window') {
-        glass.append(windowGlyph(s.axis, s.c, s.a, s.b, t));
+      if (type === 'door') continue;
+      if (type === 'open') {
+        if (s.opening.curtain) glass.append(sv('line', { x1: s.from[0], y1: s.from[1], x2: s.to[0], y2: s.to[1], class: 'ed-curtain' }));
         continue;
       }
-      walls.append(s.axis === 'x'
-        ? sv('rect', { x: a, y: s.c - t / 2, width: bb - a, height: t, class: ext ? 'ext' : 'int' })
-        : sv('rect', { x: s.c - t / 2, y: a, width: t, height: bb - a, class: ext ? 'ext' : 'int' }));
+      if (type === 'window') {
+        glass.append(windowGlyph(s, t));
+        continue;
+      }
+      solid.add(s);
+      walls.append(sv('polygon', { points: band(s, a, bb, t), class: ext ? 'ext' : 'int' }));
+    }
+    // Walls meeting at an angle: a round joint, like the 3D view's column.
+    for (const j of wallJoints(segments)) {
+      const meet = j.segs.filter((s) => solid.has(s));
+      if (!meet.length) continue;
+      const ext = meet.some((s) => s.kind === 'exterior');
+      walls.append(sv('circle', { cx: j.p[0], cy: j.p[1], r: (ext ? EXT_T : INT_T) / 2, class: ext ? 'ext' : 'int' }));
     }
 
     const openings = sv('g', { class: 'ed-openings' });
@@ -242,13 +268,12 @@ export function createPlan(ctl) {
       const on = M.wallOf(doc, o, lines);
       const key = `opening:${i}`;
       const kids = [];
-      const s = M.openingSpan(o);
       if (!on) {
         // Off every wall line: drawn where it is, outlined so it reads as out of place.
-        if ((o.type || 'door') === 'window') kids.push(windowGlyph(s.axis, s.c, s.a, s.b, EXT_T));
-        kids.push(s.axis === 'x'
-          ? sv('rect', { x: s.a, y: s.c - 0.12, width: s.w, height: 0.24, class: 'ed-astray' })
-          : sv('rect', { x: s.c - 0.12, y: s.a, width: 0.24, height: s.w, class: 'ed-astray' }));
+        const len = Math.hypot(o.to[0] - o.from[0], o.to[1] - o.from[1]);
+        const s = { from: o.from, dir: len ? [(o.to[0] - o.from[0]) / len, (o.to[1] - o.from[1]) / len] : [1, 0], len };
+        if ((o.type || 'door') === 'window') kids.push(windowGlyph(s, EXT_T));
+        kids.push(sv('polygon', { points: band(s, 0, len, 0.24), class: 'ed-astray' }));
       }
       if ((o.type || 'door') === 'door') kids.push(...doorGlyph(doc, o));
       // A wide invisible stroke makes the gap itself a target for the pointer.
@@ -261,11 +286,11 @@ export function createPlan(ctl) {
       if (!Array.isArray(f.pos)) return;
       const [w, d] = footprint(f);
       const outside = !M.roomAt(doc, f.pos);
-      furniture.append(wrap(`furniture:${i}`, `ed-furn${f.type === 'rug' ? ' rug' : ''}`, { transform: `translate(${f.pos[0]} ${f.pos[1]}) rotate(${-(f.rot || 0)})` },
+      furniture.append(wrap(`furniture:${i}`, `ed-furn${UNDER.has(f.type) ? ' rug' : ''}`, { transform: `translate(${f.pos[0]} ${f.pos[1]}) rotate(${-(f.rot || 0)})` },
         glyph(f),
         outside ? sv('rect', { x: -w / 2 - 0.06, y: -d / 2 - 0.06, width: w + 0.12, height: d + 0.12, rx: 0.06, class: 'ed-astray' }) : null));
     });
-    // Rugs lie under everything else.
+    // Rugs and shower trays lie under everything else.
     for (const rug of [...furniture.querySelectorAll('.rug')]) furniture.prepend(rug);
 
     const acs = sv('g', { class: 'ed-acs' });
@@ -292,26 +317,29 @@ export function createPlan(ctl) {
     if (fx.lifted) world.querySelector(`[data-k="${CSS.escape(fx.lifted)}"]`)?.classList.add('lifted');
   }
 
-  function windowGlyph(axis, c, a, b, t) {
+  // Two pale lines in the gap of the wall, closed at the ends: a window, at any angle.
+  function windowGlyph(s, t) {
+    const [ux, uz] = s.dir;
+    const [nx, nz] = [-uz, ux];
+    const p = (d, k) => [s.from[0] + ux * d + nx * k, s.from[1] + uz * d + nz * k];
     const off = t / 4;
-    const lines = axis === 'x'
-      ? [[a, c - off, b, c - off], [a, c + off, b, c + off], [a, c - t / 2, a, c + t / 2], [b, c - t / 2, b, c + t / 2]]
-      : [[c - off, a, c - off, b], [c + off, a, c + off, b], [c - t / 2, a, c + t / 2, a], [c - t / 2, b, c + t / 2, b]];
-    return sv('g', { class: 'ed-window' }, lines.map(([x1, y1, x2, y2]) => sv('line', { x1, y1, x2, y2 })));
+    const lines = [[p(0, -off), p(s.len, -off)], [p(0, off), p(s.len, off)], [p(0, -t / 2), p(0, t / 2)], [p(s.len, -t / 2), p(s.len, t / 2)]];
+    return sv('g', { class: 'ed-window' }, lines.map(([[x1, y1], [x2, y2]]) => sv('line', { x1, y1, x2, y2 })));
   }
 
-  // The leaf and its quarter-circle swing, into the smaller of the two rooms it joins.
+  // The leaf on its hinge and its quarter-circle swing, into the room it opens into
+  // (`swing`, by default the smaller of the two rooms it joins).
   function doorGlyph(doc, o) {
-    const s = M.openingSpan(o);
-    const mid = (s.a + s.b) / 2;
-    const at = (d) => (s.axis === 'x' ? [mid, s.c + d] : [s.c + d, mid]);
-    const sides = [-1, 1].map((sign) => ({ sign, room: M.roomAt(doc, at(sign * 0.15)) }));
-    const rooms = sides.filter((x) => x.room);
-    const side = rooms.length ? rooms.sort((p, q) => M.area(p.room) - M.area(q.room))[0].sign : 1;
-    const hinge = o.from;
-    const other = o.to;
-    const w = s.w;
-    const leaf = s.axis === 'x' ? [hinge[0], hinge[1] + side * w] : [hinge[0] + side * w, hinge[1]];
+    const len = Math.hypot(o.to[0] - o.from[0], o.to[1] - o.from[1]) || 1;
+    const n = [-(o.to[1] - o.from[1]) / len, (o.to[0] - o.from[0]) / len];
+    const mid = [(o.from[0] + o.to[0]) / 2, (o.from[1] + o.to[1]) / 2];
+    const swing = M.swingOf(doc, o);
+    const at = (sign) => [mid[0] + n[0] * sign * 0.15, mid[1] + n[1] * sign * 0.15];
+    const sideOf = (sign) => M.roomAt(doc, at(sign));
+    const side = swing === 'out' ? (sideOf(1) ? -1 : 1) : (sideOf(1)?.id === swing ? 1 : -1);
+    const [hinge, other] = o.hinge === 'to' ? [o.to, o.from] : [o.from, o.to];
+    const w = len;
+    const leaf = [hinge[0] + n[0] * side * w, hinge[1] + n[1] * side * w];
     // Sweep direction: whichever way turns from the leaf to the other jamb.
     const cross = (leaf[0] - hinge[0]) * (other[1] - hinge[1]) - (leaf[1] - hinge[1]) * (other[0] - hinge[0]);
     const sweep = cross > 0 ? 1 : 0;
@@ -365,18 +393,33 @@ export function createPlan(ctl) {
     const pills = sv('g', { class: 'ed-pills' });
 
     // Room names, hidden when the room is too small on screen to hold them.
+    const spots = [...doc.lights.filter((l) => l.pos).map((l) => toScreen(l.pos)), ...doc.acs.filter((a) => a.pos).map((a) => toScreen(acBadge(a)))];
     for (const r of doc.rooms) {
-      const [x, z, w, d] = r.rect;
-      const [cx, cy] = toScreen([x + w / 2, z + d / 2]);
-      const sw = w * view.s;
-      const sh = d * view.s;
+      const { w, d } = M.rectOf(r);
+      let at = M.centerOf('room', r);
+      let sw = w * view.s;
+      let sh = d * view.s;
+      if (M.isPoly(r)) {
+        // The room is only as roomy as the widest place inside it: about twice the
+        // distance from the label to the nearest wall, and wider than tall when it can be.
+        at = labelPoint(r.poly);
+        const free = edgeDist(r.poly, at) * 2 * view.s;
+        sw = Math.min(sw, free * 1.6);
+        sh = Math.min(sh, free);
+      }
+      const [cx, cy] = toScreen(at);
       const name = r.name || r.id;
       // Keep the label clear of the lamps standing at the room's centre.
       if (sw < name.length * 7.4 + 12 || sh < 26) continue;
       const showSize = sh >= 44 && sw >= 74;
-      const sizeText = sw >= 112 ? M.fmtSize(w, d, units) : M.fmtArea(w * d, units);
-      labels.append(text(cx, showSize ? cy - 2 : cy + 4, name, 'ed-room-name'));
-      if (showSize) labels.append(text(cx, cy + 13, sizeText, 'ed-room-size'));
+      const sizeText = sw >= 112 && !M.isPoly(r) ? M.fmtSize(w, d, units) : M.fmtArea(M.area(r), units);
+      // A lamp at the middle of the room would sit on the label: it steps aside, up or down.
+      const half = [Math.max(name.length * 7.4, showSize ? sizeText.length * 6.2 : 0) / 2 + 4, showSize ? 19 : 11];
+      const room = Math.max(0, sh / 2 - half[1] - 4);
+      const shift = [0, 30, -30, 46, -46].filter((dy) => Math.abs(dy) <= room || !dy)
+        .find((dy) => !spots.some(([mx, my]) => Math.abs(mx - cx) < half[0] + 13 && Math.abs(my - (cy + 5 + dy)) < half[1] + 13)) ?? 0;
+      labels.append(text(cx, (showSize ? cy - 2 : cy + 4) + shift, name, 'ed-room-name'));
+      if (showSize) labels.append(text(cx, cy + 13 + shift, sizeText, 'ed-room-size'));
     }
 
     // Lamps and ACs as markers in screen pixels.
@@ -424,6 +467,15 @@ export function createPlan(ctl) {
 
     for (const g of fx.guides) {
       if (g.axis === 'x') { const [sx] = toScreen([g.at, 0]); guides.append(sv('line', { x1: sx, y1: -10, x2: sx, y2: size.h + 10 })); } else { const [, sy] = toScreen([0, g.at]); guides.append(sv('line', { x1: -10, y1: sy, x2: size.w + 10, y2: sy })); }
+    }
+    if (fx.angle) {
+      const [x1, y1] = toScreen(fx.angle.from);
+      const [x2, y2] = toScreen(fx.angle.to);
+      guides.append(sv('line', { x1, y1, x2, y2 }));
+    }
+    if (fx.corner && sel?.kind === 'room') {
+      const [x, y] = toScreen(fx.corner);
+      selection.append(sv('circle', { cx: x, cy: y, r: 11, class: 'ed-corner-mark' }));
     }
     for (const p of fx.pills) {
       const [x, y] = toScreen(p.at);
@@ -473,6 +525,7 @@ export function createPlan(ctl) {
     const it = M.itemOf(doc, s);
     if (!it) return null;
     if (s.kind === 'room') {
+      if (M.isPoly(it)) return polygon(it.poly, 'ed-sel-shape');
       const [x, z, w, d] = it.rect;
       const [x0, y0] = toScreen([x, z]);
       return sv('rect', { x: x0, y: y0, width: w * view.s, height: d * view.s, rx: 2, class: 'ed-sel-shape' });
@@ -502,6 +555,14 @@ export function createPlan(ctl) {
 
   function addHandles(doc, s, it, layer) {
     const push = (hd, node) => { handles.push(hd); layer.append(node); };
+    if (s.kind === 'room' && M.isPoly(it)) {
+      // A polygon room: a knob on every corner.
+      it.poly.forEach((p, index) => {
+        const [hx, hy] = toScreen(p);
+        push({ type: 'vertex', index, sx: hx, sy: hy, cursor: 'move' }, knob(hx, hy, { r: 6 }));
+      });
+      return;
+    }
     if (s.kind === 'room') {
       const [x, z, w, d] = it.rect;
       const [x0, y0] = toScreen([x, z]);
@@ -539,7 +600,7 @@ export function createPlan(ctl) {
           push({ type: 'width', side, sx: hx, sy: hy, cursor: 'ew-resize' }, knob(hx, hy));
         }
       }
-      if (it.type === 'rug') {
+      if (M.SIZED.has(it.type)) {
         const [hx, hy] = toScreen(M.fromLocal(it.pos, rot, [w / 2, d / 2]));
         push({ type: 'rugsize', sx: hx, sy: hy, cursor: 'nwse-resize' }, knob(hx, hy));
       }
@@ -548,7 +609,8 @@ export function createPlan(ctl) {
     if (s.kind === 'opening') {
       for (const end of ['from', 'to']) {
         const [hx, hy] = toScreen(it[end]);
-        push({ type: 'end', end, sx: hx, sy: hy, cursor: M.openingAxis(it) === 'x' ? 'ew-resize' : 'ns-resize' }, knob(hx, hy));
+        const axis = M.openingAxis(it);
+        push({ type: 'end', end, sx: hx, sy: hy, cursor: axis === 'x' ? 'ew-resize' : axis === 'z' ? 'ns-resize' : 'move' }, knob(hx, hy));
       }
     }
   }
@@ -600,8 +662,8 @@ export function createPlan(ctl) {
       .map(([f, i]) => [f, i, footprint(f)])
       .filter(([f, , [w, d]]) => { const [lx, lz] = M.toLocal(f.pos, f.rot || 0, p); return Math.abs(lx) <= w / 2 && Math.abs(lz) <= d / 2; })
       .sort((a, b) => a[2][0] * a[2][1] - b[2][0] * b[2][1]);
-    // A rug lies under the rest: anything else standing on it wins.
-    pieces.sort((a, b) => (a[0].type === 'rug') - (b[0].type === 'rug'));
+    // A rug (or a shower tray) lies under the rest: anything else standing on it wins.
+    pieces.sort((a, b) => UNDER.has(a[0].type) - UNDER.has(b[0].type));
     if (pieces.length) return { sel: { kind: 'furniture', index: pieces[0][1] } };
     const room = M.roomAt(doc, p, {});
     if (room) return { sel: { kind: 'room', id: room.id } };
@@ -647,12 +709,14 @@ export function createPlan(ctl) {
     const doc = ctl.doc();
     const ride = M.riders(doc, room);
     const moving = new Set([room, ...ride.rooms]);
-    const others = doc.rooms.filter((r) => !moving.has(r));
-    const xs = others.flatMap((r) => [r.rect[0], r.rect[0] + r.rect[2]]);
-    const zs = others.flatMap((r) => [r.rect[1], r.rect[1] + r.rect[3]]);
-    const r0 = [...room.rect];
+    const others = doc.rooms.filter((r) => !moving.has(r)).map(M.rectOf);
+    const xs = others.flatMap((r) => [r.x, r.x + r.w]);
+    const zs = others.flatMap((r) => [r.z, r.z + r.d]);
+    const box = M.rectOf(room);
+    const r0 = [box.x, box.z, box.w, box.d];
+    const shape0 = M.shapeOf(room);
     const keep = {
-      rooms: ride.rooms.map((r) => [r, [...r.rect]]),
+      rooms: ride.rooms.map((r) => [r, M.shapeOf(r)]),
       pts: [...ride.lights, ...ride.acs, ...ride.furniture].map((o) => [o, [...o.pos]]),
       openings: ride.openings.map((o) => [o, [...o.from], [...o.to]]),
     };
@@ -670,8 +734,8 @@ export function createPlan(ctl) {
         const sz = axis(r0[1], r0[1] + r0[3], p[1] - start[1], zs);
         const dx = M.fix(sx.d);
         const dz = M.fix(sz.d);
-        room.rect = [M.fix(r0[0] + dx), M.fix(r0[1] + dz), r0[2], r0[3]];
-        for (const [r, rect] of keep.rooms) r.rect = [M.fix(rect[0] + dx), M.fix(rect[1] + dz), rect[2], rect[3]];
+        M.placeShape(room, shape0, dx, dz);
+        for (const [r, shape] of keep.rooms) M.placeShape(r, shape, dx, dz);
         for (const [o, pos] of keep.pts) o.pos = [M.fix(pos[0] + dx), M.fix(pos[1] + dz)];
         for (const [o, from, to] of keep.openings) { o.from = [M.fix(from[0] + dx), M.fix(from[1] + dz)]; o.to = [M.fix(to[0] + dx), M.fix(to[1] + dz)]; }
         setGuides([sx.guide != null && { axis: 'x', at: sx.guide }, sz.guide != null && { axis: 'z', at: sz.guide }].filter(Boolean));
@@ -681,21 +745,21 @@ export function createPlan(ctl) {
 
   function roomResize(room, edge, start) {
     const doc = ctl.doc();
-    const others = doc.rooms.filter((r) => r !== room);
-    const xs = others.flatMap((r) => [r.rect[0], r.rect[0] + r.rect[2]]);
-    const zs = others.flatMap((r) => [r.rect[1], r.rect[1] + r.rect[3]]);
+    const others = doc.rooms.filter((r) => r !== room).map(M.rectOf);
+    const xs = others.flatMap((r) => [r.x, r.x + r.w]);
+    const zs = others.flatMap((r) => [r.z, r.z + r.d]);
     const [x0, z0, w0, d0] = room.rect;
     const e0 = { w: x0, e: x0 + w0, n: z0, s: z0 + d0 };
     const units = ctl.units();
     // ACs stay on their wall; doors and windows on a moving edge go with it.
     const acs = doc.acs.filter((a) => a.room === room.id && a.pos).map((a) => [a, M.alongWall(a.wall, a.pos)]);
     const onEdge = (o, side) => {
-      const s = M.openingSpan(o);
       const horiz = side === 'n' || side === 's';
-      return s.axis === (horiz ? 'x' : 'z') && Math.abs(s.c - e0[side]) < M.EPS
-        && s.a >= (horiz ? x0 : z0) - M.EPS && s.b <= (horiz ? x0 + w0 : z0 + d0) + M.EPS;
+      const [c, lo, hi] = horiz ? [1, x0, x0 + w0] : [0, z0, z0 + d0];
+      const k = 1 - c;
+      return [o.from, o.to].every((p) => Math.abs(p[c] - e0[side]) < M.EPS && p[k] >= lo - M.EPS && p[k] <= hi + M.EPS);
     };
-    const opens = Object.fromEntries(['n', 's', 'w', 'e'].map((side) => [side, doc.openings.filter((o) => o.from && o.to && onEdge(o, side)).map((o) => [o, M.openingSpan(o)])]));
+    const opens = Object.fromEntries(['n', 's', 'w', 'e'].map((side) => [side, doc.openings.filter((o) => o.from && o.to && onEdge(o, side)).map((o) => [o, [...o.from], [...o.to]])]));
     return {
       move(p) {
         const next = { ...e0 };
@@ -714,7 +778,13 @@ export function createPlan(ctl) {
         }
         room.rect = [next.w, next.n, M.fix(next.e - next.w), M.fix(next.s - next.n)];
         for (const [a, along] of acs) a.pos = M.placeAC(room, a.wall, along);
-        for (const side of ['n', 's', 'w', 'e']) for (const [o, s] of opens[side]) M.setOpeningSpan(o, { ...s, c: next[side] });
+        for (const side of ['n', 's', 'w', 'e']) {
+          const c = side === 'n' || side === 's' ? 1 : 0;
+          for (const [o, from, to] of opens[side]) {
+            o.from = c ? [from[0], next[side]] : [next[side], from[1]];
+            o.to = c ? [to[0], next[side]] : [next[side], to[1]];
+          }
+        }
         setGuides(guides);
         // Live sizes just inside the edges that move.
         const [x, z, w, d] = room.rect;
@@ -768,7 +838,7 @@ export function createPlan(ctl) {
 
   function rugOp(it) {
     const rot = it.rot || 0;
-    const [w0, d0] = it.size || [2, 1.4];
+    const [w0, d0] = it.size || M.DEFAULT_SIZE[it.type] || [2, 1.4];
     const fixed = M.fromLocal(it.pos, rot, [-w0 / 2, -d0 / 2]);
     const units = ctl.units();
     return {
@@ -787,19 +857,21 @@ export function createPlan(ctl) {
     const doc = ctl.doc();
     const s0 = M.openingSpan(o);
     let line = M.wallOf(doc, o);
-    const mid0 = (s0.a + s0.b) / 2;
-    let offset = line ? mid0 - (s0.axis === 'x' ? start[0] : start[1]) : 0;
+    const mid0 = line ? (along(line, o.from) + along(line, o.to)) / 2 : 0;
+    let offset = line ? mid0 - along(line, start) : 0;
     return {
       move(p) {
-        const across = line ? Math.abs((line.axis === 'x' ? p[1] : p[0]) - line.c) : Infinity;
+        const across = line ? Math.abs(line.n[0] * p[0] + line.n[1] * p[1] - line.c) : Infinity;
         if (!line || across > 0.6) {
           // Off its wall: onto the nearest other wall under the pointer, turned to fit.
           const near = M.nearestWall(doc, p);
           if (!near || near.dist > 1.2) return;
           if (near.line !== line) { line = near.line; offset = 0; haptic('tick'); }
         }
-        const t = (line.axis === 'x' ? p[0] : p[1]) + offset;
-        M.setOpeningSpan(o, M.placeOnWall(line, M.snap(t), s0.w));
+        // Slides along the wall, straight or angled; on a straight one it keeps to the 5 cm grid.
+        const t = along(line, p) + offset;
+        const straight = Math.abs(line.dir[0]) < 1e-9 || Math.abs(line.dir[1]) < 1e-9;
+        M.setOpeningSpan(o, M.placeOnWall(line, straight ? M.snap(t) : M.fix(t), s0.w));
       },
     };
   }
@@ -810,18 +882,80 @@ export function createPlan(ctl) {
     const line = M.wallOf(doc, o) || { ...s0, a: -Infinity, b: Infinity };
     const units = ctl.units();
     const fixedEnd = end === 'from' ? 'to' : 'from';
-    const fixedT = s0.axis === 'x' ? o[fixedEnd][0] : o[fixedEnd][1];
-    const movingT = s0.axis === 'x' ? o[end][0] : o[end][1];
+    const fixedT = along(line, o[fixedEnd]);
+    const movingT = along(line, o[end]);
     const dir = Math.sign(movingT - fixedT) || 1;
+    const straight = Math.abs(line.dir[0]) < 1e-9 || Math.abs(line.dir[1]) < 1e-9;
     return {
       move(p) {
-        const t = s0.axis === 'x' ? p[0] : p[1];
-        let w = Math.max(0.4, M.snap((t - fixedT) * dir));
+        const t = along(line, p);
+        let w = Math.max(0.4, straight ? M.snap((t - fixedT) * dir) : M.fix((t - fixedT) * dir));
         const limit = dir > 0 ? line.b - fixedT : fixedT - line.a;
         w = Math.min(w, Math.max(0.4, limit));
-        const moved = M.fix(fixedT + dir * w);
-        if (s0.axis === 'x') o[end] = [moved, o[end][1]]; else o[end] = [o[end][0], moved];
+        const at = (v) => [M.fix(line.dir[0] * v + line.n[0] * line.c), M.fix(line.dir[1] * v + line.n[1] * line.c)];
+        o[fixedEnd] = at(fixedT);
+        o[end] = at(fixedT + dir * w);
         fx.pills = [{ at: M.centerOf('opening', o), text: M.fmtLen(w, units), dy: -22 }];
+      },
+    };
+  }
+
+  // A corner of a polygon room: snaps to the grid, to other rooms' corners and edges, and
+  // to 45° steps from the corners either side of it.
+  function vertexOp(room, index) {
+    const doc = ctl.doc();
+    const others = doc.rooms.filter((r) => r !== room);
+    const corners = others.flatMap((r) => M.pointsOf(r));
+    const edges = others.flatMap((r) => { const pts = M.pointsOf(r); return pts.map((p, i) => [p, pts[(i + 1) % pts.length]]); });
+    const units = ctl.units();
+    return {
+      move(p) {
+        const thr = SNAP_PX / view.s;
+        const n = room.poly.length;
+        const prev = room.poly[(index + n - 1) % n];
+        const next = room.poly[(index + 1) % n];
+        let q = [M.snap(p[0]), M.snap(p[1])];
+        let guide = null;
+        const corner = corners.find((c) => Math.hypot(c[0] - p[0], c[1] - p[1]) <= thr);
+        if (corner) q = [...corner];
+        else {
+          // 45° from a neighbour: project onto the nearest such ray.
+          let best = null;
+          for (const nb of [prev, next]) {
+            for (let k = 0; k < 8; k++) {
+              const a = (k * Math.PI) / 4;
+              const d = [Math.cos(a), Math.sin(a)];
+              const t = (p[0] - nb[0]) * d[0] + (p[1] - nb[1]) * d[1];
+              if (t <= 0) continue;
+              const r = [nb[0] + d[0] * t, nb[1] + d[1] * t];
+              const dist = Math.hypot(r[0] - p[0], r[1] - p[1]);
+              if (dist <= thr && (!best || dist < best.dist)) best = { dist, r, from: nb, d };
+            }
+          }
+          let edge = null;
+          for (const [a, b] of edges) {
+            const l = lineOf(a, b);
+            const dist = Math.abs(l.n[0] * p[0] + l.n[1] * p[1] - l.c);
+            const t = along(l, p);
+            const [ta, tb] = [along(l, a), along(l, b)].sort((x, y) => x - y);
+            if (dist <= thr && t >= ta - thr && t <= tb + thr && (!edge || dist < edge.dist)) edge = { dist, l, t };
+          }
+          if (best && (!edge || best.dist <= edge.dist)) {
+            // Along the ray, the grid still applies to the distance from the neighbour.
+            const t = M.snap(Math.hypot(best.r[0] - best.from[0], best.r[1] - best.from[1]));
+            q = [best.from[0] + best.d[0] * t, best.from[1] + best.d[1] * t];
+            guide = best;
+          } else if (edge) {
+            const t = M.snap(edge.t);
+            q = [edge.l.dir[0] * t + edge.l.n[0] * edge.l.c, edge.l.dir[1] * t + edge.l.n[1] * edge.l.c];
+          }
+        }
+        if (M.moveCorner(room, index, q)) {
+          const len = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+          const c = room.poly[index];
+          fx.pills = [{ at: c, text: `${M.fmtLen(len(prev, c), units)} · ${M.fmtLen(len(c, next), units)}`, dy: -26 }];
+          fx.angle = guide ? { from: guide.from, to: c } : null;
+        }
       },
     };
   }
@@ -838,6 +972,7 @@ export function createPlan(ctl) {
       if (hd.type === 'rotate') return rotateOp(it);
       if (hd.type === 'width') return widthOp(it, hd.side, sel.kind === 'light');
       if (hd.type === 'rugsize') return rugOp(it);
+      if (hd.type === 'vertex') return vertexOp(it, hd.index);
       if (hd.type === 'end') return openingEnd(it, hd.end);
       return null;
     }
@@ -990,6 +1125,7 @@ export function createPlan(ctl) {
     autoPan = 0;
     fx.guides = [];
     fx.pills = [];
+    fx.angle = null;
     fx.lifted = null;
     lastGuideKey = '';
     el.classList.remove('dragging');
@@ -1097,8 +1233,9 @@ export function createPlan(ctl) {
 
   function startDraw(p) {
     const doc = ctl.doc();
-    const xs = doc.rooms.flatMap((r) => [r.rect[0], r.rect[0] + r.rect[2]]);
-    const zs = doc.rooms.flatMap((r) => [r.rect[1], r.rect[1] + r.rect[3]]);
+    const boxes = doc.rooms.map(M.rectOf);
+    const xs = boxes.flatMap((r) => [r.x, r.x + r.w]);
+    const zs = boxes.flatMap((r) => [r.z, r.z + r.d]);
     const sp = (v, targets) => snapTo(v, targets) ?? M.snap(v);
     const origin = [sp(p[0], xs), sp(p[1], zs)];
     fx.drawing = { origin, rect: [origin[0], origin[1], 0, 0], xs, zs, sp };
@@ -1214,6 +1351,13 @@ export function createPlan(ctl) {
       renderOverlay();
     },
     stopDrawing,
+    /** Marks a corner of a room (the one "Cut corner" would cut), or nothing. */
+    markCorner(p) {
+      const same = (a, b) => (a && b ? a[0] === b[0] && a[1] === b[1] : a === b);
+      if (same(fx.corner, p)) return;
+      fx.corner = p ? [...p] : null;
+      invalidate(false);
+    },
     get drawing() { return Boolean(fx.drawing); },
     /** Ends a gesture in progress (the editor is closing or the plan was replaced). */
     cancelGesture() {

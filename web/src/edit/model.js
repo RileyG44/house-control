@@ -1,8 +1,11 @@
 // Pure helpers on the plan document (the JSON exactly as saved: rooms carry `rect`
-// [x, z, width, depth], lamps and ACs `pos` [x, z], all in metres, x east, z south).
-// Nothing here touches the DOM, so the editor, its pages and the plan share one truth.
+// [x, z, width, depth] or `poly` [[x, z], ...], lamps and ACs `pos` [x, z], all in metres,
+// x east, z south). Nothing here touches the DOM, so the editor, its pages and the plan
+// share one truth. Walls may stand at any angle: a wall line is { dir, n, c } (geom.js
+// lineOf) and a stretch of it runs from `a` to `b` metres along it.
 import { normalize, linkOf } from '../config.js';
 import { FURNITURE_TYPES, footprint } from '../three/furniture.js';
+import { roomPoints, oriented, polyArea, polyBox, containsPoint, insidePoint, labelPoint, lineOf, lineDist, along, pointAt, polyProblem } from '../geom.js';
 
 export const COLLECTIONS = { room: 'rooms', light: 'lights', ac: 'acs', furniture: 'furniture', opening: 'openings', scene: 'scenes' };
 // Rooms, lamps, ACs and scenes are named by id; furniture and openings have none, so by index.
@@ -30,15 +33,38 @@ export function check(doc) {
 
 /* ---------- finding things ---------- */
 
-export const rectOf = (r) => ({ x: r.rect[0], z: r.rect[1], w: r.rect[2], d: r.rect[3] });
-export const area = (r) => r.rect[2] * r.rect[3];
+export { roomPoints };
+export const isPoly = (r) => Array.isArray(r?.poly);
+/** A room's corners, turning like a rect's (north edge first for a rect). */
+export const pointsOf = (r) => oriented(roomPoints(r));
+/** The room's bounding box (its rect, for a rectangular room). */
+export function rectOf(r) {
+  if (!isPoly(r)) return { x: r.rect[0], z: r.rect[1], w: r.rect[2], d: r.rect[3] };
+  const b = polyBox(r.poly);
+  return { x: b.minX, z: b.minZ, w: b.maxX - b.minX, d: b.maxZ - b.minZ };
+}
+export const area = (r) => (isPoly(r) ? polyArea(r.poly) : r.rect[2] * r.rect[3]);
 export const roomById = (doc, id) => doc.rooms.find((r) => r.id === id) || null;
 export const roomName = (doc, id) => roomById(doc, id)?.name || '';
 
-export function contains(room, [x, z], pad = EPS) {
-  const [rx, rz, rw, rd] = room.rect;
-  return x >= rx - pad && x <= rx + rw + pad && z >= rz - pad && z <= rz + rd + pad;
+export function contains(room, p, pad = EPS) {
+  if (!isPoly(room)) {
+    const [rx, rz, rw, rd] = room.rect;
+    return p[0] >= rx - pad && p[0] <= rx + rw + pad && p[1] >= rz - pad && p[1] <= rz + rd + pad;
+  }
+  return containsPoint(room.poly, p, pad);
 }
+
+/** The shape of a room, to put back or move from (`rect` or `poly`, copied). */
+export const shapeOf = (r) => (isPoly(r) ? { poly: r.poly.map((p) => [...p]) } : { rect: [...r.rect] });
+
+/** Puts a room's shape where `shape` was, moved by dx, dz. */
+export function placeShape(r, shape, dx, dz) {
+  if (shape.poly) r.poly = shape.poly.map(([x, z]) => [fix(x + dx), fix(z + dz)]);
+  else r.rect = [fix(shape.rect[0] + dx), fix(shape.rect[1] + dz), shape.rect[2], shape.rect[3]];
+}
+
+export const moveRoom = (r, dx, dz) => placeShape(r, shapeOf(r), dx, dz);
 
 // The smallest room containing the point: a bathroom drawn inside a studio wins over the studio.
 export function roomAt(doc, p, { except = null } = {}) {
@@ -66,7 +92,7 @@ export const sameSel = (a, b) => Boolean(a && b && a.kind === b.kind && (BY_ID.h
 
 /** Where an item stands (its centre), for rooms the middle of the floor. */
 export function centerOf(kind, item) {
-  if (kind === 'room') return [item.rect[0] + item.rect[2] / 2, item.rect[1] + item.rect[3] / 2];
+  if (kind === 'room') return isPoly(item) ? labelPoint(item.poly) : [item.rect[0] + item.rect[2] / 2, item.rect[1] + item.rect[3] / 2];
   if (kind === 'opening') return [(item.from[0] + item.to[0]) / 2, (item.from[1] + item.to[1]) / 2];
   return item.pos ? [...item.pos] : null;
 }
@@ -96,7 +122,7 @@ export function fromLocal(pos, rot, [x, z]) {
 /** World-space box of one item, for fitting and bringing it into view. */
 export function boxOf(kind, item) {
   if (kind === 'room') {
-    const [x, z, w, d] = item.rect;
+    const { x, z, w, d } = rectOf(item);
     return { minX: x, minZ: z, maxX: x + w, maxZ: z + d };
   }
   let pts;
@@ -186,19 +212,31 @@ export const OPENING_TYPES = [
 export const openingName = (t) => OPENING_TYPES.find((x) => x.type === (t || 'door'))?.name || 'Door';
 
 export const FURNITURE_NAMES = {
-  sofa: 'Sofa', armchair: 'Armchair', coffeeTable: 'Coffee table', tv: 'TV', sideboard: 'Sideboard',
-  diningSet: 'Dining table', island: 'Kitchen island', kitchen: 'Kitchen counter', fridge: 'Fridge', bed: 'Bed',
-  nightstand: 'Nightstand', dresser: 'Dresser', plant: 'Plant', vanity: 'Vanity', bathtub: 'Bathtub', toilet: 'Toilet',
-  desk: 'Desk', wardrobe: 'Wardrobe', bookshelf: 'Bookshelf', rug: 'Rug',
+  sofa: 'Sofa', armchair: 'Armchair', beanBag: 'Bean bag', coffeeTable: 'Coffee table', tv: 'TV', tvCabinet: 'TV cabinet', sideboard: 'Sideboard',
+  diningSet: 'Dining table', chair: 'Chair', island: 'Kitchen island', kitchen: 'Kitchen counter', counter: 'Counter', stove: 'Stove',
+  fridge: 'Fridge', microwave: 'Microwave', bed: 'Bed', nightstand: 'Nightstand', dresser: 'Dresser', wardrobe: 'Wardrobe',
+  closetRod: 'Closet rod', storageBins: 'Storage bins', plant: 'Plant', vanity: 'Vanity', bathtub: 'Bathtub', shower: 'Shower',
+  toilet: 'Toilet', waterHeater: 'Water heater', desk: 'Desk', bookshelf: 'Bookshelf', rug: 'Rug',
 };
 // In the catalog's order (FURNITURE_TYPES is the 3D library's order).
 export const FURNITURE_ORDER = Object.keys(FURNITURE_NAMES).filter((t) => FURNITURE_TYPES.includes(t));
+// The Add catalog's groups, so the kitchen and bathroom pieces sit together.
+export const FURNITURE_GROUPS = [
+  { name: 'Living', types: ['sofa', 'armchair', 'beanBag', 'coffeeTable', 'tv', 'tvCabinet', 'sideboard', 'bookshelf', 'plant', 'rug'] },
+  { name: 'Kitchen and dining', types: ['kitchen', 'counter', 'stove', 'fridge', 'microwave', 'island', 'diningSet', 'chair'] },
+  { name: 'Bedroom and storage', types: ['bed', 'nightstand', 'dresser', 'wardrobe', 'closetRod', 'storageBins', 'desk'] },
+  { name: 'Bathroom and utility', types: ['vanity', 'toilet', 'bathtub', 'shower', 'waterHeater'] },
+];
 export const furnitureName = (t) => FURNITURE_NAMES[t] || t;
-export const RESIZABLE = new Set(['sofa', 'coffeeTable', 'tv', 'sideboard', 'diningSet', 'island', 'kitchen', 'bed', 'dresser', 'vanity', 'desk', 'wardrobe', 'bookshelf']);
-export const COLORABLE = new Set(['sofa', 'armchair', 'bed', 'rug']);
-export const FURNITURE_COLORS = ['#8b93a7', '#3a3f4a', '#c28a5a', '#7a4a3a', '#7f8fb5', '#4f7a5c', '#b8a07a', '#a65b6b'];
+export const RESIZABLE = new Set(['sofa', 'coffeeTable', 'tv', 'tvCabinet', 'sideboard', 'diningSet', 'island', 'kitchen', 'counter', 'stove', 'bed', 'dresser', 'vanity', 'desk', 'wardrobe', 'bookshelf', 'closetRod', 'storageBins']);
+export const COLORABLE = new Set(['sofa', 'armchair', 'bed', 'rug', 'beanBag', 'chair', 'storageBins']);
+// Pieces sized by a corner handle and `size` [width, depth].
+export const SIZED = new Set(['rug', 'beanBag', 'shower']);
+export const DEFAULT_SIZE = { rug: [2, 1.4], beanBag: [1.5, 0.9], shower: [0.9, 0.9] };
+export const FURNITURE_COLORS = ['#8b93a7', '#3a3f4a', '#c28a5a', '#7a4a3a', '#7f8fb5', '#4f7a5c', '#b8a07a', '#a65b6b', '#d79aa6', '#c8372d'];
+export const COUNTER_TOPS = ['#cfcbc3', '#e9e7e2', '#33363d', '#2b2d31', '#8a7a68', '#5f6b74'];
 // The width each resizable piece has when the plan does not say (furniture.js defaults).
-export const DEFAULT_WIDTH = { sofa: 2.2, coffeeTable: 1.1, tv: 1.7, sideboard: 1.6, diningSet: 1.8, island: 2, kitchen: 3, bed: 1.6, dresser: 1.3, vanity: 1, desk: 1.4, wardrobe: 1.6, bookshelf: 1 };
+export const DEFAULT_WIDTH = { sofa: 2.2, coffeeTable: 1.1, tv: 1.7, tvCabinet: 0.95, sideboard: 1.6, diningSet: 1.8, island: 2, kitchen: 3, counter: 1.2, stove: 0.76, bed: 1.6, dresser: 1.3, vanity: 1, desk: 1.4, wardrobe: 1.6, bookshelf: 1, closetRod: 1.5, storageBins: 0.6 };
 
 export const SCENE_ICONS = ['sun', 'sofa', 'film', 'moon', 'door', 'table', 'bed', 'tv', 'sparkles', 'power'];
 export const FLOORS = [
@@ -253,66 +291,81 @@ export const fToC = (f) => ((f - 32) * 5) / 9;
 
 /* ---------- walls ---------- */
 
-// Every room edge as a wall line: { axis: 'x' (runs along x at z = c) | 'z' (along z at x = c), c, a, b }.
-// Edges on the same line that touch or overlap are merged, so a door can slide along a
-// wall shared by two rooms from one end to the other.
+// Every room edge as a wall line: { dir, n, c, a, b, from, to }, at any angle. Edges on the
+// same line that touch or overlap are merged, so a door can slide along a wall shared by
+// two rooms from one end to the other.
 export function wallLines(doc) {
-  const lines = new Map();
-  const add = (axis, c, a, b) => {
-    const key = `${axis}:${Math.round(c * 1000)}`;
-    if (!lines.has(key)) lines.set(key, { axis, c, spans: [] });
-    lines.get(key).spans.push([a, b]);
-  };
+  const lines = [];
   for (const r of doc.rooms) {
-    const [x, z, w, d] = r.rect;
-    add('x', z, x, x + w);
-    add('x', z + d, x, x + w);
-    add('z', x, z, z + d);
-    add('z', x + w, z, z + d);
+    const pts = pointsOf(r);
+    pts.forEach((p, i) => {
+      const q = pts[(i + 1) % pts.length];
+      let line = lines.find((m) => lineDist(m, p) < EPS && lineDist(m, q) < EPS);
+      if (!line) { const l = lineOf(p, q); line = { dir: l.dir, n: l.n, c: l.c, spans: [] }; lines.push(line); }
+      const [ta, tb] = [along(line, p), along(line, q)];
+      line.spans.push([Math.min(ta, tb), Math.max(ta, tb)]);
+    });
   }
   const out = [];
-  for (const { axis, c, spans } of lines.values()) {
+  for (const { dir, n, c, spans } of lines) {
     spans.sort((p, q) => p[0] - q[0]);
     let cur = null;
     for (const [a, b] of spans) {
       if (cur && a <= cur.b + EPS) cur.b = Math.max(cur.b, b);
-      else { cur = { axis, c, a, b }; out.push(cur); }
+      else { cur = { dir, n, c, a, b }; out.push(cur); }
     }
   }
+  for (const l of out) { l.from = pointAt(l, l.a); l.to = pointAt(l, l.b); }
   return out;
 }
 
+const parallel = (l, m) => Math.abs(l.dir[0] * m.dir[1] - l.dir[1] * m.dir[0]) < 1e-4;
+/** Whether two wall lines (or spans) are the same infinite line. */
+export const sameLine = (l, m) => parallel(l, m) && Math.abs(l.c - m.c) < EPS && l.dir[0] * m.dir[0] + l.dir[1] * m.dir[1] > 0;
+
+/** 'x' for an opening running east–west, 'z' north–south, null at an angle. */
 export function openingAxis(o) {
-  return Math.abs(o.from[1] - o.to[1]) < EPS ? 'x' : 'z';
+  if (Math.abs(o.from[1] - o.to[1]) < EPS) return 'x';
+  if (Math.abs(o.from[0] - o.to[0]) < EPS) return 'z';
+  return null;
 }
 
-/** The opening as a span on a line: { axis, c, a, b, w }. */
+/** The opening as a span on its own line: { dir, n, c, a, b, w, axis }. */
 export function openingSpan(o) {
-  const axis = openingAxis(o);
-  const [p, q] = axis === 'x' ? [o.from[0], o.to[0]] : [o.from[1], o.to[1]];
-  return { axis, c: axis === 'x' ? o.from[1] : o.from[0], a: Math.min(p, q), b: Math.max(p, q), w: Math.abs(q - p) };
+  const l = lineOf(o.from, o.to);
+  const [p, q] = [along(l, o.from), along(l, o.to)];
+  return { dir: l.dir, n: l.n, c: l.c, a: Math.min(p, q), b: Math.max(p, q), w: Math.abs(q - p), axis: openingAxis(o) };
 }
 
-export function setOpeningSpan(o, { axis, c, a, b }) {
-  if (axis === 'x') { o.from = [fix(a), fix(c)]; o.to = [fix(b), fix(c)]; } else { o.from = [fix(c), fix(a)]; o.to = [fix(c), fix(b)]; }
+/** Puts an opening on a span of a line, keeping which end is `from` (a door's hinge stays put). */
+export function setOpeningSpan(o, s) {
+  const reversed = Array.isArray(o.from) && Array.isArray(o.to) && along(s, o.from) > along(s, o.to) + EPS;
+  const p = pointAt(s, s.a).map(fix);
+  const q = pointAt(s, s.b).map(fix);
+  [o.from, o.to] = reversed ? [q, p] : [p, q];
 }
 
-/** The wall the opening lies on, or null when it floats off every wall line. */
+/** The wall the opening lies on (both ends within 1 cm of it), or null when it floats off every wall line. */
 export function wallOf(doc, o, lines = wallLines(doc)) {
-  const s = openingSpan(o);
-  const mid = (s.a + s.b) / 2;
-  return lines.find((l) => l.axis === s.axis && Math.abs(l.c - s.c) < EPS && mid >= l.a - EPS && mid <= l.b + EPS) || null;
-}
-
-/** The wall line nearest to a point: { line, dist, t (position along it) }. */
-export function nearestWall(doc, [x, z], { axis = null, lines = wallLines(doc) } = {}) {
   let best = null;
   for (const l of lines) {
-    if (axis && l.axis !== axis) continue;
-    const along = l.axis === 'x' ? x : z;
-    const across = l.axis === 'x' ? z : x;
-    const t = clamp(along, l.a, l.b);
-    const dist = Math.hypot(along - t, across - l.c);
+    const d = Math.max(lineDist(l, o.from), lineDist(l, o.to));
+    if (d > 0.01) continue;
+    const mid = (along(l, o.from) + along(l, o.to)) / 2;
+    if (mid < l.a - EPS || mid > l.b + EPS) continue;
+    if (!best || d < best.d) best = { l, d };
+  }
+  return best ? best.l : null;
+}
+
+/** The wall line nearest to a point: { line, dist, t (position along it) }; `dir` keeps to lines parallel to it. */
+export function nearestWall(doc, p, { dir = null, lines = wallLines(doc) } = {}) {
+  let best = null;
+  for (const l of lines) {
+    if (dir && !parallel(l, { dir })) continue;
+    const t = clamp(along(l, p), l.a, l.b);
+    const q = pointAt(l, t);
+    const dist = Math.hypot(p[0] - q[0], p[1] - q[1]);
     if (!best || dist < best.dist) best = { line: l, dist, t };
   }
   return best;
@@ -324,23 +377,115 @@ export function placeOnWall(line, t, w) {
   const lo = line.a + half;
   const hi = line.b - half;
   const mid = lo > hi ? (line.a + line.b) / 2 : clamp(t, lo, hi);
-  return { axis: line.axis, c: line.c, a: mid - half, b: mid + half };
+  return { dir: line.dir, n: line.n, c: line.c, a: mid - half, b: mid + half };
+}
+
+/** The rooms on either side of an opening, smallest first on each side: [one side, other side]. */
+function openingSides(doc, o) {
+  const s = openingSpan(o);
+  const mid = [(o.from[0] + o.to[0]) / 2, (o.from[1] + o.to[1]) / 2];
+  const at = (d) => [mid[0] + s.n[0] * d, mid[1] + s.n[1] * d];
+  return [roomAt(doc, at(-0.06)), roomAt(doc, at(0.06))];
 }
 
 /** Which rooms an opening joins: "Studio / Bathroom", or "Studio" on an outside wall. */
 export function openingRooms(doc, o) {
-  const s = openingSpan(o);
-  const mid = (s.a + s.b) / 2;
-  const at = (d) => (s.axis === 'x' ? [mid, s.c + d] : [s.c + d, mid]);
-  const names = [roomAt(doc, at(-0.06)), roomAt(doc, at(0.06))].filter(Boolean).map((r) => r.name || r.id);
+  const names = openingSides(doc, o).filter(Boolean).map((r) => r.name || r.id);
   return [...new Set(names)];
+}
+
+/** The rooms a door can open into: the two it joins, or its room and "out" on an outside wall. */
+export function swingChoices(doc, o) {
+  const rooms = [...new Set(openingSides(doc, o).filter(Boolean))];
+  const out = rooms.map((r) => ({ value: r.id, label: r.name || r.id }));
+  if (rooms.length < 2) out.push({ value: 'out', label: 'Outside' });
+  return out;
+}
+
+/** The room a door opens into as the 3D view draws it: its `swing`, else the smaller room. */
+export function swingOf(doc, o) {
+  const rooms = openingSides(doc, o).filter(Boolean);
+  if (o.swing === 'out' || rooms.some((r) => r.id === o.swing)) return o.swing;
+  const smallest = [...rooms].sort((p, q) => area(p) - area(q))[0];
+  return smallest ? smallest.id : 'out';
+}
+
+// Unit vector across a door's wall, pointing into the room the door opens into.
+function swingNormal(doc, o) {
+  const s = openingSpan(o);
+  const [back] = openingSides(doc, o);
+  const swing = swingOf(doc, o);
+  const intoBack = swing === 'out' ? !back : back?.id === swing;
+  return intoBack ? [-s.n[0], -s.n[1]] : s.n;
+}
+
+/** Which hand a door's hinge is on, seen from the room it opens into: 'left' or 'right'. */
+export function hingeSide(doc, o) {
+  const [nx, nz] = swingNormal(doc, o);
+  // Facing the door from that room: looking along -n, the right hand points along (nz, -nx).
+  const hinge = o.hinge === 'to' ? o.to : o.from;
+  const mid = [(o.from[0] + o.to[0]) / 2, (o.from[1] + o.to[1]) / 2];
+  return (hinge[0] - mid[0]) * nz - (hinge[1] - mid[1]) * nx > 0 ? 'right' : 'left';
+}
+
+export function setHingeSide(doc, o, side) {
+  if (hingeSide(doc, o) !== side) o.hinge = o.hinge === 'to' ? 'from' : 'to';
+}
+
+/* ---------- cutting corners ---------- */
+
+/** Names for a room's corners: compass points for a rect, numbers otherwise. */
+export function cornerNames(room) {
+  if (!isPoly(room)) return ['NW', 'NE', 'SE', 'SW'];
+  return room.poly.map((_, i) => String(i + 1));
+}
+
+/** The longest cut the corner takes, leaving a little of both walls. */
+export function maxCut(room, index) {
+  const pts = roomPoints(room);
+  const n = pts.length;
+  const p = pts[index];
+  const len = (q) => Math.hypot(q[0] - p[0], q[1] - p[1]);
+  return Math.max(0, Math.min(len(pts[(index + n - 1) % n]), len(pts[(index + 1) % n])) - 0.1);
+}
+
+/**
+ * Chamfers a corner: the corner is replaced by two points `length` metres along its two
+ * walls, so a straight wall cuts across it. A rect becomes a `poly`. Returns false when the
+ * corner is too short for the cut.
+ */
+export function cutCorner(room, index, length) {
+  const pts = roomPoints(room);
+  const n = pts.length;
+  if (index < 0 || index >= n) return false;
+  const cut = Math.min(length, maxCut(room, index));
+  if (cut < 0.05) return false;
+  const p = pts[index];
+  const toward = (q) => {
+    const l = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    return [fix(p[0] + ((q[0] - p[0]) / l) * cut), fix(p[1] + ((q[1] - p[1]) / l) * cut)];
+  };
+  const next = [...pts.slice(0, index), toward(pts[(index + n - 1) % n]), toward(pts[(index + 1) % n]), ...pts.slice(index + 1)];
+  if (polyProblem(next)) return false;
+  delete room.rect;
+  room.poly = next.map(([x, z]) => [fix(x), fix(z)]);
+  return true;
+}
+
+/** Moves one corner of a polygon room (dragging it); false when the shape would break. */
+export function moveCorner(room, index, p) {
+  if (!isPoly(room)) return false;
+  const next = room.poly.map((q, i) => (i === index ? [fix(p[0]), fix(p[1])] : q));
+  if (polyProblem(next)) return false;
+  room.poly = next;
+  return true;
 }
 
 /* ---------- placing things ---------- */
 
 // The wall an AC hangs on and where along it, from a point near it.
 export function placeAC(room, wall, along) {
-  const [rx, rz, rw, rd] = room.rect;
+  const { x: rx, z: rz, w: rw, d: rd } = rectOf(room);
   const m = 0.5; // half a unit, so it never hangs over a corner
   const x = rw > 2 * m ? clamp(along, rx + m, rx + rw - m) : rx + rw / 2;
   const z = rd > 2 * m ? clamp(along, rz + m, rz + rd - m) : rz + rd / 2;
@@ -350,14 +495,17 @@ export function placeAC(room, wall, along) {
   return [fix(rx + rw), fix(snap(z))];
 }
 
-export const wallMiddle = (room, wall) => (wall === 'north' || wall === 'south' ? room.rect[0] + room.rect[2] / 2 : room.rect[1] + room.rect[3] / 2);
+export function wallMiddle(room, wall) {
+  const r = rectOf(room);
+  return wall === 'north' || wall === 'south' ? r.x + r.w / 2 : r.z + r.d / 2;
+}
 export const alongWall = (wall, pos) => (wall === 'north' || wall === 'south' ? pos[0] : pos[1]);
 
 // Puts an AC on the nearest wall of the room under (or nearest to) the point.
 export function snapAC(doc, ac, [x, z]) {
   const room = roomAt(doc, [x, z]) || roomById(doc, ac.room) || doc.rooms[0];
   if (!room) return;
-  const [rx, rz, rw, rd] = room.rect;
+  const { x: rx, z: rz, w: rw, d: rd } = rectOf(room);
   const wall = [
     ['north', Math.abs(z - rz)], ['south', Math.abs(z - (rz + rd))],
     ['west', Math.abs(x - rx)], ['east', Math.abs(x - (rx + rw))],
@@ -369,14 +517,14 @@ export function snapAC(doc, ac, [x, z]) {
 
 // The middle of the room, or the nearest place around it nothing else stands on.
 export function freeSpot(doc, room, center, taken = doc.lights.map((l) => l.pos), gap = 0.45) {
-  const [x, z, w, d] = room.rect;
+  const pts = pointsOf(room);
   const busy = (p) => taken.some((q) => q && Math.hypot(q[0] - p[0], q[1] - p[1]) < gap);
   for (let ring = 0; ring < 6; ring++) {
     const n = Math.max(1, ring * 6);
     for (let k = 0; k < n; k++) {
       const a = (k / n) * Math.PI * 2;
       const p = [snap(center[0] + Math.cos(a) * ring * 0.6), snap(center[1] + Math.sin(a) * ring * 0.6)];
-      const inside = p[0] > x + 0.2 && p[0] < x + w - 0.2 && p[1] > z + 0.2 && p[1] < z + d - 0.2;
+      const inside = insidePoint(pts, p, 0.2);
       if (inside && !busy(p) && roomAt(doc, p) === room) return p;
     }
   }
@@ -389,8 +537,8 @@ export function presetRect(doc, [w, d], against = null) {
   if (!doc.rooms.length) return [0, 0, w, d];
   const b = against ? boxOf('room', against) : roomBounds(doc);
   const tall = b.maxZ - b.minZ > b.maxX - b.minX;
-  const overlaps = (rect) => doc.rooms.some((r) => rect[0] < r.rect[0] + r.rect[2] - EPS && rect[0] + rect[2] > r.rect[0] + EPS
-    && rect[1] < r.rect[1] + r.rect[3] - EPS && rect[1] + rect[3] > r.rect[1] + EPS);
+  const overlaps = (rect) => doc.rooms.map(rectOf).some((r) => rect[0] < r.x + r.w - EPS && rect[0] + rect[2] > r.x + EPS
+    && rect[1] < r.z + r.d - EPS && rect[1] + rect[3] > r.z + EPS);
   const right = [fix(b.maxX), fix(b.minZ), w, d];
   const below = [fix(b.minX), fix(b.maxZ), w, d];
   const order = tall ? [right, below] : [below, right];
@@ -423,7 +571,7 @@ export function addLight(doc, type, room) {
     pos: freeSpot(doc, room, c),
     capabilities: ['brightness'],
   };
-  if (type === 'strip') { light.length = Math.min(1.5, Math.max(0.6, fix(room.rect[2] / 2))); light.rot = 0; }
+  if (type === 'strip') { light.length = Math.min(1.5, Math.max(0.6, fix(rectOf(room).w / 2))); light.rot = 0; }
   doc.lights.push(light);
   return light;
 }
@@ -447,23 +595,30 @@ export function addAC(doc, room) {
   return ac;
 }
 
-// Whether the floor just outside a room's edge belongs to another room, sampled along it.
-function edgeRuns(doc, room, wall, wantInterior) {
-  const [x, z, w, d] = room.rect;
-  const horizontal = wall === 'north' || wall === 'south';
-  const [a, b] = horizontal ? [x, x + w] : [z, z + d];
-  const c = { north: z, south: z + d, west: x, east: x + w }[wall];
-  const out = { north: -1, south: 1, west: -1, east: 1 }[wall];
+// Whether the floor just outside each of a room's edges belongs to another room, sampled along it.
+function edgeRuns(doc, room, wantInterior) {
+  const pts = pointsOf(room);
   const runs = [];
-  let cur = null;
-  for (let t = a + 0.05; t < b; t += 0.1) {
-    const p = horizontal ? [t, c + out * 0.06] : [c + out * 0.06, t];
-    const interior = Boolean(roomAt(doc, p, { except: room.id }));
-    if (interior === wantInterior) {
-      if (cur && t - cur.b < 0.11) cur.b = t + 0.05; else { cur = { a: t - 0.05, b: t + 0.05 }; runs.push(cur); }
-    } else cur = null;
-  }
-  return runs.map((r) => ({ wall, axis: horizontal ? 'x' : 'z', c, a: Math.max(a, r.a), b: Math.min(b, r.b) }));
+  pts.forEach((p, i) => {
+    const q = pts[(i + 1) % pts.length];
+    const line = lineOf(p, q);
+    const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    // Outward: the room lies on the right of its edges.
+    const out = [(q[1] - p[1]) / len, -(q[0] - p[0]) / len];
+    const [ta, tb] = [along(line, p), along(line, q)];
+    const [a, b] = [Math.min(ta, tb), Math.max(ta, tb)];
+    let cur = null;
+    const mine = [];
+    for (let t = a + 0.05; t < b; t += 0.1) {
+      const at = pointAt(line, t);
+      const interior = Boolean(roomAt(doc, [at[0] + out[0] * 0.06, at[1] + out[1] * 0.06], { except: room.id }));
+      if (interior === wantInterior) {
+        if (cur && t - cur.b < 0.11) cur.b = t + 0.05; else { cur = { dir: line.dir, n: line.n, c: line.c, a: t - 0.05, b: t + 0.05 }; mine.push(cur); }
+      } else cur = null;
+    }
+    for (const r of mine) { r.a = Math.max(a, r.a); r.b = Math.min(b, r.b); runs.push(r); }
+  });
+  return runs.filter((r) => r.b > r.a);
 }
 
 // Doors go on a wall shared with another room, windows on an outside wall, each centred on
@@ -473,10 +628,9 @@ export function addOpening(doc, type, room) {
   const width = kind.width;
   const prefer = type !== 'window';
   const longest = (runs) => runs.sort((p, q) => (q.b - q.a) - (p.b - p.a));
-  const candidates = [...longest(WALLS.flatMap((w) => edgeRuns(doc, room, w, prefer))),
-    ...longest(WALLS.flatMap((w) => edgeRuns(doc, room, w, !prefer)))];
+  const candidates = [...longest(edgeRuns(doc, room, prefer)), ...longest(edgeRuns(doc, room, !prefer))];
   const spans = doc.openings.filter((o) => o.from && o.to).map(openingSpan);
-  const clear = (axis, c, a, b) => !spans.some((s) => s.axis === axis && Math.abs(s.c - c) < EPS && a < s.b + 0.1 && b > s.a - 0.1);
+  const clear = (run, a, b) => !spans.some((s) => sameLine(s, run) && a < s.b + 0.1 && b > s.a - 0.1);
   let placed = null;
   for (const run of candidates) {
     if (run.b - run.a < width) continue;
@@ -486,13 +640,20 @@ export function addOpening(doc, type, room) {
       const a = mid + off - width / 2;
       const b = a + width;
       if (a < run.a - EPS || b > run.b + EPS) continue;
-      if (clear(run.axis, run.c, a, b)) placed = { axis: run.axis, c: run.c, a: snap(a), b: snap(a) + width };
+      if (clear(run, a, b)) {
+        // On a straight wall the ends land on the 5 cm grid; along an angled one, on the wall.
+        const axisAligned = Math.abs(run.dir[0]) < 1e-9 || Math.abs(run.dir[1]) < 1e-9;
+        const a0 = axisAligned ? snap(a) : a;
+        placed = { ...run, a: a0, b: a0 + width };
+      }
     }
     if (placed) break;
   }
   if (!placed) {
-    const [x, z, w] = room.rect;
-    placed = { axis: 'x', c: z, a: x + w / 2 - width / 2, b: x + w / 2 + width / 2 };
+    const pts = pointsOf(room);
+    const line = lineOf(pts[0], pts[1]);
+    const mid = (along(line, pts[0]) + along(line, pts[1])) / 2;
+    placed = { dir: line.dir, n: line.n, c: line.c, a: mid - width / 2, b: mid + width / 2 };
   }
   const opening = { type: kind.type };
   setOpeningSpan(opening, placed);
@@ -505,7 +666,8 @@ export function addFurniture(doc, type, room) {
   const c = room ? centerOf('room', room) : [0, 0];
   const pos = room ? freeSpot(doc, room, c, doc.furniture.map((f) => f.pos), 0.6) : c;
   const item = { type, pos, rot: 0 };
-  if (type === 'rug') item.size = [2, 1.4];
+  if (SIZED.has(type)) item.size = [...DEFAULT_SIZE[type]];
+  if (type === 'counter') item.sink = 'none';
   if (type === 'diningSet') item.chairs = 4;
   if (type === 'island') item.stools = 3;
   doc.furniture.push(item);
@@ -532,9 +694,7 @@ export function contentsOf(doc, room) {
   };
 }
 
-const inside = (outer, inner) => outer !== inner && inner.rect[0] >= outer.rect[0] - EPS && inner.rect[1] >= outer.rect[1] - EPS
-  && inner.rect[0] + inner.rect[2] <= outer.rect[0] + outer.rect[2] + EPS && inner.rect[1] + inner.rect[3] <= outer.rect[1] + outer.rect[3] + EPS
-  && area(inner) < area(outer);
+const inside = (outer, inner) => outer !== inner && area(inner) < area(outer) && roomPoints(inner).every((p) => contains(outer, p));
 
 /**
  * What travels with a room that is moved: rooms drawn inside it, lamps and furniture
@@ -648,7 +808,9 @@ export function duplicate(doc, sel) {
   if (sel.kind === 'room') {
     copy.id = uniqueId(doc, item.id);
     copy.name = uniqueName(doc.rooms.map((r) => r.name || r.id), item.name || item.id);
-    copy.rect = presetRect(doc, [item.rect[2], item.rect[3]], item);
+    const box = rectOf(item);
+    const to = presetRect(doc, [box.w, box.d], item);
+    placeShape(copy, shapeOf(item), to[0] - box.x, to[1] - box.z);
     doc.rooms.push(copy);
     return { kind: 'room', id: copy.id };
   }
@@ -678,10 +840,13 @@ export function duplicate(doc, sel) {
     const s = openingSpan(item);
     const line = wallOf(doc, item);
     const spans = doc.openings.map(openingSpan);
-    const free = (a) => !spans.some((o) => o.axis === s.axis && Math.abs(o.c - s.c) < EPS && a < o.b + 0.1 && a + s.w > o.a - 0.1);
-    let a = s.b + 0.3;
-    for (const cand of [s.b + 0.3, s.a - 0.3 - s.w]) if ((!line || (cand >= line.a - EPS && cand + s.w <= line.b + EPS)) && free(cand)) { a = cand; break; }
-    setOpeningSpan(copy, { ...s, a, b: a + s.w });
+    const free = (a) => !spans.some((o) => sameLine(o, s) && a < o.b + 0.1 && a + s.w > o.a - 0.1);
+    const on = line || s;
+    const base = { dir: on.dir, n: on.n, c: on.c };
+    const [sa, sb] = [along(base, item.from), along(base, item.to)].sort((p, q) => p - q);
+    let a = sb + 0.3;
+    for (const cand of [sb + 0.3, sa - 0.3 - s.w]) if ((!line || (cand >= line.a - EPS && cand + s.w <= line.b + EPS)) && free(cand)) { a = cand; break; }
+    setOpeningSpan(copy, { ...base, a, b: a + s.w });
     doc.openings.push(copy);
     return { kind: 'opening', index: doc.openings.length - 1 };
   }

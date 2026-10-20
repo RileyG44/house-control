@@ -8,7 +8,7 @@ import {
   HouseWifi, Smartphone, Radar, CircleCheck, CircleAlert, ChevronRight, Unlink, LoaderCircle, Router,
   List, Trash2, Scan, Redo2, Map as MapIcon, DoorClosed, Armchair,
   PenLine, RotateCw, Search, Ruler, Compass, CookingPot, Bath, Monitor, Utensils, Footprints, Shirt, Grid2x2,
-  ArrowLeftRight, TriangleAlert, CloudOff, Upload, Wifi, WandSparkles, Info, SquareDashed, Magnet, Hand, Move,
+  ArrowLeftRight, TriangleAlert, CloudOff, Upload, Wifi, WandSparkles, Info, SquareDashed, Magnet, Hand, Move, Scissors,
 } from 'lucide';
 
 const ICONS = {
@@ -28,7 +28,7 @@ const ICONS = {
   pencil: PenLine, rotate90: RotateCw, search: Search, ruler: Ruler, compass: Compass, kitchen: CookingPot,
   bath: Bath, office: Monitor, dining: Utensils, hallway: Footprints, closet: Shirt, window: Grid2x2,
   passage: ArrowLeftRight, warning: TriangleAlert, offline: CloudOff, upload: Upload, wifi: Wifi, wand: WandSparkles,
-  info: Info, draw: SquareDashed, magnet: Magnet, hand: Hand, move: Move, refresh: RefreshCw,
+  info: Info, draw: SquareDashed, magnet: Magnet, hand: Hand, move: Move, refresh: RefreshCw, cut: Scissors,
 };
 
 export function icon(name, size = 18, stroke = 1.8) {

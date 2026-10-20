@@ -250,6 +250,7 @@ export function createEditor(host, opts) {
     push: (page, o) => sheet.push(page, o),
     pop: () => sheet.pop(),
     refresh: () => refreshSheet(),
+    markCorner: (p) => plan.markCorner(p),
     toast,
     addRoom: (preset) => add((d) => M.selOf(d, 'room', M.addRoom(d, preset))),
     addLight: (type, room) => add((d) => M.selOf(d, 'light', M.addLight(d, type, M.roomById(d, room?.id) || targetRoom(d)))),
@@ -300,6 +301,7 @@ export function createEditor(host, opts) {
     }
     if (!quiet && via !== 'plan' && next) haptic('light');
     sel = next;
+    plan.markCorner(null); // a room page marks its "Cut corner" corner again as it renders
     plan.render();
     sheet.show(next ? [P.itemPage(ctx, next)] : rootPages(), { animate: 'fade', detent });
   }
@@ -482,7 +484,7 @@ export function createEditor(host, opts) {
       const mv = (p) => [M.fix(p[0] + dx), M.fix(p[1] + dz)];
       if (sel.kind === 'room') {
         const ride = M.riders(d, it);
-        for (const r of [it, ...ride.rooms]) r.rect = [M.fix(r.rect[0] + dx), M.fix(r.rect[1] + dz), r.rect[2], r.rect[3]];
+        for (const r of [it, ...ride.rooms]) M.moveRoom(r, dx, dz);
         for (const o of [...ride.lights, ...ride.acs, ...ride.furniture]) o.pos = mv(o.pos);
         for (const o of ride.openings) { o.from = mv(o.from); o.to = mv(o.to); }
       } else if (sel.kind === 'light') {
@@ -494,12 +496,16 @@ export function createEditor(host, opts) {
       } else if (sel.kind === 'furniture') {
         it.pos = mv(it.pos);
       } else if (sel.kind === 'opening') {
-        const s = M.openingSpan(it);
-        const t = s.axis === 'x' ? dx : dz;
-        if (!t) return;
+        // Along its wall, at whatever angle: the arrow's share in the wall's direction.
         const line = M.wallOf(d, it);
-        const a = line ? M.clamp(s.a + t, line.a, line.b - s.w) : s.a + t;
-        M.setOpeningSpan(it, { ...s, a, b: a + s.w });
+        const s = M.openingSpan(it);
+        const on = line || s;
+        const t = M.fix(dx * on.dir[0] + dz * on.dir[1]);
+        if (Math.abs(t) < 0.005) return;
+        const [p, q] = [it.from, it.to].map((pt) => pt[0] * on.dir[0] + pt[1] * on.dir[1]);
+        const a0 = Math.min(p, q);
+        const a = line ? M.clamp(a0 + t, line.a, line.b - s.w) : a0 + t;
+        M.setOpeningSpan(it, { dir: on.dir, n: on.n, c: on.c, a, b: a + s.w });
       }
     }, { key: `nudge-${sel.kind}-${sel.id ?? sel.index}` });
     plan.reveal(sel, { animate: 160 });

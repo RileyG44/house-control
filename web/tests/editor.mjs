@@ -103,6 +103,8 @@ try {
     await shot(p, 'widget-room-handles');
     await p.getByRole('button', { name: 'Add light', exact: true }).click();
     await p.getByRole('button', { name: 'Table lamp', exact: true }).click();
+    await until(p, () => window.__editor.sel?.kind === 'light');
+    await p.waitForTimeout(650); // the sheet settles on the new lamp's page before it is opened up
     await p.evaluate(() => window.__editor.sheet.setDetent('large', false));
     await shot(p, 'widget-light');
     const lamp = await p.evaluate(() => window.__editor.sel.id);

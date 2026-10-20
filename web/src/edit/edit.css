@@ -74,15 +74,17 @@ html.mode-editor #app, html.native.mode-editor #app, html.ios.mode-editor #app {
 .ed-pat { fill: none; stroke: rgba(0, 0, 0, 0.2); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .ed-pat.light { stroke: rgba(255, 255, 255, 0.05); }
 .ed-floor-pat { pointer-events: none; }
-.ed-floor.sel > .ed-body > rect:first-child { filter: brightness(1.18); }
+.ed-floor.sel > .ed-body > :first-child { filter: brightness(1.18); }
 
-.ed-walls rect { stroke: none; }
+.ed-walls > * { stroke: none; }
 .ed-walls .ext { fill: #d4ccc0; }
 .ed-walls .int { fill: #b5ada2; }
 .ed-window line { stroke: #9fd0ff; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .ed-door-swing { fill: rgba(255, 255, 255, 0.035); stroke: rgba(255, 255, 255, 0.24); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
 .ed-door-leaf { stroke: #ebe5db; stroke-width: 2.5; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .ed-open-hit { stroke: transparent; stroke-width: 0.2; }
+.ed-curtain { stroke: rgba(235, 240, 255, 0.55); stroke-width: 1.5; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; }
+.ed-corner-mark { fill: rgba(61, 139, 255, 0.18); stroke: var(--ed-accent); stroke-width: 2; stroke-dasharray: 3 2; }
 .ed-astray { fill: none; stroke: rgba(255, 180, 90, 0.75); stroke-width: 1.2; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
 
 /* Furniture glyphs (also the catalog's thumbnails). */
