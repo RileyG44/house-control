@@ -815,11 +815,12 @@ html.ios .ed-input, html.ios .ed-search-input, html.ios .ed-select { font-size: 
 .ed-toast {
   position: absolute;
   left: 50%;
-  bottom: calc(var(--ed-sheet) + 68px); /* above the Fit button */
+  bottom: min(calc(var(--ed-sheet) + 68px), calc(100% - var(--ed-bar) - 96px));
   z-index: 50;
   display: flex;
   align-items: center;
   gap: 14px;
+  width: max-content;
   max-width: calc(100% - 32px);
   min-height: 44px;
   padding: 8px 8px 8px 16px;

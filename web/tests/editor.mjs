@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { readFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { normalize } from '../src/config.js';
 
 const HUB = 'http://127.0.0.1:8777';
 const PREVIEW = 'http://127.0.0.1:8778';
@@ -52,7 +53,7 @@ async function saveRemote(page, config) {
   assert.equal((await result.json()).ok, true);
 }
 async function check(label, fn) {
-  if (process.env.HOUSE_EDITOR_CHECK && !label.includes(process.env.HOUSE_EDITOR_CHECK)) return;
+  if (process.env.HOUSE_EDITOR_CHECK && !new RegExp(process.env.HOUSE_EDITOR_CHECK).test(label)) return;
   console.log(`CHECK ${label}`);
   try { await fn(); console.log(`PASS ${label}`); }
   catch (error) {
@@ -125,6 +126,7 @@ try {
     await p.getByRole('button', { name: 'Done', exact: true }).click();
     await until(p, () => !window.__editor && window.__house.config.lights.some(l => l.link?.id === 'test-bulb'));
     await p.waitForTimeout(1200);
+    await p.evaluate(() => window.__house.world.settle());
     await shot(p, 'widget-done');
     await c.close();
   });
@@ -165,6 +167,8 @@ try {
     const hub = await (await a.request.get(`${HUB}/api/plan`)).json();
     const panel = await (await a.request.get(`${PREVIEW}/__test/panel`)).json();
     assert.deepEqual(panel, hub);
+    normalize(structuredClone(hub));
+    assert.ok(!await a.locator('.ed-toast').innerText().then(t => /\bnull\b/.test(t)));
     await shot(a, 'desktop-wide');
     await a.getByRole('radio', { name: '3D', exact: true }).click();
     await a.waitForTimeout(500); await shot(a, 'desktop-3d');
@@ -208,6 +212,11 @@ try {
     await until(p,()=>window.__editor.sheet.detent==='medium');
     await shot(p, 'phone-medium');
     await p.getByRole('button', { name: 'Add to the home', exact: true }).click();
+    const toastFits = await p.evaluate(() => {
+      const toast=document.querySelector('.ed-toast.show');
+      return !toast || toast.getBoundingClientRect().top >= document.querySelector('.ed-bar').getBoundingClientRect().bottom;
+    });
+    assert.ok(toastFits, 'notifications stay below the phone status/header area');
     await shot(p, 'phone-add');
     await p.getByRole('button', { name: 'Bedroom', exact: true }).click();
     await p.waitForTimeout(650);
@@ -274,6 +283,32 @@ try {
       if(hasDone){ await p.getByRole('button',{name:'Done',exact:true}).click(); await until(p,()=>window.nativeMessages.some(m=>m.type==='close')); }
       await c.close();
     }
+  });
+
+  await check('native save ordering: remote change during a save is overwritten by the pending local edit', async () => {
+    const c=await context({viewport:{width:1240,height:800}});
+    await c.addInitScript(raw=>{
+      window.__HOUSE_BOOT__={config:raw,platform:'macos',mode:'editor',canClose:true,services:{}};
+      window.saves=[];
+      window.webkit={messageHandlers:{house:{postMessage(msg){
+        if(msg.type==='savePlan') window.saves.push(msg);
+        else if(msg.callId) queueMicrotask(()=>window.house.reply(msg.callId,{}));
+      }}}};
+    },raw);
+    const p=await c.newPage(); await ready(p,PREVIEW);
+    await rename(p,'Pending local change');
+    await p.evaluate(()=>{ void window.__editor.flush(); });
+    await until(p,()=>window.saves.length===1);
+    await p.evaluate(()=>{
+      const remote=structuredClone(window.__editor.doc); remote.rooms[0].name='Other screen';
+      window.house.planArrived(remote,'other screen');
+      window.house.reply(window.saves[0].callId,{ok:true});
+    });
+    await until(p,()=>window.saves.length===2);
+    assert.equal(await p.evaluate(()=>window.saves[1].config.rooms[0].name),'Pending local change');
+    await p.evaluate(()=>window.house.reply(window.saves[1].callId,{ok:true}));
+    await until(p,()=>window.__editor.status==='saved');
+    await c.close();
   });
 
   assert.deepEqual(errors, [], 'no browser exceptions');

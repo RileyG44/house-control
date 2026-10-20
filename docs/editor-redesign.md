@@ -10,24 +10,38 @@ This document is the whole brief for the build. Everything marked **P0** must sh
 
 ---
 
-## Status at hand-off (2026-10-19, paused for a usage reset)
+## Completion status (2026-10-19)
 
-Built, on `main`:
-- Hub: plan revision and the saving screen's id in the reload event (`hub/house.py`).
-- The new editor in `web/src/edit/` (plan, bottom sheet and docked card, pages, Add catalog, device
-  pickers, undo, autosave) and the in-panel edit mode (pencil in the panel header, the 3D-to-plan
-  morph, the card growing on a desktop). Exercised with Playwright screenshots at widget size
-  (468 × 828 with the widget's `TILE_CSS`), phone size (390 × 844) and desktop (1440 × 900).
-- `npm --prefix web run build` passes.
+Implemented:
+- The in-panel and standalone editors, narrow bottom sheet and desktop dock, visual Add
+  catalog, device pickers, undo/redo, autosave and 2D/3D transitions.
+- Live plan updates without page reloads, queued during touch gestures; remote adoption,
+  pending-local-edit conflict handling, serialized fetches and recovery after a disconnect.
+  A save response arriving after another screen's change no longer clears the pending local save.
+- Standalone preview Done applies the edited document locally rather than discarding it.
+- Native Mac `canClose` capability and editor-window close routing; the older native shell
+  still hides Done. iPhone close and incoming paired-plan messages remain supported.
+- Home-screen web app manifest, mobile metadata, and 180/192/512 px icons.
+- Notifications stay below the phone header when the sheet is expanded; toast text has no
+  spurious null action. A fading-out panel is removed from keyboard/accessibility navigation.
 
-Not done or not checked yet:
-- §9.4 standalone editor (`?mode=editor`: the Mac editor window and the iPhone app): not checked.
-- §9.5 live sync between two open screens: the hub side is in; the web side (hot-swap,
-  `adoptRemote`) is not checked.
-- §9.6 plain browser preview (no hub): not checked.
-- §8 Mac Swift change (close the editor window on `close`, `canClose` in its boot payload): not done.
-- §8 home-screen web app (manifest and icons): not done. P2 items: not done.
-- Nothing is deployed to Riley's Mac yet; the hub there still serves the old editor.
+Verification:
+- Production web build and all 13 existing hub checks passed.
+- Browser checks cover widget editing and device linking, desktop hot swaps and conflicts,
+  offline catch-up, phone hold/drag and pinch, standalone hub navigation, browser preview,
+  simulated native save/close/planArrived messages, and save-response ordering.
+- Geometry checks cover nested rooms, room contents, AC wall snapping, device reassignment,
+  scene cascades and stable unique IDs. Screenshots were inspected at widget, phone,
+  desktop and standalone sizes. Reproduction commands and screenshot names are in section 10.
+- Native Swift sources were reviewed but not compiled on Windows. The fork exposes only
+  its Windows workflow; attempting the existing Mac release workflow returned HTTP 404.
+
+Deployment is outside this handoff: Riley requested completion and a push to GitHub only.
+No Mac, live hub, Tailscale configuration or installed Windows app was changed. Optional P2
+ideas remain optional.
+
+The environment notes below describe Claude's original Linux checkout and test fixture.
+Use section 10 to reproduce the checks from another checkout.
 
 ---
 
@@ -147,7 +161,8 @@ container is ≥ 900 px wide and ≥ 560 px tall, otherwise **narrow**.
 - `main.js` `incoming.planChanged`: ignore when `update.by === CLIENT_ID` (our own echo). Otherwise
   fetch `./api/plan` (no-store). If the editor is open, hand it over with `editor.adoptRemote(raw)`;
   else **hot-swap**: `mountHome(newRaw)` with a quick cross-fade (no page reload; keep the selected
-  room if it still exists; transfer device state). If the fetch fails, fall back to `location.reload()`.
+  room if it still exists; transfer device state). If the fetch fails, keep the page and retry after 5 s or when the screen comes online.
+  Serialize these fetches so an older response cannot replace a newer plan.
 - Standalone editor in hub mode handles `planChanged` the same way via `adoptRemote`. Standalone in
   native mode keeps `incoming.planArrived(config, from)` (the Mac app calls it when the hub saved).
 
@@ -597,15 +612,46 @@ no overflow, nothing clipped, text readable at 440 px, aligned spacing, no conso
 7. Your hub check script passes (rev bumps, `by` in the reload event, `X-Plan-Rev`, save returns the
    rev, both plan files written); `npm --prefix web run build` passes with no warnings you introduced.
 
-## 10. Hand-off
+## 10. Verification and handoff
 
-- Commit in logical steps on `wiz-mrcool-hub` with clear messages ending with exactly:
-  ```
-  Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
-  Claude-Session: https://claude.ai/code/session_018QTxf6tHQsxa3EzRGQ3zmt
-  ```
-  Push (`git push -u origin wiz-mrcool-hub`, retry with backoff on network errors) and fast-forward
-  `main` (`git push origin wiz-mrcool-hub:main`).
-- Do not touch Riley's Mac, the real hub, or the Windows app version. Do not commit fixtures or stubs.
-- Report back: what shipped (by section), what did not and why, the screenshot paths for each check in
-  §9, and anything Riley should know.
+Production build and pure model checks (Node.js 22.12+):
+
+```sh
+npm ci --prefix web
+npm run build --prefix web
+node web/tests/editor-model.mjs
+```
+
+Browser acceptance checks use Playwright only as a local test tool; it is not added to the
+application's dependencies or lockfile:
+
+```sh
+npm install --prefix web --no-save --package-lock=false playwright@1.64.1
+npx --prefix web playwright install chromium
+# Python 3.11+ and aiohttp are required. This fixture never starts network discovery
+# or connects to a device. Both servers bind to loopback and use a temporary plan folder.
+python web/tests/editor-hub.py
+# In another terminal:
+node web/tests/editor.mjs
+```
+
+`HOUSE_EDITOR_CHECK` optionally selects check labels with a regular expression.
+`HOUSE_EDITOR_SHOTS` overrides the screenshot folder; the default is the operating system's
+`house-editor-checks` temporary folder. Files include:
+
+- `widget-home-peek`, `widget-home-medium`, `widget-add`, `widget-room-handles`, `widget-light`,
+  `widget-device-picker`, `widget-furniture-catalog`, `widget-done`.
+- `desktop-wide`, `desktop-3d`; `phone-home`, `phone-medium`, `phone-add`, `phone-room`.
+- `standalone-web`, `standalone-ios`; `preview-overlay`, `preview-standalone`.
+- `native-macos-true`, `native-macos-false`, `native-ios-false` (simulated bridges, not native builds).
+
+All screenshot names end in `.png`. No private plans, device credentials or production stubs
+are committed. The fake catalog is confined to the isolated test fixture.
+
+Hub checks: `python -m pytest hub/tests` where pytest is available. This Windows run invoked
+all 13 existing check functions with temporary directories and scoped environment patches
+without adding pytest to the development environment.
+
+The Windows widget loads its web UI from the hub, so installing this source update there is
+what makes the redesign appear in both the widget and the Tailscale site. That deployment
+was explicitly removed from this task; no Windows version bump is needed for these web changes.

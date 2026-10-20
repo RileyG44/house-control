@@ -107,7 +107,7 @@ export function listenForPlanChanges(listener) {
 // Device state from the hub, for incoming.applyRemote. Reconnects by itself (EventSource
 // does). When the hub's floor plan changed (a new light was found, a plan was saved on
 // another screen) the page takes it in place (planChanged: the panel swaps itself, an open
-// editor merges it); a page without that handler reloads.
+// editor merges it). Changes arriving before that handler mounts are queued.
 if (isHub) {
   const events = new EventSource('./api/events');
   let connected = false;
