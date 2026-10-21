@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import aiohttp
@@ -451,6 +452,181 @@ def test_custom_scenes_leave_a_made_plan_the_hubs(tmp_path, monkeypatch):
     hub._rebuild_plan()
     assert [r["name"] for r in hub.plan["rooms"]] == ["Den", "Kitchen"]  # still following devices.json
     assert hub.plan["scenes"] == scenes and hub.plan["tileOrder"] == ["den.lamp"]  # and the scenes are kept
+
+
+# ---------- two hubs keeping one plan ----------
+
+ROOMS = [{"id": "studio", "rect": [0, 0, 6, 7]}]
+
+
+def test_saves_are_stamped(tmp_path, monkeypatch):
+    monkeypatch.setattr(house, "PANEL_PLAN", tmp_path / "no-mac-app" / "plan.json")
+    hub = house.Hub(tmp_path)
+    assert hub.peers == []  # no peer.json: the hub keeps its plan to itself
+    hub._rebuild_plan()
+    heard: asyncio.Queue = asyncio.Queue()
+    hub.listeners.add(heard)
+    before = int(time.time() * 1000)
+    rev = hub.plan_rev
+    assert hub.save_plan({"name": "Mine", "rooms": ROOMS, "savedAt": 5}, by="tab-1") == {"ok": True, "rev": rev + 1}
+    first = hub.plan["savedAt"]
+    assert before <= first <= int(time.time() * 1000) + 1
+    assert json.loads((tmp_path / "plan.json").read_text())["savedAt"] == first
+    assert heard.get_nowait()["rev"] == rev + 1
+    # Saving the same plan again stamps it later, but nothing a screen shows changed: no reload.
+    assert hub.save_plan({"name": "Mine", "rooms": ROOMS}) == {"ok": True, "rev": rev + 1} and heard.empty()
+    assert hub.plan["savedAt"] > first
+    # The stamp is later than the plan it replaces even when the clock says otherwise.
+    hub.plan["savedAt"] = 10 ** 14
+    assert hub.save_plan({"name": "Mine", "rooms": ROOMS})["ok"] and hub.plan["savedAt"] == 10 ** 14 + 1
+    assert plan.saved_at({"rooms": []}) == 0 and plan.saved_at({"savedAt": "soon"}) == 0
+    assert plan.same_but_order({"a": 1, "savedAt": 1}, {"a": 1, "savedAt": 2, "tileOrder": []})
+
+
+def test_a_stamp_leaves_a_made_plan_the_hubs(tmp_path, monkeypatch):
+    monkeypatch.setattr(house, "PANEL_PLAN", tmp_path / "no-mac-app" / "plan.json")
+    (tmp_path / "devices.json").write_text(json.dumps({"rooms": ["Den"]}))
+    hub = house.Hub(tmp_path)
+    (tmp_path / "plan.json").write_text(json.dumps({**plan.build({"rooms": ["Den"]}, [], []), "savedAt": 3}))
+    hub._rebuild_plan()
+    assert hub.plan["savedAt"] == 3  # a plan the hub makes again keeps its stamp
+    assert hub.save_plan({**hub.plan, "tileOrder": ["den.lamp"]})["ok"]
+    assert hub.plan["generatedBy"] == "hub" and hub.plan["savedAt"] > 3
+    stamp = hub.plan["savedAt"]
+    (tmp_path / "devices.json").write_text(json.dumps({"rooms": ["Den", "Kitchen"]}))
+    hub._rebuild_plan()
+    assert [r["name"] for r in hub.plan["rooms"]] == ["Den", "Kitchen"] and hub.plan["savedAt"] == stamp
+
+
+def test_a_plan_from_the_mac_editor_is_stamped(tmp_path, monkeypatch):
+    panel = tmp_path / "panel.json"
+    conf = tmp_path / "hub"
+    monkeypatch.setattr(house, "PANEL_PLAN", panel)
+    hub = house.Hub(conf)
+    (conf / "plan.json").write_text(json.dumps({"name": "Old", "rooms": ROOMS}))
+    panel.write_text(json.dumps({"name": "Edited", "rooms": ROOMS}))
+    os.utime(conf / "plan.json", (panel.stat().st_mtime - 30, panel.stat().st_mtime - 30))
+    hub._rebuild_plan()
+    assert hub.plan["name"] == "Edited" and hub.plan["savedAt"] == panel.stat().st_mtime_ns // 1_000_000
+    assert not hub._adopt_panel_plan()  # stamped, but not taken again
+
+
+def test_peer_addresses(tmp_path, monkeypatch):
+    (tmp_path / "peer.json").write_text(json.dumps({"urls": ["http://192.168.0.188:8766/", "", 7,
+                                                            "https://mac.example.ts.net:8451"]}))
+    assert house.peer_urls(tmp_path) == ["http://192.168.0.188:8766", "https://mac.example.ts.net:8451"]
+    monkeypatch.setenv("HOUSE_PEER_URLS", "http://a:1, http://b:2")
+    assert house.peer_urls(tmp_path) == ["http://a:1", "http://b:2"]
+    monkeypatch.setenv("HOUSE_PEER_URLS", "")
+    assert house.peer_urls(tmp_path) == []
+    monkeypatch.delenv("HOUSE_PEER_URLS")
+    assert house.peer_urls(tmp_path / "none") == []
+
+
+async def two_hubs(tmp_path, monkeypatch):
+    """Two hubs serving on loopback that know each other (nothing else started: no devices)."""
+    monkeypatch.setattr(house, "PANEL_PLAN", tmp_path / "no-mac-app" / "plan.json")
+    hubs, clients = [], []
+    for name in ("server", "backup"):
+        conf = tmp_path / name
+        conf.mkdir()
+        (conf / "plan.json").write_text(json.dumps({"name": "Home", "rooms": ROOMS}))
+        hub = house.Hub(conf)
+        hub._rebuild_plan()
+        app = house.make_app(hub)
+        app.on_startup.clear()
+        app.on_cleanup.clear()
+        client = TestClient(TestServer(app))
+        await client.start_server()
+        hub.http = aiohttp.ClientSession()
+        hubs.append(hub)
+        clients.append(client)
+    a, b = hubs
+    # The first address answers nothing (a dropped Wi-Fi link); the second does.
+    a.peers = ["http://127.0.0.1:9", str(clients[1].make_url("")).rstrip("/")]
+    b.peers = [str(clients[0].make_url("")).rstrip("/")]
+
+    async def close():
+        for hub, client in zip(hubs, clients):
+            await hub.http.close()
+            await client.close()
+    return a, b, clients, close
+
+
+def test_a_save_goes_to_the_other_hub_and_not_back(tmp_path, monkeypatch):
+    async def go():
+        a, b, (ca, cb), close = await two_hubs(tmp_path, monkeypatch)
+        try:
+            heard: asyncio.Queue = asyncio.Queue()
+            b.listeners.add(heard)
+            rev = b.plan_rev
+            r = await ca.post("/api/call", json={"type": "savePlan", "client": "tab-1",
+                                                 "config": {"name": "Moved", "rooms": ROOMS, "tileOrder": ["studio.ac"]}})
+            assert (await r.json())["ok"]
+            assert await a._push_task
+            # The backup has the same plan, stamp and all; its screens reload as for any save.
+            assert b.plan == a.plan and b.plan["savedAt"] == a.plan["savedAt"]
+            assert json.loads((tmp_path / "backup" / "plan.json").read_text()) == a.plan
+            assert heard.get_nowait() == {"reload": True, "rev": rev + 1, "by": "peer"}
+            assert b._push_task is None  # not sent back
+            # An older plan from the other hub is left alone.
+            r = await cb.post("/api/call", json={"type": "savePlan", "client": "peer", "fromPeer": True,
+                                                 "config": {"name": "Stale", "rooms": ROOMS, "savedAt": 1}})
+            assert (await r.json())["kept"] and b.plan["name"] == "Moved" and heard.empty()
+            # A plan without a stamp counts as the oldest.
+            assert b.save_plan({"name": "Unstamped", "rooms": ROOMS}, from_peer=True)["kept"]
+            # Both hubs checking now changes nothing.
+            await a._sync_peer()
+            await b._sync_peer()
+            assert a.plan == b.plan and a.plan["name"] == "Moved" and heard.empty()
+        finally:
+            await close()
+    run(go())
+
+
+def test_the_newer_plan_wins_both_ways(tmp_path, monkeypatch):
+    async def go():
+        a, b, _, close = await two_hubs(tmp_path, monkeypatch)
+        try:
+            # Saved on the backup while the server was away: the server takes it when it checks.
+            b.peers = []
+            assert b.save_plan({"name": "Saved on the backup", "rooms": ROOMS})["ok"]
+            await a._sync_peer()
+            assert a.plan["name"] == "Saved on the backup" and a.plan["savedAt"] == b.plan["savedAt"]
+            # Saved on the server while the backup was away: the server sends it when it checks.
+            a.peers, peers = [], a.peers
+            assert a.save_plan({"name": "Saved on the server", "rooms": ROOMS})["ok"]
+            a.peers = peers
+            await a._sync_peer()
+            assert b.plan["name"] == "Saved on the server" and b.plan["savedAt"] == a.plan["savedAt"]
+            # Two plans that were never stamped stay as they are.
+            for hub in (a, b):
+                hub.plan.pop("savedAt")
+            b.plan["name"] = "Different"
+            await a._sync_peer()
+            assert a.plan["name"] == "Saved on the server" and b.plan["name"] == "Different"
+        finally:
+            await close()
+    run(go())
+
+
+def test_a_hub_whose_peer_is_away_saves_as_usual(tmp_path, monkeypatch):
+    async def go():
+        monkeypatch.setattr(house, "PANEL_PLAN", tmp_path / "no-mac-app" / "plan.json")
+        monkeypatch.setattr(house, "PEER_RETRY", 0.01)
+        (tmp_path / "peer.json").write_text(json.dumps({"urls": ["http://127.0.0.1:9"]}))
+        hub = house.Hub(tmp_path)
+        assert hub.peers == ["http://127.0.0.1:9"]
+        hub._rebuild_plan()
+        hub.http = aiohttp.ClientSession()
+        try:
+            assert hub.save_plan({"name": "Mine", "rooms": ROOMS})["ok"]
+            assert await hub._push_task is False
+            await hub._sync_peer()  # nothing answers: no error
+            assert hub.plan["name"] == "Mine"
+        finally:
+            await hub.http.close()
+    run(go())
 
 
 def test_plan_seed_links_by_name():

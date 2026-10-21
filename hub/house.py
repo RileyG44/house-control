@@ -47,6 +47,9 @@ PANEL_PLAN = Path(os.environ.get(
 LABEL = "local.househub"
 
 LIGHT_POLL = 2.0     # seconds between reads of every light (local, cheap)
+PEER_SYNC = 60.0     # seconds between plan checks with the other hub
+PEER_RETRY = 5.0     # a push that found no peer tries again after this (then twice as long)
+PEER_TIMEOUT = aiohttp.ClientTimeout(total=8, connect=4)
 AC_POLL = 90.0       # Cielo's cloud is rate limited
 DISCOVER_EVERY = 60.0
 
@@ -65,6 +68,16 @@ def read_json(path: Path, default):
         return json.loads(path.read_text())
     except (OSError, ValueError):
         return default
+
+
+def peer_urls(conf: Path) -> list[str]:
+    """The other hub's addresses, tried in order: HOUSE_PEER_URLS (comma separated), else
+    peer.json's "urls". None: this hub keeps its plan to itself."""
+    env = os.environ.get("HOUSE_PEER_URLS")
+    urls = env.split(",") if env is not None else (read_json(conf / "peer.json", {}) or {}).get("urls")
+    if not isinstance(urls, list):
+        return []
+    return list(dict.fromkeys(u.strip().rstrip("/") for u in urls if isinstance(u, str) and u.strip()))
 
 
 class Hub:
@@ -88,6 +101,9 @@ class Hub:
         self.tv = TvRemote(tv_url(conf, local_ip), self._publish, watched=lambda: bool(self.listeners), adb=Adb.find())
         self._tasks: list[asyncio.Task] = []
         self._ac_due = 0.0
+        # Another hub that keeps the same plan (the home server and a backup): see _sync_peer.
+        self.peers = peer_urls(conf)
+        self._push_task: asyncio.Task | None = None
 
     # ---------- files ----------
 
@@ -138,9 +154,13 @@ class Hub:
                        asyncio.create_task(self._loop(self._sync_panel_plan, 5.0)),
                        asyncio.create_task(self._loop(self.discover, DISCOVER_EVERY)),
                        asyncio.create_task(self.tv.run())]
+        if self.peers:
+            log.info("Keeping the plan in step with %s", ", ".join(self.peers))
+            self._tasks += [asyncio.create_task(self._sync_peer()),
+                            asyncio.create_task(self._loop(self._sync_peer, PEER_SYNC))]
 
     async def stop(self) -> None:
-        for t in self._tasks:
+        for t in [*self._tasks, *([self._push_task] if self._push_task else [])]:
             t.cancel()
         self.wiz.close()
         self.tv.close()
@@ -213,12 +233,16 @@ class Hub:
         if not isinstance(data, dict) or not isinstance(data.get("rooms"), list):
             return False
         raw = panel.read_bytes()
+        mtime = panel.stat().st_mtime_ns
         if hub_plan.is_file() and hub_plan.read_bytes() == raw:
-            os.utime(hub_plan, ns=(panel.stat().st_mtime_ns, panel.stat().st_mtime_ns))
+            os.utime(hub_plan, ns=(mtime, mtime))
             return False
-        hub_plan.write_bytes(raw)
-        os.utime(hub_plan, ns=(panel.stat().st_mtime_ns, panel.stat().st_mtime_ns))
+        # Saved in the editor, so it is stamped like any other save (and goes to the other hub).
+        data[plans.STAMP] = max(plans.saved_at(data), mtime // 1_000_000, plans.saved_at(self.plan) + 1)
+        hub_plan.write_text(json.dumps(data, indent=2) + "\n")
+        os.utime(hub_plan, ns=(mtime, mtime))
         log.info("Adopted the Mac panel's floor plan")
+        self._push_soon()
         return True
 
     async def _sync_panel_plan(self) -> None:
@@ -243,8 +267,10 @@ class Hub:
             new = plans.seed(base, self.names, lights, acs) if base else plans.build(self.names, lights, acs)
             new = plans.ordered(new, custom)  # the tiles as a screen arranged them, and its scenes
             path.write_text(json.dumps(new, indent=2))
-        changed = bool(self.plan) and new != self.plan
-        if new != self.plan:
+        # A new save stamp alone changes nothing a screen shows.
+        looks_new = plans.unstamped(new) != plans.unstamped(self.plan)
+        changed = bool(self.plan) and looks_new
+        if looks_new:
             self.plan_rev += 1
         self.plan = new
         self.links = {d["id"]: (d["link"]["service"], d["link"]["id"])
@@ -358,13 +384,17 @@ class Hub:
 
     # ---------- the floor plan, edited from any panel ----------
 
-    def save_plan(self, config, by: str | None = None) -> dict:
+    def save_plan(self, config, by: str | None = None, from_peer: bool = False) -> dict:
         """Stores a plan drawn in the editor as the home's plan.
 
         The hub's plan.json is what the site serves; the Mac app's own plan file, when it
         has one, gets the same bytes (and mtime), so the menu bar panel and the island
         show the same home and neither copy looks newer than the other. `by` is the saving
-        screen's client id, passed on in the reload event; the reply carries the plan's rev."""
+        screen's client id, passed on in the reload event; the reply carries the plan's rev.
+
+        A screen's save is stamped `savedAt` (now, in unix ms) and sent on to the other hub.
+        `from_peer`: the other hub's plan, kept as it is (stamp and all) and not sent back;
+        one no newer than this hub's is left alone."""
         if not isinstance(config, dict):
             return {"error": "The plan must be a JSON object"}
         rooms = config.get("rooms")
@@ -389,11 +419,20 @@ class Hub:
             if plans.scenes_of(config) is None:
                 return {"error": "scenes must be a list of scenes"}
             config = {**config, "scenes": plans.scenes_of(config)}
+        if from_peer:
+            if plans.saved_at(config) <= plans.saved_at(self.plan):
+                return {"ok": True, "rev": self.plan_rev, "kept": "This hub's plan is as new or newer"}
+            hubs = config.get("generatedBy") == "hub" or config.get("seededBy") == "hub"
+        else:
+            # Later than the plan it replaces, even when this computer's clock is behind the other hub's.
+            config = {**config, plans.STAMP: max(time.time_ns() // 1_000_000, plans.saved_at(self.plan) + 1)}
+            hubs = None
         # Tiles dragged into a new order, or scenes made, on a plan the hub makes leave it the
         # hub's, so it keeps linking the devices that turn up; anything else makes it drawn by
         # hand from now on.
-        hubs = (plans.same_but_order(config, self.plan)
-                and (self.plan.get("generatedBy") == "hub" or self.plan.get("seededBy") == "hub"))
+        if hubs is None:
+            hubs = (plans.same_but_order(config, self.plan)
+                    and (self.plan.get("generatedBy") == "hub" or self.plan.get("seededBy") == "hub"))
         if not hubs:
             config = {k: v for k, v in config.items() if k not in ("generatedBy", "seededBy")}
         data = (json.dumps(config, indent=2) + "\n").encode()
@@ -407,12 +446,81 @@ class Hub:
             tmp.write_bytes(data)
             os.replace(tmp, path)
             os.utime(path, ns=(now, now))
-        if plans.same_but_order(config, self.plan):
+        if from_peer:
+            log.info("Took the other hub's newer plan (saved %s)",
+                     time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(plans.saved_at(config) / 1000)))
+        elif plans.same_but_order(config, self.plan):
             log.info("Saved the panel's tile order and scenes (%d scenes)", len(config.get("scenes") or []))
         else:
             log.info("Saved the floor plan from the editor (%d rooms)", len(rooms))
         self._rebuild_plan(by=by if isinstance(by, str) and by else None)
+        if not from_peer:
+            self._push_soon()
         return {"ok": True, "rev": self.plan_rev}
+
+    # ---------- the other hub (peer.json) ----------
+
+    async def _peer(self, url: str, method: str, path: str, body: dict | None = None):
+        """The peer's JSON reply, or None when it can't be reached (its Wi-Fi drops now and then)."""
+        if self.http is None:
+            return None
+        try:
+            async with self.http.request(method, url + path, json=body, timeout=PEER_TIMEOUT) as r:
+                if r.status != 200:
+                    return None
+                return await r.json(content_type=None)
+        except (aiohttp.ClientError, asyncio.TimeoutError, OSError, ValueError):
+            return None
+
+    async def _send_plan(self, url: str) -> bool:
+        reply = await self._peer(url, "POST", "/api/call",
+                                 {"type": "savePlan", "config": self.plan, "client": "peer", "fromPeer": True})
+        if reply is None:
+            return False
+        if isinstance(reply, dict) and reply.get("error"):
+            log.warning("%s did not take the plan: %s", url, reply["error"])
+        elif isinstance(reply, dict) and reply.get("kept"):
+            log.info("%s has a plan as new or newer", url)
+        else:
+            log.info("Sent the plan to %s", url)
+        return True
+
+    def _push_soon(self) -> None:
+        """Sends the plan just saved to the first peer that answers, in the background."""
+        if not self.peers or self.http is None:
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return  # not serving: the next sync sends it
+        if self._push_task and not self._push_task.done():
+            self._push_task.cancel()
+        self._push_task = asyncio.create_task(self._push_plan())
+
+    async def _push_plan(self, tries: int = 3) -> bool:
+        for attempt in range(tries):
+            if attempt:
+                await asyncio.sleep(PEER_RETRY * 2 ** (attempt - 1))
+            for url in self.peers:
+                if await self._send_plan(url):
+                    return True
+        log.info("The other hub can't be reached; the plan goes across at the next check")
+        return False
+
+    async def _sync_peer(self) -> None:
+        """Asks the first peer that answers for its plan: the one saved last wins on both hubs."""
+        for url in self.peers:
+            theirs = await self._peer(url, "GET", "/api/plan")
+            if not isinstance(theirs, dict):
+                continue
+            mine, other = plans.saved_at(self.plan), plans.saved_at(theirs)
+            if other > mine:
+                result = self.save_plan(theirs, by="peer", from_peer=True)
+                if result.get("error"):
+                    log.warning("%s has a plan this hub can't use: %s", url, result["error"])
+            elif mine > other:
+                await self._send_plan(url)
+            return
 
     def services_info(self) -> dict:
         """The platforms the hub drives, in the shape the editor's Connections take."""
@@ -550,7 +658,8 @@ def make_app(hub: Hub) -> web.Application:
         if kind == "command":
             return web.json_response(await hub.command(body))
         if kind == "savePlan":
-            return web.json_response(hub.save_plan(body.get("config"), by=body.get("client")))
+            return web.json_response(hub.save_plan(body.get("config"), by=body.get("client"),
+                                                   from_peer=body.get("fromPeer") is True))
         if kind == "services.info":
             return web.json_response(hub.services_info())
         if kind == "devices.all":

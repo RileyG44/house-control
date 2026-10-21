@@ -122,6 +122,33 @@ remote's own keys, `volume`, `text`, `search`, `open` an app, `play` a checked l
 to a position or `skip` by a few seconds), and `GET /api/tv/search?q=…` searches the catalog.
 See [docs/tv-remote.md](../docs/tv-remote.md) and [docs/tile-reorder-now-playing.md](../docs/tile-reorder-now-playing.md).
 
+### A second hub that keeps the same plan
+
+Two hubs can stand in for each other: Riley's runs on the home server (dell-server) and, as a
+backup, on the MacBook; the native iPhone app goes to the backup when the server doesn't answer
+(docs/native-ios.md). Each keeps the other's floor plan, tile order, room order and scenes, so the
+home looks the same whichever one a screen reaches. Tell each hub where the other one is, in
+`~/.house-hub/peer.json` (addresses tried in this order):
+
+```json
+{ "urls": ["http://192.168.0.127:8766", "https://dell-server.tail946e94.ts.net"] }
+```
+
+or in `HOUSE_PEER_URLS` (comma separated, which wins over the file). Without either, the hub keeps
+its plan to itself.
+
+- Every save from a screen stamps the plan with `savedAt` (unix ms, always later than the plan it
+  replaces) and sends it on: `POST /api/call {"type": "savePlan", "config": <plan>, "client": "peer",
+  "fromPeer": true}` to the first address that answers (three tries, 5 s then 10 s apart).
+- A plan marked `fromPeer` is kept as it is, stamp and all, and is not sent back; one no newer than
+  this hub's own is left alone. Screens on that hub reload it as after any save.
+- At start and every 60 s each hub reads the other's `GET /api/plan`: the plan saved last wins on
+  both (a plan without a stamp counts as the oldest; two without one are left as they are). So a
+  hub that was off, or a Wi-Fi link that dropped, catches up within a minute of coming back.
+- The stamp isn't part of how a plan looks: it never makes a plan the hub makes the user's own,
+  and a save that changes nothing else doesn't make the screens reload. A plan copied in from the
+  Mac app's editor file is stamped with that file's time.
+
 ## How it fits together
 
 ```

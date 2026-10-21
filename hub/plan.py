@@ -12,6 +12,10 @@ The panel's tile order (`tileOrder`: lamp and AC ids, "tv:<id>" for a TV) and it
 (`scenes`: the built-in ones and those made on a screen, "custom-<name>-<hex>") are the things
 a screen may change in a plan the hub makes without making it the user's own: `ordered`
 carries them into each plan the hub makes again.
+
+Every save made by a person stamps the plan with `savedAt` (unix ms). Two hubs that keep each
+other's plan (house.py's peer sync) keep the one saved last; the stamp is not part of what a
+plan looks like, so it never makes a plan the user's or tells the screens to reload.
 """
 from __future__ import annotations
 
@@ -107,6 +111,21 @@ def order_of(plan) -> list[str] | None:
 
 # What a screen changes in a plan without drawing it: the tiles' order and the scenes.
 PANEL_KEYS = ("tileOrder", "scenes")
+# When a person last saved the plan, in unix ms (no stamp counts as 0).
+STAMP = "savedAt"
+
+
+def saved_at(plan) -> int:
+    """When `plan` was last saved by a person (unix ms), 0 when it has no stamp."""
+    value = plan.get(STAMP) if isinstance(plan, dict) else None
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+        return int(value)
+    return 0
+
+
+def unstamped(plan):
+    """`plan` without its save stamp: what it looks like."""
+    return {k: v for k, v in plan.items() if k != STAMP} if isinstance(plan, dict) else plan
 
 
 def scenes_of(plan) -> list[dict] | None:
@@ -119,7 +138,10 @@ def scenes_of(plan) -> list[dict] | None:
 
 def ordered(plan: dict, previous) -> dict:
     """`plan` with the tile order and the scenes `previous` had (names the new plan lacks are
-    kept: a lamp that is unplugged for a while comes back to its place, and to its scenes)."""
+    kept: a lamp that is unplugged for a while comes back to its place, and to its scenes),
+    and its save stamp."""
+    if saved_at(previous):
+        plan[STAMP] = saved_at(previous)
     order = order_of(previous)
     if order is not None:
         plan["tileOrder"] = order
@@ -130,11 +152,11 @@ def ordered(plan: dict, previous) -> dict:
 
 
 def same_but_order(a, b) -> bool:
-    """Whether two plans differ in their tile order or their scenes alone."""
+    """Whether two plans differ in their tile order, their scenes or their save stamp alone."""
     if not isinstance(a, dict) or not isinstance(b, dict):
         return False
-    return ({k: v for k, v in a.items() if k not in PANEL_KEYS}
-            == {k: v for k, v in b.items() if k not in PANEL_KEYS})
+    return ({k: v for k, v in a.items() if k not in (*PANEL_KEYS, STAMP)}
+            == {k: v for k, v in b.items() if k not in (*PANEL_KEYS, STAMP)})
 
 
 def build(names: dict, lights: list[dict], acs: list[dict]) -> dict:

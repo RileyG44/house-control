@@ -8,3 +8,5 @@ def no_real_tv(monkeypatch):
     monkeypatch.setenv("HOUSE_TV_URL", "http://127.0.0.1:9")
     monkeypatch.setenv("HOUSE_TV_CAST", "off")
     monkeypatch.setenv("HOUSE_TV_ADB", "off")
+    # Nor another hub: a test that wants one names it.
+    monkeypatch.delenv("HOUSE_PEER_URLS", raising=False)
