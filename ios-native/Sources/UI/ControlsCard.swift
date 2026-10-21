@@ -99,6 +99,13 @@ struct CardHeader: View {
                         .foregroundStyle(Color.muted)
                         .lineLimit(1)
                 }
+                if hub.onBackup, case .connected = hub.link {
+                    Label(hub.which, systemImage: "arrow.triangle.branch")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(Color.warm)
+                        .lineLimit(1)
+                        .onTapGesture { card.open(.settings) }
+                }
                 }
             }
             Spacer(minLength: 4)

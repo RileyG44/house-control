@@ -273,6 +273,9 @@ struct SettingsPage: View {
     @Environment(HubClient.self) private var hub
     @State private var lan = ""
     @State private var remote = ""
+    @State private var backupName = ""
+    @State private var backupLan = ""
+    @State private var backupRemote = ""
 
     var body: some View {
         Form {
@@ -280,21 +283,40 @@ struct SettingsPage: View {
                 TextField("On the Wi-Fi", text: $lan).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                 TextField("Over Tailscale", text: $remote).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
             } header: {
-                Text("Hub addresses")
+                Text("Home server")
             } footer: {
-                Text("Tried in this order; the first that answers is used. The hub runs on dell-server.")
+                Text("Both are asked at once; the first that answers is used. The home server is dell-server.")
+            }
+            Section {
+                TextField("Name", text: $backupName).autocorrectionDisabled()
+                TextField("On the Wi-Fi", text: $backupLan).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                TextField("Over Tailscale", text: $backupRemote).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+            } header: {
+                Text("Backup hub")
+            } footer: {
+                Text("Used when the home server doesn’t answer within 3 s. While on the backup, the home server is asked again every 30 s and taken back as soon as it answers. Both hubs keep the same plan.")
             }
             Section {
                 switch hub.link {
                 case .connecting: Label("Looking for the hub…", systemImage: "antenna.radiowaves.left.and.right")
-                case .connected(let url): Label(url.absoluteString, systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                case .connected(let url):
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(hub.which).font(.body.weight(.semibold))
+                            Text(url.absoluteString).font(.footnote).foregroundStyle(Color.muted)
+                        }
+                    } icon: {
+                        Image(systemName: hub.onBackup ? "arrow.triangle.branch" : "checkmark.circle.fill")
+                    }
+                    .foregroundStyle(hub.onBackup ? Color.warm : .green)
                 case .offline(let why): Label(why, systemImage: "wifi.slash").foregroundStyle(Color.danger)
                 }
                 Button("Save and reconnect") {
-                    hub.addresses = [lan, remote].map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                    hub.setAddresses(primary: [lan, remote], backup: [backupLan, backupRemote], backupName: backupName)
                 }
                 Button("Use the usual addresses") {
-                    hub.addresses = HubClient.defaultAddresses
+                    hub.setAddresses(primary: HubClient.defaultAddresses, backup: HubClient.defaultBackupAddresses,
+                                     backupName: HubClient.defaultBackupName)
                     load()
                 }
             }
@@ -308,5 +330,8 @@ struct SettingsPage: View {
     private func load() {
         lan = hub.addresses.first ?? ""
         remote = hub.addresses.dropFirst().first ?? ""
+        backupName = hub.backupName
+        backupLan = hub.backupAddresses.first ?? ""
+        backupRemote = hub.backupAddresses.dropFirst().first ?? ""
     }
 }

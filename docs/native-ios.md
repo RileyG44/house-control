@@ -3,7 +3,7 @@
 Riley's request (2026-10-21): port House Control to a truly native iPhone app: SwiftUI with real
 iOS 26 Liquid Glass and native performance, not a web view around the panel. It does what the web
 panel does today (docs/card-sheet.md, docs/tv-remote.md, docs/tile-reorder-now-playing.md),
-rebuilt natively, and talks to the hub on the Mac (hub/house.py).
+rebuilt natively, and talks to the hub (hub/house.py) on the home server, or the backup hub.
 
 The existing `ios/` app (web view, HomeKit / Hue / Home Assistant, widgets, App Store edition)
 stays as it is. The native app is a separate, self-contained project in `ios-native/`.
@@ -42,10 +42,19 @@ HouseApp
 
 ### Hub connection
 
-- Two addresses, tried in order, the one that answers `GET /api/plan` within ~1.5 s wins and is
-  remembered: LAN `http://192.168.0.188:8766`, then Tailscale
-  `https://rileys-macbook-air.tail946e94.ts.net:8451`. Both editable in a small Settings page
-  (gear in the card header's overflow), stored in UserDefaults. Retry with backoff; re-pick on
+- Two hubs that keep the same plan (hub/README.md, "A second hub"): the **home server**
+  (dell-server: LAN `http://192.168.0.127:8766`, Tailscale `https://dell-server.tail946e94.ts.net`)
+  and a **backup hub** (the MacBook: LAN `http://192.168.0.188:8766`, Tailscale
+  `https://rileys-macbook-air.tail946e94.ts.net:8451`). The home server's two addresses are asked
+  for `GET /api/plan` at once (the LAN one 0.3 s ahead); only if neither answers within ~3 s are the
+  backup's asked (up to 5 s, which a first Tailscale connection can need). While on the backup, the
+  home server is asked again every 30 s; when it answers the app moves back (a new event stream, the
+  plan read again). The card header shows "Backup hub · Mac" under the status line while on the
+  backup; Settings shows which hub is in use and its address.
+- Both hubs' addresses and the backup's name are editable in Settings (the card header's ⋯ → Hub
+  addresses), stored in UserDefaults (`hub.primary`, `hub.backup`, `hub.backupName`). The older
+  single list `hub.addresses` becomes the home server's, without any address of the backup hub (the
+  hub used to run there), and the usual addresses when nothing is left. Retry with backoff; re-pick on
   `scenePhase == .active` and on network path change (`NWPathMonitor`).
 - The hub needs no auth; requests without an `Origin` header pass its same-origin check. Never
   send or store anything from `~/.house-hub`.
@@ -220,8 +229,9 @@ no entitlements), signed with team `PMJ8NUCVG3` (a free personal team: its profi
 
 What is where:
 
-- `Sources/Hub/HubClient.swift`: the two addresses (LAN, then Tailscale; the last good one first; editable
-  under the card's ⋯ → Hub addresses), reconnect with backoff, re-pick on `scenePhase` and network path
+- `Sources/Hub/HubClient.swift`: the home server's addresses (LAN and Tailscale, asked at once) and the
+  backup hub's, asked when the server doesn't answer within ~3 s, with the server tried again every 30 s
+  (all editable under the card's ⋯ → Hub addresses), reconnect with backoff, re-pick on `scenePhase` and network path
   changes, `/api/events` read with `URLSession.bytes` while the app is active.
 - `Sources/Model/`: `Plan` (the plan kept as JSON so a save writes back every key; normalised like
   config.js; walls split like house.js), `HomeStore` (optimistic lamp / AC commands, one in flight per
