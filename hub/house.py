@@ -9,6 +9,8 @@ is served from here, so any phone or computer on the Wi-Fi can open it.
   python house.py install    start it now and whenever you log in
   python house.py uninstall  stop starting it at login
   python house.py scan       list the lights and ACs it can find, then exit
+  python house.py --pair-tv [address]
+                             pair with the TV's launcher (tv-launcher/): the TV shows a code
 """
 from __future__ import annotations
 
@@ -32,9 +34,10 @@ sys.path.insert(0, str(HERE))
 
 import plan as plans  # noqa: E402
 from aidot_lan import AidotError, AidotLanClient  # noqa: E402
+import launcher as launchers  # noqa: E402
 from mrcool import MrcoolClient, MrcoolError  # noqa: E402
 from nowplaying import Adb  # noqa: E402
-from tv import TvRemote, default_url as tv_url  # noqa: E402
+from tv import TvRemote, default_url as tv_url, for_client as tv_for_client, launcher_for  # noqa: E402
 from wiz import Light, WizClient, WizError  # noqa: E402
 
 PORT = int(os.environ.get("HOUSE_HUB_PORT", "8766"))
@@ -96,9 +99,11 @@ class Hub:
         self.links: dict[str, tuple[str, str]] = {}   # plan id -> (service, device id)
         self.state: dict = {"lights": {}, "acs": {}, "features": {}, "offline": []}
         self.listeners: set[asyncio.Queue] = set()
-        # The TV, through tv-remote: read often while a panel is open. What it plays comes
-        # from the TV over Cast, or adb when that is paired with it.
-        self.tv = TvRemote(tv_url(conf, local_ip), self._publish, watched=lambda: bool(self.listeners), adb=Adb.find())
+        # The TV, through its launcher when this hub is paired with it, else (and whenever the
+        # launcher doesn't answer) through tv-remote: read often while a panel is open. What it
+        # plays comes from the launcher, else from the TV over Cast, or adb when that is paired with it.
+        self.tv = TvRemote(tv_url(conf, local_ip), self._publish, watched=lambda: bool(self.listeners), adb=Adb.find(),
+                           launcher=launcher_for(conf))
         self._tasks: list[asyncio.Task] = []
         self._ac_due = 0.0
         # Another hub that keeps the same plan (the home server and a backup): see _sync_peer.
@@ -615,6 +620,20 @@ def panel_origin_ok(request) -> bool:
     return origin in origins
 
 
+def client_origin(request) -> str:
+    """The address this request reached the hub by (Tailscale Serve's public name when it came
+    through that), for links the client follows back to the hub."""
+    proto, host = request.scheme, request.host
+    if _loopback(request.remote):
+        forwarded = (request.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip().lower()
+        if forwarded in {"http", "https"}:
+            proto = forwarded
+            name = (request.headers.get("X-Forwarded-Host") or "").split(",")[0].strip()
+            if name and _local_backend(request.host):
+                host = name
+    return f"{proto}://{host}"
+
+
 def make_app(hub: Hub) -> web.Application:
     app = web.Application(client_max_size=2 * 1024 * 1024)  # a plan with lots of furniture
 
@@ -637,12 +656,15 @@ def make_app(hub: Hub) -> web.Application:
         try:
             first = {k: hub.state[k] for k in ("lights", "acs", "features")}
             await resp.write(f"data: {json.dumps(first)}\n\n".encode())
+            origin = client_origin(request)
             if hub.tv.state is not None:
                 # Its own event, so a reader of the first event only (the Mac app) sees what it always did.
-                await resp.write(f"data: {json.dumps({'tv': hub.tv.state})}\n\n".encode())
+                await resp.write(f"data: {json.dumps({'tv': tv_for_client(hub.tv.state, origin)})}\n\n".encode())
             while True:
                 try:
                     msg = await asyncio.wait_for(q.get(), 20)
+                    if "tv" in msg:
+                        msg = {**msg, "tv": tv_for_client(msg["tv"], origin)}
                     await resp.write(f"data: {json.dumps(msg)}\n\n".encode())
                 except asyncio.TimeoutError:
                     await resp.write(b": keep-alive\n\n")
@@ -671,8 +693,19 @@ def make_app(hub: Hub) -> web.Application:
 
     # ---------- the TV (tv.py) ----------
 
-    async def tv_state(_):
-        return web.json_response(await hub.tv.current(), headers={"Cache-Control": "no-store"})
+    async def tv_state(request):
+        return web.json_response(tv_for_client(await hub.tv.current(), client_origin(request)),
+                                 headers={"Cache-Control": "no-store"})
+
+    async def tv_picture(request):
+        # The launcher's pictures (what is playing, an app's banner), so no panel needs its token.
+        pkg = request.match_info.get("pkg")
+        got = await hub.tv.picture("banner" if pkg else "now", pkg)
+        if got is None:
+            return web.Response(status=404, text="No picture")
+        body, kind = got
+        return web.Response(body=body, content_type=kind.split(";")[0].strip() or "image/jpeg",
+                            headers={"Cache-Control": "max-age=300" if pkg or request.query.get("v") else "no-store"})
 
     async def tv_action(request):
         try:
@@ -758,6 +791,8 @@ def make_app(hub: Hub) -> web.Application:
     app.router.add_get("/api/devices", devices)
     app.router.add_get("/api/tv", tv_state)
     app.router.add_get("/api/tv/search", tv_search)
+    app.router.add_get("/api/tv/art/now", tv_picture)
+    app.router.add_get("/api/tv/banner/{pkg}", tv_picture)
     app.router.add_post("/api/tv/{id}", tv_action)
     app.router.add_get("/api/plan", plan)
     app.router.add_post("/api/rescan", rescan)
@@ -838,6 +873,40 @@ async def scan() -> None:
         await hub.http.close()
 
 
+async def pair_tv(where: str | None) -> bool:
+    """Pairs this hub with the TV's launcher: the TV shows a 4-digit code, and the token it is
+    traded for goes into tv.json (with the TV named the way tv-remote names it, when that answers)."""
+    async with aiohttp.ClientSession() as http:
+        async def tv_remote() -> list[dict]:
+            async with http.get(f"{tv_url(CONF, local_ip)}/api/devices", timeout=aiohttp.ClientTimeout(total=4)) as r:
+                return [d for d in (await r.json(content_type=None)).get("devices") or [] if isinstance(d, dict)]
+
+        if not where:
+            paired = launchers.from_conf(CONF)
+            where = paired.url if paired else None
+        if not where:
+            with contextlib.suppress(Exception):
+                hosts = [d["host"] for d in await tv_remote() if d.get("host")]
+                where = hosts[0] if len(hosts) == 1 else None
+        if not where:
+            where = (await asyncio.to_thread(input, "The TV's address (as on its Settings → Network): ")).strip()
+        try:
+            url = launchers.base_url(where)
+        except ValueError as e:
+            print(e)
+            return False
+
+        async def known(host: str):
+            match = [d for d in await tv_remote() if d.get("host") == host and d.get("id")]
+            return (str(match[0]["id"]), match[0].get("name") or match[0].get("label") or "TV") if match else None
+
+        print(f"Pairing with the TV at {url}…")
+        entry = await launchers.pair(http, CONF, url, ask=lambda prompt: asyncio.to_thread(input, prompt), known=known)
+        if entry:
+            print("Restart the hub so it drives the TV through the launcher.")
+        return entry is not None
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     # The AiDot library logs every device message (login payloads with LAN passwords included)
@@ -850,6 +919,8 @@ def main() -> None:
         uninstall()
     elif arg == "scan":
         asyncio.run(scan())
+    elif arg == "--pair-tv":
+        sys.exit(0 if asyncio.run(pair_tv(sys.argv[2] if len(sys.argv) > 2 else None)) else 1)
     else:
         print(f"House Control hub on http://{local_ip()}:{PORT}")
         web.run_app(make_app(Hub()), host="0.0.0.0", port=PORT, print=None)
