@@ -1,5 +1,10 @@
 # TV: live status in the model, and a remote
 
+> **October 21, 2026:** the hub now reaches the TV through its own launcher first
+> (`tv-launcher/`, `hub/launcher.py`, [tv-launcher.md](tv-launcher.md)), with tv-remote as the
+> fallback described here. `GET /api/tv`, `POST /api/tv/{id}` and the `{"tv": …}` event keep the
+> shape below. See "Through the launcher" at the end.
+
 Riley's request (2026-10-20): the TV by the fridge shows its current status in the 3D model
 (off, or on with the active app's logo on the screen). Selecting the TV opens a TV launcher
 page that works as a simple remote: volume, a Chromecast-style navigation pad, app icons
@@ -202,3 +207,28 @@ Built (October 2026), everything above except the "Done when" checks that need t
 - **Not yet checked against the real TV**: the ~2 s update, app launches and deep links, and
   live JustWatch answers (unreachable from where this was built; the query is the one
   tv-remote uses, with `posterUrl` added).
+
+## Through the launcher (October 21, 2026)
+
+- **Which way**: `~/.house-hub/tv.json` `"launcher": {"url", "token", "device", "name"}`
+  (written by `python hub/house.py --pair-tv [host]`, which keeps the file's other keys) makes
+  the launcher the way in; `HOUSE_TV_BACKEND=tvremote` turns it off. `device` and `name` are
+  tv-remote's for the same TV when it answered at pairing (`79519fff`, "Living Room TV"), so a
+  plan's linked TV stays linked whichever way the hub reaches it.
+- **State**: the hub long-polls `/api/state?since=rev` and maps it with `tv.from_launcher` onto
+  the shape above: `on` is `tv.awake`, `app` the foreground package (the launcher's own Home is
+  `{"id": "home", "name": "Living Room"}`), the volume Android's music stream (tv-remote's level
+  when the launcher says the volume is fixed by HDMI-CEC), and `nowPlaying` the media session
+  (a paused one only while its app is on screen). Cast stays the source when the launcher sees
+  no session, and then the hub reads every 2 s again while a panel is open.
+- **Pictures**: `nowPlaying.artwork` is the hub's `/api/tv/art/now?v=…`, made a whole URL with
+  the address each panel reached the hub by; `/api/tv/banner/{pkg}` serves app banners. The
+  token never leaves the hub.
+- **Actions**: `tv.LAUNCHER_KEYS` maps the keys; `volume {level}`, `text`, `search` (text +
+  submit into the focused field), `open` (`launch`) and `play` (`open {url, pkg}` with the
+  checked https form) map as in the plan; `seek`/`skip` send an absolute `seek {positionMs}`.
+  When the launcher says no (nothing playing, no text field, a fixed volume), or for `menu`,
+  `chup`, `chdown` and `input`, tv-remote does it; when that isn't there either, the answer is
+  409 with the launcher's reason. When the launcher doesn't answer at all, the hub uses
+  tv-remote and tries the launcher again every 15 s.
+- Tests: `hub/tests/test_launcher.py` against `hub/tests/fake_launcher.py`.

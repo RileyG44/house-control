@@ -103,7 +103,22 @@ the panel shows at once.
 
 ### The TV
 
-The Google TV is driven by **tv-remote**, a separate service on this Mac (`~/tv-remote`,
+When the hub is paired with the TV's own launcher (Living Room, `../tv-launcher`), it drives
+the TV through that: the launcher's API on the Chromecast (port 8686) tells the hub the moment
+anything changes on the TV, and takes the remote's keys, the volume, typing, opening an app or
+a title, and seeking. Pair once, with the TV on:
+
+```sh
+python house.py --pair-tv 192.168.0.225   # the TV shows a 4-digit code; type it in
+```
+
+That adds `"launcher": {"url", "token", …}` to `~/.house-hub/tv.json` (and keeps what else is
+there), then restart the hub. Each hub pairs on its own. `HOUSE_TV_BACKEND=tvremote` keeps
+using tv-remote alone. When the launcher doesn't answer (the Chromecast asleep, the app
+removed), the hub uses tv-remote, below, until the launcher is back; the few things only
+tv-remote can do (menu, channels, input) always go there.
+
+Without a paired launcher, the Google TV is driven by **tv-remote**, a separate service on this Mac (`~/tv-remote`,
 port 8765). The hub reads it every 2 seconds while a panel is open, shows the TV's state in
 the model (off, or the app it is in), and passes the panel's remote on to it: the pad,
 volume, opening an app and playing a title found in the streaming catalog (JustWatch). The
@@ -111,8 +126,9 @@ hub finds tv-remote at this Mac's LAN address, port 8765; `HOUSE_TV_URL` or
 `~/.house-hub/tv.json` (`{"url": "http://192.168.0.188:8765"}`) says otherwise. If it does
 not answer, the panel says so and everything else works as before.
 
-What the TV is playing (title, show or channel, position, artwork) the hub reads from the TV
-itself over Cast, with `pychromecast` (in `requirements.txt`). It only ever reads, and seeks
+What the TV is playing (title, show or channel, position, artwork) comes from the launcher's
+media sessions, its picture through the hub (`/api/tv/art/now`). Otherwise, the hub reads it
+from the TV itself over Cast, with `pychromecast` (in `requirements.txt`). It only ever reads, and seeks
 when the panel's slider is moved: nothing it does opens an app on the TV. For apps that don't
 report over Cast, `adb` paired with the TV (`adb devices` lists it) gives the title and state.
 Without either, the remote simply shows no "now playing".
@@ -161,7 +177,8 @@ iPhone / Mac browser ── HTTP ──▶ hub (house.py, port 8766) ── UDP 
 - `wiz.py` — WiZ discovery and control.
 - `aidot_lan.py` — AiDot sign-in and local control, over `python-aidot`.
 - `mrcool.py` — the Cielo client (Open API key, or the MRCOOL account Alexa uses).
-- `tv.py` — the TV through tv-remote, and the streaming catalog search.
+- `tv.py` — the TV through its launcher or tv-remote, and the streaming catalog search.
+- `launcher.py` — the client for the TV launcher's API, and pairing with it.
 - `nowplaying.py` — what the TV is playing, over Cast (or adb), and seeking.
 - `plan.py` — the starting floor plan: Riley's Studio linked by name, or boxes made from `devices.json`.
 
@@ -176,7 +193,8 @@ sends each change to `POST /api/call` and receives the devices' state from
 .venv/bin/python -m pytest tests
 ```
 
-The tests run against pretend WiZ lights (`tests/fake_wiz.py`) and a pretend Cielo, so they
+The tests run against pretend WiZ lights (`tests/fake_wiz.py`), a pretend Cielo, tv-remote and
+TV launcher (`tests/fake_launcher.py`, which also runs on its own: pair with code 4821), so they
 need no hardware or account. To work on the panel with pretend lights:
 
 ```sh
@@ -191,6 +209,7 @@ with a `/tmp/hub/devices.json` that gives those lights `"ip": "127.0.0.2"` and s
 | `HOUSE_HUB_PORT` | `8766` | The panel's port |
 | `HOUSE_HUB_DIR` | `~/.house-hub` | Names, plan, Cielo key, log |
 | `HOUSE_HUB_WEB` | `../web/dist` | The built panel |
-| `HOUSE_TV_URL` | `http://<LAN IP>:8765` | tv-remote, the TV's service |
+| `HOUSE_TV_BACKEND` | `launcher` when paired | `tvremote`: drive the TV through tv-remote only |
+| `HOUSE_TV_URL` | `http://<LAN IP>:8765` | tv-remote, the TV's service on the Mac |
 | `HOUSE_TV_CAST` | on | `off`: don't read the TV over Cast |
 | `HOUSE_TV_ADB` | `adb` on the `PATH` | The adb to read the TV's media sessions with, or `off` |

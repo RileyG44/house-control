@@ -1,6 +1,8 @@
 # TV launcher in House Control
 
-Plan, October 21, 2026. Nothing is moved yet; this waits for Riley's go-ahead.
+Plan, October 21, 2026. **Status:** phases 1 and 2 are built (`tv-launcher/`, `hub/launcher.py`,
+the launcher backend in `hub/tv.py`, `python hub/house.py --pair-tv`); not yet installed on the TV
+or checked there, and not yet deployed to the hubs. Per-client tokens are not done.
 
 **Goal.** Bring the Chromecast launcher ("Living Room", from `RileyG44/custom-tv-interface`, `tv/`) into this repo. Then let House Control's remote (web panel and the iPhone app "Riley's Place") drive the TV through the launcher instead of through `~/tv-remote` on the Mac. Smart home devices stay where they are: the Dell hub first, the Mac as backup. The iPhone remote from the other repo (`ios/LivingRoom`) is not brought over, because House Control's remote replaces it.
 
