@@ -1305,10 +1305,13 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
 .tv-app.opening .tv-app-icon { animation: tv-opening 900ms ease-in-out infinite; }
 @keyframes tv-opening { 50% { transform: scale(0.93); opacity: 0.7; } }
 
-/* The remote: the swipe pad, and under it Back, Home, Play/Pause and Mute */
-.tv-remote { margin-top: 14px; transition: opacity 260ms; }
+/* The remote: Back, Home, Play/Pause and Mute in a column, the swipe pad, the volume upright */
+.tv-remote {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: stretch;
+  margin-top: 14px; transition: opacity 260ms;
+}
 .tv-remote.asleep .tv-swipe, .tv-remote.unreachable .tv-key { opacity: 0.55; }
-.tv-keys { display: flex; justify-content: space-between; gap: 10px; margin-top: 12px; padding: 0 6px; }
+.tv-keys { display: flex; flex-direction: column; justify-content: space-between; gap: 10px; }
 .tv-key { width: 50px; height: 50px; color: var(--text); }
 .tv-key.active { background: rgba(255, 105, 95, 0.2); border-color: rgba(255, 130, 120, 0.4); color: #ff6d61; }
 .tv-playpause { display: flex; align-items: center; justify-content: center; gap: 0; }
@@ -1319,9 +1322,7 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
 .tv-swipe {
   position: relative;
   width: 100%;
-  aspect-ratio: 4 / 3;
-  min-height: 168px;
-  max-height: 340px;
+  min-height: 0;
   border-radius: 26px;
   overflow: hidden;
   isolation: isolate;
@@ -1396,6 +1397,16 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
 /* Volume */
 .tv-volume-row { margin-top: 18px; }
 .tv-volume { display: flex; align-items: center; gap: 10px; }
+.tv-volume-col { display: flex; transition: opacity 260ms; }
+.tv-volume-col > .tv-volume { flex: 1; }
+.tv-volume-col.off { opacity: 0; pointer-events: none; }
+.tv-volume.vertical { flex-direction: column; gap: 8px; }
+.tv-volume.vertical .tv-track {
+  flex: 1; width: 44px; height: auto; min-height: 90px; padding: 12px 0;
+  flex-direction: column-reverse; justify-content: flex-start; cursor: ns-resize;
+}
+.tv-volume.vertical .tv-fill { inset: auto 0 0 0; width: auto; height: calc(var(--p, 0) * 100%); transition-property: height; background: linear-gradient(0deg, color-mix(in srgb, var(--accent) 34%, transparent), color-mix(in srgb, var(--accent) 60%, transparent)); }
+.tv-volume.vertical .tv-level { margin: 0 0 auto; font-size: 12px; }
 .tv-step { width: 40px; height: 40px; flex: none; }
 .tv-track {
   position: relative; flex: 1; min-width: 0; height: 44px; border-radius: 15px;
@@ -1517,10 +1528,11 @@ html.ios .tv-np-play { width: 54px; height: 54px; }
 html.ios .tv-np-controls { gap: 30px; }
 html.ios .tv-now-text span { font-size: 12px; }
 html.ios .tv-key { width: 54px; height: 54px; }
-html.ios .tv-swipe { border-radius: 28px; min-height: 240px; }
+html.ios .tv-swipe { border-radius: 28px; }
 html.ios .tv-swipe-hint { font-size: 13.5px; }
 html.ios .tv-step { width: 46px; height: 46px; }
 html.ios .tv-track { height: 50px; border-radius: 17px; }
+html.ios .tv-volume.vertical .tv-track { width: 46px; height: auto; }
 html.ios .tv-level { font-size: 14px; }
 html.ios .tv-search { height: 48px; border-radius: 16px; }
 html.ios .tv-search-input { font-size: 16px; } /* smaller and Safari zooms in on focus */

@@ -89,6 +89,12 @@ QUERY = """query Search($filter: TitleFilter!, $country: Country!, $language: La
     offers(country: $country, platform: WEB) {
       monetizationType standardWebURL tvLink: deeplinkURL(platform: ANDROID_TV)
       package { clearName technicalName } } } } } }"""
+ART_QUERY = """query Art($filter: TitleFilter!, $country: Country!, $language: Language!) {
+  popularTitles(country: $country, filter: $filter, first: 1) { edges { node {
+    content(country: $country, language: $language) { title posterUrl backdrops { backdropUrl } } } } } }"""
+YT_RESULT = re.compile(r'"videoId":"([A-Za-z0-9_-]{11})"')
+WEB_HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+               "Accept-Language": "en-US,en;q=0.9", "Cookie": "CONSENT=YES+1"}
 
 
 # ---------- app links ----------
@@ -279,6 +285,8 @@ class TvRemote:
         self._burst_until = 0.0
         self._kick = asyncio.Event()
         self._cache: dict[str, tuple[float, list]] = {}
+        self._art: dict[tuple, str | None] = {}   # (app, title, subtitle) -> a picture of it, None = none found
+        self._art_busy: set[tuple] = set()
 
     @property
     def snapshot(self) -> dict:
@@ -352,6 +360,8 @@ class TvRemote:
             if sample is None and self.adb is not None:
                 with contextlib.suppress(Exception):
                     sample = nowplaying.from_adb(await self.adb.sessions(host), dev["app"], at)
+            if sample and not sample.get("artwork"):
+                sample = self._with_art(sample)
             last = old.get(dev["id"])
             if time.monotonic() < self._settle.get(dev["id"], 0) and nowplaying.same_title(last, sample):
                 # A seek just asked for: the TV may still report where it was. The position
@@ -359,6 +369,67 @@ class TvRemote:
                 sample = last if sample["state"] == last["state"] else \
                     {**sample, "position": nowplaying.position_at(last, at), "at": round(at, 3)}
             dev["nowPlaying"] = nowplaying.steady(last, sample)
+
+    # ---------- a picture of what is playing ----------
+
+    def _with_art(self, np: dict) -> dict:
+        """`np` with a picture of it when one was found; else one is looked for in the background
+        (the TV's state goes out again once it is)."""
+        key = (np.get("app"), np.get("title"), np.get("subtitle"))
+        if key in self._art:
+            return {**np, "artwork": self._art[key]} if self._art[key] else np
+        if key not in self._art_busy and self.http:
+            self._art_busy.add(key)
+            asyncio.ensure_future(self._find_art(key))
+        return np
+
+    async def _find_art(self, key: tuple) -> None:
+        app, title, subtitle = key
+        url = None
+        try:
+            if app == "youtube":
+                url = await self._youtube_art(" ".join(filter(None, (title, subtitle))))
+            else:
+                # A show's episode: the show's picture ("Stranger Things · S1 E7" names it).
+                show = subtitle.split(" · ")[0] if subtitle and re.search(r"\bS\d+|\bE\d+", subtitle) else None
+                url = await self._catalog_art(show or title)
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, AttributeError, KeyError, OSError) as e:
+            log.info("No picture for %r: %s", title, e)
+        finally:
+            self._art_busy.discard(key)
+        if len(self._art) > 200:
+            self._art.clear()
+        self._art[key] = url
+        if url:
+            self.kick()
+
+    async def _youtube_art(self, q: str) -> str | None:
+        assert self.http
+        async with self.http.get("https://www.youtube.com/results", params={"search_query": q}, headers=WEB_HEADERS,
+                                 timeout=aiohttp.ClientTimeout(total=8)) as r:
+            if r.status != 200:
+                raise aiohttp.ClientError(f"HTTP {r.status}")
+            m = YT_RESULT.search(await r.text())
+        return f"https://i.ytimg.com/vi/{m.group(1)}/hqdefault.jpg" if m else None
+
+    async def _catalog_art(self, q: str) -> str | None:
+        assert self.http
+        payload = {"query": ART_QUERY, "variables": {"filter": {"searchQuery": q}, "country": "US", "language": "en"}}
+        async with self.http.post(JUSTWATCH_URL, json=payload, timeout=aiohttp.ClientTimeout(total=8),
+                                  headers={"User-Agent": "Mozilla/5.0 (Macintosh) HouseControl/1.0"}) as r:
+            if r.status != 200:
+                raise aiohttp.ClientError(f"HTTP {r.status}")
+            data = await r.json(content_type=None)
+        edges = data["data"]["popularTitles"]["edges"]
+        if not edges:
+            return None
+        content = edges[0]["node"]["content"]
+        # A wide still suits the card; a poster when there is none.
+        backdrop = next((b.get("backdropUrl") for b in content.get("backdrops") or [] if b.get("backdropUrl")), None)
+        path, profile = (backdrop, "s640") if backdrop else (content.get("posterUrl"), "s332")
+        if not isinstance(path, str) or not path.startswith("/"):
+            return None
+        return POSTER_BASE + path.replace("{profile}", profile).replace("{format}", "jpg")
 
     def close(self) -> None:
         for link in self.links.values():

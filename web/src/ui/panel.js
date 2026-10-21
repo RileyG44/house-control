@@ -718,21 +718,22 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
       h('span.tv-app-icon', logoSVG(a, 58), h('i.tv-app-dot')), h('span.tv-app-name', a.name))]));
     const apps = h('div.tv-apps', [...appButtons.values()]);
 
-    // The swipe pad, and under it Back, Home, Play/Pause and Mute.
+    // Back, Home, Play/Pause and Mute down the left of the swipe pad, the volume down its right.
     const pad = createPad({ onKey: key });
     const side = (label, name, action, extra = null) => h('button.round.tv-key', { 'aria-label': label, title: label, onclick: () => { haptic('light'); key(action); } }, icon(name, 19, 2.1), extra);
     const muteBtn = side('Mute', 'mute', 'mute');
-    const remote = h('div.tv-remote',
-      pad.el,
-      h('div.tv-keys', side('Back', 'undo', 'back'), side('Home', 'home', 'home'),
-        h('button.round.tv-key.tv-playpause', { 'aria-label': 'Play or pause', title: 'Play / pause', onclick: () => { haptic('light'); key('playpause'); } },
-          icon('play', 14, 2.4), icon('pause', 14, 2.4)), muteBtn));
-
     const volume = createVolume({
+      vertical: true,
       onStep: (dir) => key(dir > 0 ? 'volup' : 'voldown'),
       onLevel: (level) => tv.act(id, { action: 'volume', level }),
     });
-    const volumeRow = h('div.tv-volume-row', volume.el);
+    const volumeRow = h('div.tv-volume-col', volume.el);
+    const remote = h('div.tv-remote',
+      h('div.tv-keys', side('Back', 'undo', 'back'), side('Home', 'home', 'home'),
+        h('button.round.tv-key.tv-playpause', { 'aria-label': 'Play or pause', title: 'Play / pause', onclick: () => { haptic('light'); key('playpause'); } },
+          icon('play', 14, 2.4), icon('pause', 14, 2.4)), muteBtn),
+      pad.el,
+      volumeRow);
 
     const search = createSearch({
       search: (q) => tv.search(q),
@@ -744,7 +745,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     const problemText = h('span');
     const problem = h('div.sheet-note.tv-problem', { hidden: true }, icon('offline', 18, 2), problemText);
     // What's on, then the remote within a thumb's reach; the apps and search further down.
-    const scroll = h('div.tv-scroll.sheet-scroll', problem, playing.el, now, remote, volumeRow,
+    const scroll = h('div.tv-scroll.sheet-scroll', problem, playing.el, now, remote,
       h('div.tv-label', 'Apps'), apps, h('div.tv-label', 'Search'), search.el);
 
     return {
@@ -792,7 +793,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
         }
         remote.classList.toggle('asleep', !on);
         remote.classList.toggle('unreachable', !available);
-        volumeRow.hidden = !on || dev.volume == null;
+        volumeRow.classList.toggle('off', !on || dev.volume == null);
         if (on) volume.set(dev.volume, dev.volumeMax, dev.muted);
         muteBtn.classList.toggle('active', Boolean(on && dev.muted));
       },

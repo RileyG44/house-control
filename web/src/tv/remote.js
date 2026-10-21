@@ -238,21 +238,22 @@ function repeater(label, name, onStep) {
  * The volume pill: − and + (held, they repeat) either side of the level as a track. Dragging
  * the track sets a level, sent when it is let go. A muted TV shows a struck speaker.
  */
-export function createVolume({ onStep, onLevel }) {
+export function createVolume({ onStep, onLevel, vertical = false }) {
   const down = repeater('Volume down', 'minus', () => { haptic('tick'); onStep(-1); });
   const up = repeater('Volume up', 'plus', () => { haptic('tick'); onStep(1); });
   const speaker = h('span.tv-speaker');
   const label = h('span.tv-level');
   const fill = h('span.tv-fill');
   const track = h('div.tv-track', { role: 'slider', 'aria-label': 'Volume', tabindex: 0 }, fill, speaker, label);
-  const el = h('div.tv-volume', down.el, track, up.el);
+  // Upright beside the pad: + at the top, the level rising from the bottom.
+  const el = vertical ? h('div.tv-volume.vertical', up.el, track, down.el) : h('div.tv-volume', down.el, track, up.el);
 
   let shown = { level: 0, max: 25, muted: false };
   let drag = null;
   let mutedIcon = null;
   const paint = (level, max, muted) => {
     fill.style.setProperty('--p', String(max ? clamp(level / max, 0, 1) : 0));
-    label.textContent = `${level} / ${max}`;
+    label.textContent = vertical ? String(level) : `${level} / ${max}`;
     track.classList.toggle('muted', muted);
     track.setAttribute('aria-valuenow', level);
     track.setAttribute('aria-valuemax', max);
@@ -260,7 +261,8 @@ export function createVolume({ onStep, onLevel }) {
   };
   const levelAt = (ev) => {
     const r = track.getBoundingClientRect();
-    return Math.round(clamp((ev.clientX - r.left) / r.width, 0, 1) * shown.max);
+    const at = vertical ? (r.bottom - ev.clientY) / r.height : (ev.clientX - r.left) / r.width;
+    return Math.round(clamp(at, 0, 1) * shown.max);
   };
   track.addEventListener('pointerdown', (ev) => {
     if (ev.button !== 0) return;
