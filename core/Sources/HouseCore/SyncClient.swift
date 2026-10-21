@@ -56,6 +56,9 @@ public final class SyncClient {
 
     public var isPaired: Bool { pairing != nil }
     public var isConnected: Bool { status == .connected }
+    /// The paired Mac's address on this network while connected ("192.168.0.20", or an IPv6
+    /// one in brackets), for reaching the hub that runs beside it (the TV, `hubRequest`).
+    public private(set) var macHost: String?
 
     public func pair(_ new: SyncPairing) {
         teardown()
@@ -167,6 +170,7 @@ public final class SyncClient {
         channel?.onClose = nil
         channel?.close()
         channel = nil
+        macHost = nil
     }
 
     private func search() {
@@ -210,6 +214,7 @@ public final class SyncClient {
         self.channel = channel
         channel.onReady = { [weak self, weak channel] in
             guard let self, let channel else { return }
+            self.macHost = Self.urlHost(channel.connection.currentPath?.remoteEndpoint)
             self.hello(on: channel)
         }
         channel.onMessage = { [weak self] message in
@@ -223,6 +228,7 @@ public final class SyncClient {
         channel.onClose = { [weak self] error in
             guard let self else { return }
             self.channel = nil
+            self.macHost = nil
             // The handshake fails when the Mac's key was reset since this phone was paired.
             if case .some(.tls) = error {
                 self.set(.failed("\(pairing.name) did not accept this pairing. Pair again from the Mac's menu: Pair iPhone…"))
@@ -232,6 +238,20 @@ public final class SyncClient {
             self.scheduleRetry()
         }
         channel.start()
+    }
+
+    /// An endpoint's host as a URL writes it.
+    private static func urlHost(_ endpoint: NWEndpoint?) -> String? {
+        guard case .hostPort(let host, _) = endpoint else { return nil }
+        switch host {
+        case .ipv4(let address): return "\(address)"
+        case .ipv6(let address):
+            // A link-local address keeps its interface ("fe80::1%en0" → "[fe80::1%25en0]").
+            let text = "\(address)".replacingOccurrences(of: "%", with: "%25")
+            return "[" + text + "]"
+        case .name(let name, _): return name
+        @unknown default: return nil
+        }
     }
 
     private func hello(on channel: SyncChannel) {

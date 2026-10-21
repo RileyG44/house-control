@@ -11,6 +11,7 @@ struct RootView: View {
                 .ignoresSafeArea()
             if let banner = model.banner {
                 BannerView(banner: banner)
+                    .environment(\.colorScheme, .dark)
                     .padding(.top, 6)
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .zIndex(1)
@@ -32,7 +33,7 @@ struct RootView: View {
                  : "This iPhone has “\(choice.phonePlanName)”, \(choice.macName) has “\(choice.macPlanName)”. The one you keep replaces the other on both.")
         }
         .onOpenURL { model.open($0) }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(model.panelTheme == "light" ? .light : model.panelTheme == "dark" ? .dark : nil)
         .tint(Theme.accent)
     }
 }

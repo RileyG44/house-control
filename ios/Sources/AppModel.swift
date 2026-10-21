@@ -82,6 +82,10 @@ final class AppModel {
     /// Goes up whenever the plan on disk changed, so views reading `currentPlan` redraw.
     private(set) var planVersion = 0
 
+    /// The panel's look as chosen on its card: "auto", "light" or "dark". The status bar
+    /// follows it (and Auto lets the page follow the system).
+    private(set) var panelTheme = UserDefaults.standard.string(forKey: "panelTheme") ?? "auto"
+
     // Mac sync
     private(set) var syncStatus: SyncClient.Status
     private(set) var macName: String?
@@ -280,10 +284,31 @@ final class AppModel {
             showSettings = true
         case "openEditor":
             openEditor()
+        case "theme":
+            panelTheme = message["theme"] as? String ?? "auto"
+            UserDefaults.standard.set(panelTheme, forKey: "panelTheme")
+        case "hubRequest":
+            // The panel's TV (hub/tv.py), from the hub that runs beside the paired Mac (the
+            // Mac app forwards the same call to its own hub). Only `api/tv…` paths.
+            guard let host = sync.macHost, let base = URL(string: "http://\(host):\(AppModel.hubPort)") else {
+                let mac = macName ?? "Your Mac"
+                web.reply(to: message, ["error": sync.isPaired ? "\(mac) is not connected" : "Pair with your Mac to use the TV"])
+                return
+            }
+            let macHub = LocalHubClient(baseURL: base)
+            let method = message["method"] as? String ?? "GET"
+            let path = message["path"] as? String ?? ""
+            let body = message["body"] as? [String: Any]
+            Task { @MainActor [web] in
+                web.reply(to: message, await macHub.request(method: method, path: path, body: body))
+            }
         default:
             break
         }
     }
+
+    /// The port hub/house.py serves on the Mac (its HOUSE_HUB_PORT default).
+    private static let hubPort = 8766
 
     private func reloadLinks() {
         hub.setLinks(from: plans.activePlan == "custom" ? plans.customPlan() : nil)
