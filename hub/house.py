@@ -37,6 +37,7 @@ from aidot_lan import AidotError, AidotLanClient  # noqa: E402
 import launcher as launchers  # noqa: E402
 from mrcool import MrcoolClient, MrcoolError  # noqa: E402
 from nowplaying import Adb  # noqa: E402
+from weather import Weather  # noqa: E402
 from tv import TvRemote, default_url as tv_url, for_client as tv_for_client, launcher_for  # noqa: E402
 from wiz import Light, WizClient, WizError  # noqa: E402
 
@@ -109,6 +110,8 @@ class Hub:
         # Another hub that keeps the same plan (the home server and a backup): see _sync_peer.
         self.peers = peer_urls(conf)
         self._push_task: asyncio.Task | None = None
+        # The weather at the plan's `site` (weather.py), for the panels' sky.
+        self.weather = Weather(lambda: self.plan, self._publish)
 
     # ---------- files ----------
 
@@ -133,6 +136,7 @@ class Hub:
     async def start(self) -> None:
         self.http = aiohttp.ClientSession()
         self.tv.http = self.http
+        self.weather.http = self.http
         self.mrcool = MrcoolClient(self.conf / "mrcool.json", self.http)
         self.aidot = AidotLanClient(self.conf / "aidot.json", self.http)
         self._recall_lights()
@@ -158,7 +162,8 @@ class Hub:
                        asyncio.create_task(self._loop(self._poll_acs, 15.0)),
                        asyncio.create_task(self._loop(self._sync_panel_plan, 5.0)),
                        asyncio.create_task(self._loop(self.discover, DISCOVER_EVERY)),
-                       asyncio.create_task(self.tv.run())]
+                       asyncio.create_task(self.tv.run()),
+                       asyncio.create_task(self.weather.run())]
         if self.peers:
             log.info("Keeping the plan in step with %s", ", ".join(self.peers))
             self._tasks += [asyncio.create_task(self._sync_peer()),
@@ -278,6 +283,7 @@ class Hub:
         if looks_new:
             self.plan_rev += 1
         self.plan = new
+        self.weather.site_changed()
         self.links = {d["id"]: (d["link"]["service"], d["link"]["id"])
                       for d in [*new.get("lights", []), *new.get("acs", [])] if (d.get("link") or {}).get("id")}
         if changed:
@@ -660,6 +666,8 @@ def make_app(hub: Hub) -> web.Application:
             if hub.tv.state is not None:
                 # Its own event, so a reader of the first event only (the Mac app) sees what it always did.
                 await resp.write(f"data: {json.dumps({'tv': tv_for_client(hub.tv.state, origin)})}\n\n".encode())
+            if hub.weather.last is not None:
+                await resp.write(f"data: {json.dumps({'weather': hub.weather.current()})}\n\n".encode())
             while True:
                 try:
                     msg = await asyncio.wait_for(q.get(), 20)
@@ -718,6 +726,9 @@ def make_app(hub: Hub) -> web.Application:
     async def tv_search(request):
         result, status = await hub.tv.search(request.query.get("q", ""))
         return web.json_response(result, status=status)
+
+    async def weather(_):
+        return web.json_response(hub.weather.current(), headers={"Cache-Control": "no-store"})
 
     async def plan(_):
         return web.json_response(hub.plan, headers={"Cache-Control": "no-store", "X-Plan-Rev": str(hub.plan_rev)})
@@ -795,6 +806,7 @@ def make_app(hub: Hub) -> web.Application:
     app.router.add_get("/api/tv/banner/{pkg}", tv_picture)
     app.router.add_post("/api/tv/{id}", tv_action)
     app.router.add_get("/api/plan", plan)
+    app.router.add_get("/api/weather", weather)
     app.router.add_post("/api/rescan", rescan)
     app.router.add_post("/api/mrcool", mrcool_key)
     app.router.add_post("/api/aidot", aidot_login)

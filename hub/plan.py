@@ -11,7 +11,8 @@ without "generatedBy": "hub" or "seededBy": "hub" is the user's own and is used 
 The panel's tile order (`tileOrder`: lamp and AC ids, "tv:<id>" for a TV) and its scenes
 (`scenes`: the built-in ones and those made on a screen, "custom-<name>-<hex>") are the things
 a screen may change in a plan the hub makes without making it the user's own: `ordered`
-carries them into each plan the hub makes again.
+carries them into each plan the hub makes again, with the plan's `site` (where the home is,
+for the sky and the weather: docs/landscape-weather.md), which no editor draws.
 
 Every save made by a person stamps the plan with `savedAt` (unix ms). Two hubs that keep each
 other's plan (house.py's peer sync) keep the one saved last; the stamp is not part of what a
@@ -148,6 +149,8 @@ def ordered(plan: dict, previous) -> dict:
     scenes = scenes_of(previous)
     if scenes is not None:
         plan["scenes"] = scenes
+    if isinstance(previous, dict) and isinstance(previous.get("site"), dict):
+        plan["site"] = previous["site"]
     return plan
 
 

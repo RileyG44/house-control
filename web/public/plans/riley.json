@@ -5,6 +5,12 @@
   "interiorWallHeight": 1.25,
   "camera": { "azimuth": 22, "elevation": 52 },
   "outdoorTemp": 22,
+  "site": {
+    "address": "2595 Westshore Dr NE, Moses Lake, WA",
+    "lat": 47.16, "lon": -119.33,
+    "planUp": 90,
+    "landscape": { "water": "north", "field": "south", "shore": 7, "fieldEdge": 9 }
+  },
 
   "rooms": [
     { "id": "kitchen",  "name": "Kitchen",  "rect": [3.5, 0, 3.65, 2.2],   "floor": "tile" },

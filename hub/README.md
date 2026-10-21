@@ -62,6 +62,14 @@ writes the plan to `~/.house-hub/plan.json` and to the Mac app's plan file, so e
 reloads with it and the Mac's menu bar panel and island switch to it within a couple of seconds.
 `GET /api/plan` returns the plan the hub serves.
 
+### The weather
+
+When the plan has a `site` (where the home is: `lat`, `lon`; see `docs/landscape-weather.md`),
+the hub reads the weather there from [Open-Meteo](https://open-meteo.com) every 10 minutes (no key,
+no account; 2 minutes after a failed read, keeping the last good one) for the panel's sky.
+`GET /api/weather` returns the last reading (`{"kind": null}` before the first one), and open
+panels hear each change as a `weather` event on `/api/events`.
+
 `python house.py scan` lists every light and AC the hub can find, with its MAC address.
 
 ### Connect the AiDot bulbs
