@@ -2,9 +2,9 @@ import Foundation
 import Network
 import Observation
 
-/// Talks to the House Control hub on the Mac (hub/house.py): the plan, device commands, the TV
+/// Talks to the House Control hub on dell-server (hub/house.py): the plan, device commands, the TV
 /// and the server-sent events that carry every device's state. Two addresses are tried in turn
-/// (the Mac on the Wi-Fi, then over Tailscale); the first that answers is remembered.
+/// (the Dell on the house Wi-Fi, then over Tailscale); the first that answers is remembered.
 /// The hub needs no sign-in: requests carry no Origin header, which its same-origin check allows.
 @MainActor @Observable
 final class HubClient {
@@ -14,7 +14,7 @@ final class HubClient {
         case offline(String)
     }
 
-    static let defaultAddresses = ["http://192.168.0.188:8766", "https://rileys-macbook-air.tail946e94.ts.net:8451"]
+    static let defaultAddresses = ["http://192.168.0.127:8766", "https://dell-server.tail946e94.ts.net"]
 
     private(set) var link: Link = .connecting
     var addresses: [String] {

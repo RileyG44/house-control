@@ -282,7 +282,7 @@ struct SettingsPage: View {
             } header: {
                 Text("Hub addresses")
             } footer: {
-                Text("Tried in this order; the first that answers is used. The hub runs on the Mac (hub/house.py).")
+                Text("Tried in this order; the first that answers is used. The hub runs on dell-server.")
             }
             Section {
                 switch hub.link {
