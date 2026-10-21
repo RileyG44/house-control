@@ -264,8 +264,10 @@ final class HomeScene {
         let H = Float(size.height), W = Float(size.width)
         let usableH = max(40, H - Float(topInset + bottomInset))
         let bw = w * Self.tvAround.x, bh = h * Self.tvAround.y
-        let t = min(tan(55 * Float.pi / 180), max(tan(10 * Float.pi / 180),
-                    max(bw * H / (2 * Self.tvDist * W), bh * H / (2 * Self.tvDist * usableH))))
+        var t = max(tan(10 * Float.pi / 180), max(bw * H / (2 * Self.tvDist * W), bh * H / (2 * Self.tvDist * usableH)))
+        // A short view (the strip over the pulled-up remote) steps back rather than going wide-angle.
+        let widest = tan(32 * Float.pi / 180)
+        if t > widest { goal.dist = Self.tvDist * t / widest; t = widest }
         goal.fov = 2 * atan(t) * 180 / .pi
         let side = SIMD3(n.z, 0, -n.x)
         corners = [(-1, -1), (1, -1), (1, 1), (-1, 1)].map { (sx: Float, sy: Float) in c + side * (sx * bw / 2) + SIMD3(0, sy * bh / 2, 0) }

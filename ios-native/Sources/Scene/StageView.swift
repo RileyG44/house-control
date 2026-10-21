@@ -18,7 +18,7 @@ final class SceneBox {
 
 /// The 3D home behind the card: full screen and never resized. As the card is pulled up the view
 /// is scaled and moved (from the card's live position) into the strip above it; in front of the
-/// TV the strip shows the TV's straight-on view, its edges faded into the background.
+/// TV the view itself gets shorter instead (see `resize`).
 struct StageView: View {
     var size: CGSize
     var safeTop: CGFloat
@@ -44,7 +44,8 @@ struct StageView: View {
         .simultaneousGesture(SpatialTapGesture().onEnded { _ in backgroundTap() })
         .simultaneousGesture(orbit)
         .simultaneousGesture(magnify)
-        .frame(width: size.width, height: size.height)
+        .frame(width: size.width, height: t.stageHeight)
+        .frame(width: size.width, height: size.height, alignment: .top)
         .scaleEffect(t.scale, anchor: .topLeading)
         .offset(t.offset)
         .frame(width: size.width, height: size.height, alignment: .topLeading)
@@ -59,6 +60,7 @@ struct StageView: View {
         .onChange(of: scheme, initial: true) { box.scene?.lookGoal = scheme == .light ? 1 : 0 }
         .onChange(of: card.route, initial: true) { applyFocus() }
         .onChange(of: size, initial: true) { resize() }
+        .onChange(of: t.stageHeight) { resize() }
         .accessibilityLabel("The 3D view of \(store.plan.name)")
     }
 
@@ -76,8 +78,16 @@ struct StageView: View {
         scene.syncInstantly()
     }
 
+    /// In front of the TV, pulling the card up makes the 3D view itself shorter, down to the strip
+    /// under the Dynamic Island, so the camera frames the TV with its wall and cabinet on either
+    /// side across the full width (a picture scaled down from the portrait view would be a narrow
+    /// cut-out). Elsewhere the view keeps the full screen and is scaled instead.
     private func resize() {
-        box.scene?.resize(size, top: safeTop + 4, bottom: size.height - CardMetrics.restTop + 10)
+        let k = min(1, max(0, card.progress)) * box.tvness
+        let restBottom = size.height - CardMetrics.restTop + 10
+        let h = stageHeight(k)
+        box.scene?.resize(CGSize(width: size.width, height: h), top: safeTop + 4,
+                          bottom: restBottom + (16 - restBottom) * k)
     }
 
     private func applyFocus() {
@@ -150,35 +160,31 @@ struct StageView: View {
         var clip: CGRect
         var radius: CGFloat = 0
         var feather: CGFloat = 0
+        var stageHeight: CGFloat = 0
     }
 
     /// At rest the model fills the area above the card; pulled up, the same picture is scaled and
     /// moved into the strip between the Dynamic Island and the card, in step with the card.
+    private func stageHeight(_ k: CGFloat) -> CGFloat {
+        (size.height + (CardMetrics.expandedTop + 10 - size.height) * k).rounded()
+    }
+
     private func framing() -> Framing {
         let full = CGRect(origin: .zero, size: size)
-        guard let scene = box.scene else { return Framing(clip: full) }
-        let p = min(1, max(0, card.progress))
-        guard p > 0.0005, let r = scene.restRect() else { return Framing(clip: full) }
+        guard let scene = box.scene else { return Framing(clip: full, stageHeight: size.height) }
+        let k = min(1, max(0, card.progress)) * box.tvness
+        let p = min(1, max(0, card.progress)) * (1 - box.tvness)
+        if k > 0.0005 { return Framing(clip: full, stageHeight: stageHeight(k)) }
+        guard p > 0.0005, let r = scene.restRect() else { return Framing(clip: full, stageHeight: size.height) }
         let side: CGFloat = 12
         let miniTop = safeTop + 4, miniBottom = CardMetrics.expandedTop - 6
         let mw = max(10, size.width - side * 2), mh = max(10, miniBottom - miniTop)
-        let tv = box.tvness
         let fit = mh * 0.94 / r.height
-        // The TV's view is fitted by height (its sides run on past the frame and fade out).
-        let s1 = min(1, fit, mw * 0.96 / r.width + (fit - mw * 0.96 / r.width) * tv)
-        let s = 1 + (s1 - 1) * p
+        let s1 = min(1, fit, mw * 0.96 / r.width)
+        let sc = 1 + (s1 - 1) * p
         let R = CGPoint(x: r.midX, y: r.midY)
         let M = CGPoint(x: size.width / 2, y: (miniTop + miniBottom) / 2)
         let C = CGPoint(x: R.x + (M.x - R.x) * p, y: R.y + (M.y - R.y) * p)
-        let offset = CGSize(width: C.x - R.x * s, height: C.y - R.y * s)
-        // In front of the TV the shrunken picture ends inside the strip: its edges are faded into
-        // the background (no hard frame), and its foot tucks under the card.
-        let k = p * tv
-        let feather: CGFloat = 16
-        let picture = CGRect(x: offset.width, y: offset.height, width: size.width * s, height: size.height * s)
-            .insetBy(dx: feather, dy: feather)
-        let clip = CGRect(x: full.minX + (picture.minX - full.minX) * k, y: full.minY + (picture.minY - full.minY) * k,
-                          width: full.width + (picture.width - full.width) * k, height: full.height + (picture.height - full.height) * k)
-        return Framing(scale: s, offset: offset, clip: clip, radius: 18 * k, feather: feather * k)
+        return Framing(scale: sc, offset: CGSize(width: C.x - R.x * sc, height: C.y - R.y * sc), clip: full, stageHeight: size.height)
     }
 }
