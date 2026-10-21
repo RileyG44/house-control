@@ -66,7 +66,7 @@ object Graph {
             apps.refresh()
         }
         apps.watchPackageChanges()
-        hub.start(scope)
+        hub.start(app, scope)
         weather.start(scope)
         server.startSafely()
         advertiser.start()

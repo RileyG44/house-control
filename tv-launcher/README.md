@@ -77,11 +77,15 @@ Every `/api` call carries the token as `X-LR-Key` (or `?k=`); without it the ans
 
 | Call | What it does |
 |---|---|
-| `GET /api/state?since=rev` | Long poll (up to 25 s): returns as soon as anything changes after `rev`. Awake, home or app on screen, foreground app, now playing, installed apps, Continue, text-field focus, Tailscale address. |
+| `GET /api/state?since=rev` | Long poll (up to 25 s): returns as soon as anything changes after `rev`. Awake, home or app on screen, foreground app, volume, now playing, installed apps, Continue, text-field focus, Tailscale address. |
 | `POST /api/cmd` | One command, `{"type": …}`, below. Answers `{"ok": true}` or `{"ok": false}`. |
 | `GET /icon/{pkg}`, `/banner/{pkg}`, `/art/now`, `/art/h/{id}` | Pictures: an app's icon and banner, what is playing, a Continue entry. |
 | `GET /pair/hello` | Who this TV is, and whether the caller's token is good. |
 | `POST /pair/start`, `/pair/finish {code}`, `/pair/cancel` | Show a 4-digit code on the TV, trade it for the token, hide it. |
+
+`tv.volume`, `tv.volumeMax` and `tv.muted` are Android's music stream. With HDMI-CEC volume
+control the Chromecast's own volume may be fixed (`tv.volumeFixed`): then the steps and mute go to
+the TV over CEC, but there is no level to read or set.
 
 Commands:
 
@@ -90,9 +94,13 @@ Commands:
 | `key` | `key`: `up down left right ok center back home` | Through the accessibility service; `home` opens Living Room. |
 | `primary` | | The big play button: play/pause the session, or OK when there is none. |
 | `media` | `action`: `toggle play pause next seekBy seekTo`, `ms` | `seekBy` moves by `ms` (default 10 s); `seekTo` jumps to `ms`. |
-| `volume` | `delta` | Relative steps. |
+| `seek` | `positionMs` | Jumps to that position in what is playing. `false` when the app doesn't take a position. |
+| `volume` | `delta` or `level` | Relative steps, or an absolute level from 0 to `tv.volumeMax`. A level is refused (`false`) when `tv.volumeFixed` is true. |
+| `mute` | | Mutes, or unmutes when muted. |
 | `power` | | Sleeps when awake; wakes when asleep. |
+| `wake`, `sleep` | | The same, but each only one way: a TV that is already awake stays awake. |
 | `launch` | `pkg` | Opens an app. |
+| `open` | `url`, `pkg` | Opens an https link (a title) in that app and no other. `false` when the app has nothing that opens it. |
 | `resume` | `id` | Opens a Continue entry's app. |
 | `text`, `submit` | `text` | Types into the focused field; presses its Search / Go key. |
 
@@ -116,6 +124,7 @@ Commands:
 
 ## Not yet verified
 
-- Play/pause/seek, volume (HDMI-CEC forwarding), power/wake and typing. These are phase 1's checks
-  on the real TV, with Riley watching.
+- Play/pause/seek, volume (HDMI-CEC forwarding, and whether Android knows the TV's real level),
+  mute, power/wake/sleep, typing and opening links. These are phase 1's checks on the real TV,
+  with Riley watching.
 - Which other apps (Netflix, Apple TV, Max, Hulu, Disney+) publish good Now Playing metadata.

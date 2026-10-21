@@ -1,6 +1,10 @@
 package com.livingroom.tv.companion
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioManager
 import android.os.PowerManager
 import com.livingroom.tv.Graph
 import com.livingroom.tv.history.HistoryStore
@@ -35,17 +39,34 @@ class StateHub {
     val keysEnabled = MutableStateFlow(false)
     val ownerName = MutableStateFlow<String?>(null)
 
+    private companion object {
+        /** AudioManager's own broadcasts; not in the public SDK as constants, but sent on every TV. */
+        const val VOLUME_CHANGED = "android.media.VOLUME_CHANGED_ACTION"
+        const val MUTE_CHANGED = "android.media.STREAM_MUTE_CHANGED_ACTION"
+    }
+
     private val lock = Object()
     @Volatile var rev = 0L
         private set
 
-    fun start(scope: CoroutineScope) {
+    fun start(context: Context, scope: CoroutineScope) {
         scope.launch {
             merge(
                 Graph.apps.pinned, Graph.history.entries, MediaWatcher.now, MediaWatcher.granted, Graph.wallpaper.image,
                 homeVisible, foreground, focus, textField, keysEnabled,
             ).collect { bump() }
         }
+        // The volume and mute live in AudioManager, not in a flow: the system says when they move
+        // (from the phone, the hub or the physical remote), and so does the screen going on or off.
+        val filter = IntentFilter().apply {
+            addAction(VOLUME_CHANGED)
+            addAction(MUTE_CHANGED)
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        }
+        context.registerReceiver(object : BroadcastReceiver() {
+            override fun onReceive(c: Context, i: Intent) = bump()
+        }, filter, Context.RECEIVER_NOT_EXPORTED)
     }
 
     fun bump() = synchronized(lock) { rev++; lock.notifyAll() }
@@ -66,6 +87,8 @@ class StateHub {
         val now = MediaWatcher.now.value
         val fg = if (homeVisible.value) context.packageName else foreground.value
         val power = context.getSystemService(PowerManager::class.java)
+        val audio = context.getSystemService(AudioManager::class.java)
+        val stream = AudioManager.STREAM_MUSIC
 
         val o = JSONObject()
             .put("rev", rev)
@@ -74,7 +97,13 @@ class StateHub {
                 .put("name", Graph.prefs.tvName)
                 .put("awake", power?.isInteractive ?: true)
                 .put("screen", if (homeVisible.value) "home" else "app")
-                .put("foreground", fg?.let { JSONObject().put("pkg", it).put("label", apps.label(it) ?: "") }))
+                .put("foreground", fg?.let { JSONObject().put("pkg", it).put("label", apps.label(it) ?: "") })
+                // STREAM_MUSIC. Where the volume is fixed (HDMI-CEC sends every change to the TV),
+                // these say nothing about the TV's own level; volumeFixed tells the caller so.
+                .put("volume", audio?.getStreamVolume(stream))
+                .put("volumeMax", audio?.getStreamMaxVolume(stream))
+                .put("muted", audio?.isStreamMute(stream) ?: false)
+                .put("volumeFixed", audio?.isVolumeFixed ?: false))
             .put("caps", JSONObject()
                 .put("keys", keysEnabled.value)
                 .put("media", MediaWatcher.granted.value))

@@ -16,7 +16,7 @@ import java.net.NetworkInterface
 /**
  * The launcher's API on port 8686, for House Control's hub and its iPhone app.
  * GET /api/state   long-poll for TV state (?since=rev)
- * POST /api/cmd    {type: key|media|launch|resume|text|volume|power|home}
+ * POST /api/cmd    {type: key|primary|media|seek|launch|open|resume|text|submit|volume|mute|power|wake|sleep}
  * POST /api/wallpaper        raw image bytes (JPEG/PNG/HEIC); /api/wallpaper/clear removes it
  * POST /api/settings         {name?, location?: {lat, lon, place?, country?} | null}
  * Every /api call must carry the pairing token (?k= or X-LR-Key).

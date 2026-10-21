@@ -17,6 +17,11 @@
         <intent>
             <action android:name="android.search.action.GLOBAL_SEARCH" />
         </intent>
+        <!-- So `open` can tell whether an app takes a title's link before it starts it. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
     </queries>
 
     <application

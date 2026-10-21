@@ -245,6 +245,18 @@ object MediaWatcher {
 
     fun hasSession(): Boolean = primary() != null
 
+    /**
+     * Jumps to [positionMs] in what is playing (or paused), kept inside the title's length.
+     * False when nothing plays or the app doesn't take a position (no ACTION_SEEK_TO).
+     */
+    fun seekTo(positionMs: Long): Boolean {
+        val c = primary() ?: return false
+        if ((c.playbackState?.actions ?: 0L) and PlaybackState.ACTION_SEEK_TO == 0L) return false
+        val duration = c.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
+        c.transportControls.seekTo(if (duration > 0) positionMs.coerceIn(0L, duration) else max(0L, positionMs))
+        return true
+    }
+
     fun command(action: String, ms: Long = 10_000): Boolean {
         val c = primary() ?: return false
         val tc = c.transportControls
