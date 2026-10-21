@@ -47,9 +47,10 @@ function acTemperatureColor(target, cfg) {
 /**
  * `onOrder(tileOrder)`: the tiles were dragged into a new order (the plan's `tileOrder`:
  * every tile's key, room by room), for the caller to keep. `onLayout(metrics)`: where the
- * card rests and stops when pulled up changed (the window was resized).
+ * card rests and stops when pulled up changed (the window was resized). `onRoomOrder(ids)`: the
+ * rooms were dragged into a new order (the plan's `rooms`, in that order).
  */
-export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEditPrefetch, onOrder, onLayout, editing = false, grown = false }) {
+export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEditPrefetch, onOrder, onRoomOrder, onLayout, editing = false, grown = false }) {
   const { state } = store;
   const ui = { room: 'all', sheet: null };
   let homeDetent = 'rest'; // where the card was on the home page, for when a sheet closes
@@ -104,8 +105,9 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
   const panel = h('section.panel',
     head, scenes, rooms,
     h('div.list-head', listTitle,
-      h('button.pill', { onclick: () => bulk(true) }, 'All on'),
-      h('button.pill', { onclick: () => bulk(false) }, 'All off')),
+      h('button.pill.bulk', { onclick: () => bulk(true) }, 'All on'),
+      h('button.pill.bulk', { onclick: () => bulk(false) }, 'All off'),
+      h('button.pill.done', { onclick: () => arrangeRooms(false) }, 'Done')),
     h('div.devices', grid), said);
   const sheet = h('section.sheet.hidden');
   sheet.inert = true;
@@ -181,7 +183,13 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     rooms.append(b);
   }
 
+  // The chips follow the rooms' order (it can be changed: see arrangeRooms).
+  function orderChips() {
+    rooms.replaceChildren(...['all', ...config.rooms.map((r) => r.id)].map((id) => roomButtons.get(id).b));
+  }
+
   function selectRoom(id) {
+    if (arranging) arrangeRooms(false);
     if (ui.room === id) id = 'all';
     ui.room = id;
     layoutTiles();
@@ -445,17 +453,124 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     return next;
   }
 
+  /* ---------- rooms in the list: folded away, and put in order ---------- */
+
+  // Rooms folded to their heading, on this screen (another screen keeps its own).
+  const FOLD_KEY = `house.folded:${config.name}`;
+  const folded = new Set((() => { try { return JSON.parse(localStorage.getItem(FOLD_KEY)) || []; } catch { return []; } })());
+  const heads = new Map();
+  let arranging = false;
+
+  // A room's heading in the whole-home list: its name, what is on in it while it is folded,
+  // and a chevron. A click folds or unfolds it; held still, it starts putting rooms in order.
+  function roomHead(room) {
+    const sum = h('span.room-sum');
+    const el = h('div.group-label.room-head', { role: 'button', tabindex: 0, 'aria-expanded': 'true' },
+      h('span.room-head-name', room.name), sum, h('span.room-chevron', icon('down', 14, 2.4)));
+    let press = null;
+    el.addEventListener('pointerdown', (ev) => {
+      if (ev.button !== 0 || arranging) return;
+      press = { x: ev.clientX, y: ev.clientY, top: grid.parentElement.scrollTop,
+        timer: setTimeout(() => { press = null; el.classList.remove('pressed'); arrangeRooms(true); }, 420) };
+      el.classList.add('pressed');
+    });
+    const let_go = () => { if (press) clearTimeout(press.timer); press = null; el.classList.remove('pressed'); };
+    el.addEventListener('pointermove', (ev) => { if (press && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > 8) let_go(); });
+    el.addEventListener('pointerup', () => {
+      const tapped = press && Math.abs(grid.parentElement.scrollTop - press.top) < 3;
+      let_go();
+      if (tapped) fold(room.id);
+    });
+    el.addEventListener('pointercancel', let_go);
+    el.addEventListener('pointerleave', (ev) => { if (ev.pointerType === 'mouse') let_go(); });
+    el.addEventListener('contextmenu', (ev) => ev.preventDefault());
+    el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); fold(room.id); } });
+    const head = { el, update() {
+      const shut = folded.has(room.id);
+      el.classList.toggle('folded', shut);
+      el.setAttribute('aria-expanded', String(!shut));
+      const lights = config.lights.filter((l) => l.room === room.id);
+      const on = lights.filter((l) => state.lights[l.id].on).length;
+      const devices = roomTiles(room.id).length;
+      sum.textContent = shut ? (on ? `${on} on` : `${devices} ${devices === 1 ? 'device' : 'devices'}`) : '';
+    } };
+    heads.set(room.id, head);
+    return head;
+  }
+
+  function fold(id) {
+    haptic('light');
+    if (folded.has(id)) folded.delete(id); else folded.add(id);
+    try { localStorage.setItem(FOLD_KEY, JSON.stringify([...folded])); } catch { /* private browsing */ }
+    const shown = [...grid.children].filter((c) => !c.classList.contains('grid-hint'));
+    flip(shown, () => layoutTiles({ still: true }));
+    for (const t of grid.querySelectorAll('.tile')) {
+      if (!shown.includes(t)) t.animate([{ opacity: 0, transform: 'translateY(-6px)' }, { opacity: 1, transform: 'none' }], { duration: 240, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    }
+    heads.get(id)?.update();
+  }
+
+  // Putting rooms in order: the list becomes one row per room, held and dragged like tiles.
+  const roomRows = new Map();
+  const roomSort = createReorder({
+    grid, scroller: grid.parentElement, hold: 90,
+    announce: (text) => { said.textContent = text; },
+    onOrder: (ids) => {
+      const rank = new Map(ids.map((id, i) => [id, i]));
+      config.rooms.sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9));
+      orderChips();
+      onRoomOrder?.(config.rooms.map((r) => r.id));
+    },
+  });
+  function roomRow(room) {
+    if (roomRows.has(room.id)) return roomRows.get(room.id);
+    const el = h('div.tile.room-row', { tabindex: 0, 'aria-label': room.name, 'data-key': room.id, 'aria-keyshortcuts': 'Alt+ArrowUp Alt+ArrowDown' },
+      h('span.room-grip', icon('grip', 18, 2)), h('div.tile-name', room.name));
+    roomSort.attach(el);
+    roomRows.set(room.id, el);
+    return el;
+  }
+
+  function arrangeRooms(on) {
+    if (on === arranging) return;
+    if (on && ui.room !== 'all') { ui.room = 'all'; update(); }
+    arranging = on;
+    haptic(on ? 'medium' : 'light');
+    card.classList.toggle('arranging', on);
+    const shown = [...grid.children];
+    flip(shown.filter((c) => c.classList.contains('group-label') || c.classList.contains('room-row')), () => layoutTiles({ still: true }));
+    if (on) said.textContent = 'Drag the rooms into the order you want, then Done';
+  }
+  window.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && arranging && !roomSort.busy) arrangeRooms(false); });
+
   /** `still`: the same tiles in a new order, sliding there (no entrance, scroll kept). */
   function layoutTiles({ still = false } = {}) {
     reorder.cancel();
+    roomSort.cancel();
     const nodes = [];
     let i = 0;
     const add = (t) => { t.el.style.setProperty('--i', i++); nodes.push(t.el); };
+    if (arranging) {
+      for (const room of config.rooms) {
+        const row = roomRow(room);
+        row.style.setProperty('--i', i++);
+        nodes.push(row);
+      }
+      nodes.push(h('div.grid-hint', 'Hold and drag a room to move it'));
+      grid.classList.toggle('still', still);
+      grid.replaceChildren(...nodes);
+      return;
+    }
     for (const room of config.rooms) {
       if (ui.room !== 'all' && room.id !== ui.room) continue;
       const devices = roomTiles(room.id);
       if (!devices.length) continue;
-      if (ui.room === 'all') nodes.push(h('div.group-label', room.name));
+      if (ui.room === 'all') {
+        const head = heads.get(room.id) || roomHead(room);
+        head.update();
+        nodes.push(head.el);
+        if (folded.has(room.id)) continue;
+      }
       devices.forEach(add);
     }
     if (!nodes.length) nodes.push(h('div.group-label', 'No devices in this room yet'));
@@ -729,7 +844,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     });
     const volumeRow = h('div.tv-volume-col', volume.el);
     const remote = h('div.tv-remote',
-      h('div.tv-keys', side('Back', 'undo', 'back'), side('Home', 'home', 'home'),
+      h('div.tv-keys', side('Home', 'home', 'home'), side('Back', 'undo', 'back'),
         h('button.round.tv-key.tv-playpause', { 'aria-label': 'Play or pause', title: 'Play / pause', onclick: () => { haptic('light'); key('playpause'); } },
           icon('play', 14, 2.4), icon('pause', 14, 2.4)), muteBtn),
       pad.el,
@@ -898,6 +1013,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
 
     for (const t of tiles.values()) t.update();
     for (const t of tvTiles.values()) t.update();
+    for (const head of heads.values()) head.update();
     sheetView?.update();
     const m = css(mood());
     card.style.setProperty('--mood', m);

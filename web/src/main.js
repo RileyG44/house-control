@@ -111,6 +111,18 @@ function saveOrder(m, order) {
     try { localStorage.setItem(orderKey(m.raw), JSON.stringify(order)); } catch { /* private browsing */ }
     return;
   }
+  saveSoon(m);
+}
+
+// The rooms in a new order: the plan keeps its rooms in that order (the list and the chips
+// follow it everywhere).
+function saveRoomOrder(m, ids) {
+  const rank = new Map(ids.map((id, i) => [id, i]));
+  m.raw.rooms.sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9));
+  if (savesOrder()) saveSoon(m);
+}
+
+function saveSoon(m) {
   clearTimeout(m.orderTimer);
   m.orderTimer = setTimeout(async () => {
     try {
@@ -173,6 +185,7 @@ function mountHome(raw, { first = false, editing: underEditor = false, grown = f
     onEdit: () => openEditor(),
     onEditPrefetch: () => { if (!isNative) loadEditor().catch(() => {}); },
     onOrder: (order) => saveOrder(m, order),
+    onRoomOrder: (ids) => saveRoomOrder(m, ids),
     onLayout: () => m.applyInsets?.(),
     editing: underEditor,
     grown,

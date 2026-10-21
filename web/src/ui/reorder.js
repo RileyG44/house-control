@@ -48,7 +48,7 @@ export function flip(els, mutate, { duration = FLIP_MS, easing = FLIP_EASE } = {
  * `onOrder(keys, el)`: a group's tiles were put in a new order (its keys, top to bottom).
  * `announce(text)`: words for a screen reader after a move made with the keyboard.
  */
-export function createReorder({ grid, scroller, onOrder, announce }) {
+export function createReorder({ grid, scroller, onOrder, announce, hold = HOLD }) {
   let press = null;   // a press that may become a lift: { el, opts, id, x, y, lx, ly, timer }
   let drag = null;    // the lifted tile
   let zone = null;    // the lifted tile's group, softly lit behind it
@@ -124,7 +124,7 @@ export function createReorder({ grid, scroller, onOrder, announce }) {
       if (drag || ev.button !== 0 || !ev.isPrimary) return;
       cancelPress();
       press = { el, opts, id: ev.pointerId, x: ev.clientX, y: ev.clientY, lx: ev.clientX, ly: ev.clientY, top: scroller.scrollTop };
-      press.timer = setTimeout(lift, HOLD);
+      press.timer = setTimeout(lift, hold);
       el.liftedBy = null;
     });
     el.addEventListener('pointermove', (ev) => {
