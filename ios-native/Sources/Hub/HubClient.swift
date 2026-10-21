@@ -103,27 +103,37 @@ final class HubClient {
                 await stream(from: url)
                 if Task.isCancelled { return }
             } else {
-                link = .offline("The hub on the Mac can’t be reached")
+                link = .offline("The hub can’t be reached")
             }
             try? await Task.sleep(for: .seconds(delay))
-            delay = min(delay * 2, 20)
+            delay = min(delay * 2, 5)
         }
     }
 
-    /// The first address that answers `GET /api/plan` within 1.5 s (the last one that worked first).
+    /// Every address is asked for `GET /api/plan` at once; the first that answers wins. The Wi-Fi
+    /// address gets a short head start (it is the faster one when it works), and each has up to
+    /// 5 s, which a first Tailscale connection can need.
     private func pick() async -> URL? {
-        var list = addresses.compactMap { URL(string: $0.trimmingCharacters(in: .whitespaces)) }
-        if let last = UserDefaults.standard.string(forKey: "hub.last"), let u = URL(string: last), let i = list.firstIndex(of: u) {
-            list.remove(at: i)
-            list.insert(u, at: 0)
+        let list = addresses.compactMap { URL(string: $0.trimmingCharacters(in: .whitespaces)) }
+        guard !list.isEmpty else { return nil }
+        let session = self.session
+        return await withTaskGroup(of: URL?.self) { group in
+            for (i, url) in list.enumerated() {
+                group.addTask {
+                    if i > 0 { try? await Task.sleep(for: .milliseconds(400 * i)) }
+                    var req = URLRequest(url: url.appending(path: "api/plan"))
+                    req.timeoutInterval = 5
+                    guard let (_, resp) = try? await session.data(for: req),
+                          (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+                    return url
+                }
+            }
+            for await found in group where found != nil {
+                group.cancelAll()
+                return found
+            }
+            return nil
         }
-        for url in list {
-            if Task.isCancelled { return nil }
-            var req = URLRequest(url: url.appending(path: "api/plan"))
-            req.timeoutInterval = 1.5
-            if let (_, resp) = try? await session.data(for: req), (resp as? HTTPURLResponse)?.statusCode == 200 { return url }
-        }
-        return nil
     }
 
     /// Reads `/api/events` until it drops. Each message is one `data:` line of JSON.
@@ -158,7 +168,7 @@ final class HubClient {
     }
 
     private func url(_ path: String) throws -> URL {
-        guard let base else { throw HubError(message: "The hub on the Mac can’t be reached") }
+        guard let base else { throw HubError(message: "The hub can’t be reached") }
         return URL(string: path, relativeTo: base)!.absoluteURL
     }
 
@@ -187,7 +197,8 @@ final class HubClient {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            throw HubError(message: "The hub on the Mac can’t be reached")
+            if (error as? URLError)?.code != .cancelled { reconnect() }
+            throw HubError(message: "The hub can’t be reached")
         }
     }
 

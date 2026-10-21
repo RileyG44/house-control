@@ -217,7 +217,7 @@ final class HomeStore {
             guard !Task.isCancelled else { return }
             if !planFresh {
                 guard let next = try? await hub.plan() else {
-                    show("The change wasn’t saved: the hub on the Mac can’t be reached", error: true)
+                    show("The change wasn’t saved: the hub can’t be reached", error: true)
                     saveTask = nil
                     return
                 }
