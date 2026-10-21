@@ -149,7 +149,7 @@ Windows widget. Top to bottom:
    rounded app tiles: YouTube, Netflix, Hulu, Prime Video, Disney+, Max first, then the rest
    of the catalogue. The running app has a ring and a "Now on" dot. Tap → `open` (wakes the TV
    if needed), haptic('light'), optimistic "Opening Netflix…".
-4. **Pad**: a Chromecast-remote style circular D-pad: one big disc with four arrow zones at
+4. **Pad** (since replaced by the swipe pad, docs/card-sheet.md): a Chromecast-remote style circular D-pad: one big disc with four arrow zones at
    the rim (press feedback on the touched quadrant) and a round OK button in the middle.
    Swiping on the disc also moves (touchpad: a swipe of ~40 px = one step, fast flicks repeat
    a few steps); press-and-hold on an arrow repeats (300 ms delay, then every 120 ms).
@@ -193,8 +193,8 @@ Built (October 2026), everything above except the "Done when" checks that need t
   `HOUSE_TV_URL`, else `~/.house-hub/tv.json` (`{"url": "http://192.168.0.188:8765"}`), else
   port 8765 on the Mac's LAN address.
 - **Mac app**: `hubRequest` (only `api/tv…` paths) through `LocalHubClient.request`; not compiled
-  here (no Swift toolchain), so the first build on the Mac is its check. The iPhone app has no
-  `hubRequest`; the panel stops asking after one unanswered call and shows no TV.
+  here (no Swift toolchain), so the first build on the Mac is its check. The iPhone app asks the
+  hub beside its paired Mac (docs/card-sheet.md); the panel stops asking a shell that never answers.
 - **Web**: `web/src/tv/` (client, logos, simulated TV, remote controls), the lit screen and its
   pick target in `web/src/three/tv.js`, the TV tile and sheet in `ui/panel.js`, and **Linked TV**
   (Automatic / None / each TV) on a TV piece's page in the editor. An AI's plan edits keep a TV

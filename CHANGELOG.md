@@ -22,6 +22,14 @@ What changed in each release of House Control. The Mac app is on
 
 ### Panel
 
+- **One card for everything.** The home's name, how many lights are on, the look, edit and power buttons sit on
+  the card with the scenes, rooms and tiles. Swipe the card up for more room: the model shrinks in step with your
+  finger into the strip at the top (under the Dynamic Island on the iPhone), and a tap on it brings the card back
+  down. The card follows the finger, carries a flick, settles with a spring and a tick, and works with a mouse,
+  a trackpad or the scroll wheel too. The room chips count the lights on in each room.
+- **Light and dark.** The sun / moon button on the card cycles Auto, Light and Dark: a warm-white panel and a
+  daylit model, or the dark one, easing from one to the other. Auto follows the system. Each device keeps its own
+  choice.
 - **Tiles in your own order.** Touch and hold a tile (or press and hold with the mouse) and drag it: the TV above
   the AC, a lamp to the other side of the grid. The others slide out of the way, and it settles where you let go,
   with a tap you can feel on the iPhone and on a Mac's trackpad. Tiles move within their room; Option + arrow keys
@@ -29,6 +37,12 @@ What changed in each release of House Control. The Mac app is on
 
 ### TV
 
+- **A swipe pad** in place of the arrows and OK: swipe to move (a step for every stretch, a step or two more for a
+  quick flick), tap to select, with a ring where you tap, a glow toward each step's edge and a tick you can feel.
+  Back, Home, Play/Pause and Mute sit under it; arrow keys, Enter and Space work too.
+- **Straight to the TV:** tapping the TV flies the view to just in front of its screen, the remote comes up
+  ready to use, and a small picture of the TV stays above it. Swipe the remote down to see the TV big.
+- **The TV on the iPhone:** the iPhone app reaches the TV through the hub on the Mac it's paired with.
 - **Now playing** on the TV remote: what's on (the show and episode, or the video and its channel) with its
   picture, play and pause, back 10 s and ahead 30 s, and a slider to jump anywhere in it. The TV's tile says what's
   on too. It comes from the TV over Cast through the hub (`pip install -r hub/requirements.txt` adds pychromecast),
@@ -41,6 +55,7 @@ What changed in each release of House Control. The Mac app is on
 
 ### Mac
 
+- **The panel's look** follows its light or dark choice, glass included.
 - **Open at Login**, in the menu bar icon's right-click menu and in the panel's gear menu: House Control starts with
   your Mac. It is the app's entry under System Settings → General → Login Items, so it can be switched off there too.
   Run from the disk image, the app asks to be moved to Applications first; moved there later, the login item follows it.
