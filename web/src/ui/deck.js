@@ -24,7 +24,7 @@ const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 const rubber = (d) => (1 - 1 / ((d * 0.55) / STRETCH + 1)) * STRETCH;
 
 // Where a press must not start moving the card: controls that take the drag themselves.
-const OWN_DRAG = '.tv-swipe, .slider-track, .pad, .tv-scrub, .tv-track, input, textarea, select, .menu, [data-own-drag]';
+const OWN_DRAG = '.tv-dpad-disc, .slider-track, .pad, .tv-scrub, .tv-track, input, textarea, select, .menu, [data-own-drag]';
 
 /**
  * `el`: the card. `scrollers`: selector of its scrolling content. `handles`: selector of the

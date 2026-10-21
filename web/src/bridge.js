@@ -49,7 +49,10 @@ function buzz(kind) {
       tickSwitch.append(input);
       document.body.append(tickSwitch);
     }
+    // Flipping it must not take the focus (the TV's pad keeps the arrow keys).
+    const focused = document.activeElement;
     tickSwitch.click();
+    if (focused && document.activeElement !== focused) focused.focus?.({ preventScroll: true });
   } catch { /* no haptics here */ }
 }
 

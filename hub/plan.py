@@ -8,9 +8,10 @@ of furniture that says what the room is (`build`). Every lamp and AC is linked t
 real device (`link: {service, id}`), so the panel controls the real thing. A plan.json
 without "generatedBy": "hub" or "seededBy": "hub" is the user's own and is used as it is.
 
-The panel's tile order (`tileOrder`: lamp and AC ids, "tv:<id>" for a TV) is the one thing
+The panel's tile order (`tileOrder`: lamp and AC ids, "tv:<id>" for a TV) and its scenes
+(`scenes`: the built-in ones and those made on a screen, "custom-<name>-<hex>") are the things
 a screen may change in a plan the hub makes without making it the user's own: `ordered`
-carries it into each plan the hub makes again.
+carries them into each plan the hub makes again.
 """
 from __future__ import annotations
 
@@ -104,20 +105,36 @@ def order_of(plan) -> list[str] | None:
     return list(dict.fromkeys(k for k in order if isinstance(k, str) and k))
 
 
+# What a screen changes in a plan without drawing it: the tiles' order and the scenes.
+PANEL_KEYS = ("tileOrder", "scenes")
+
+
+def scenes_of(plan) -> list[dict] | None:
+    """A plan's scenes, those without an id left out; None when it has no list of them."""
+    scenes = plan.get("scenes") if isinstance(plan, dict) else None
+    if not isinstance(scenes, list):
+        return None
+    return [s for s in scenes if isinstance(s, dict) and isinstance(s.get("id"), str) and s["id"]]
+
+
 def ordered(plan: dict, previous) -> dict:
-    """`plan` with the tile order `previous` had (names the new plan lacks are kept: a lamp
-    that is unplugged for a while comes back to its place)."""
+    """`plan` with the tile order and the scenes `previous` had (names the new plan lacks are
+    kept: a lamp that is unplugged for a while comes back to its place, and to its scenes)."""
     order = order_of(previous)
     if order is not None:
         plan["tileOrder"] = order
+    scenes = scenes_of(previous)
+    if scenes is not None:
+        plan["scenes"] = scenes
     return plan
 
 
 def same_but_order(a, b) -> bool:
-    """Whether two plans differ in their tile order alone."""
+    """Whether two plans differ in their tile order or their scenes alone."""
     if not isinstance(a, dict) or not isinstance(b, dict):
         return False
-    return {k: v for k, v in a.items() if k != "tileOrder"} == {k: v for k, v in b.items() if k != "tileOrder"}
+    return ({k: v for k, v in a.items() if k not in PANEL_KEYS}
+            == {k: v for k, v in b.items() if k not in PANEL_KEYS})
 
 
 def build(names: dict, lights: list[dict], acs: list[dict]) -> dict:

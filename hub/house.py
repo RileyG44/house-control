@@ -241,7 +241,7 @@ class Hub:
             # devices turn up, until a plan is saved; a hub that already made a plan keeps making it.
             base = plans.template(WEB) if not path.exists() or (custom or {}).get("seededBy") == "hub" else None
             new = plans.seed(base, self.names, lights, acs) if base else plans.build(self.names, lights, acs)
-            new = plans.ordered(new, custom)  # the tiles as a screen arranged them
+            new = plans.ordered(new, custom)  # the tiles as a screen arranged them, and its scenes
             path.write_text(json.dumps(new, indent=2))
         changed = bool(self.plan) and new != self.plan
         if new != self.plan:
@@ -385,8 +385,13 @@ class Hub:
             if plans.order_of(config) is None:
                 return {"error": "tileOrder must be a list of tile names"}
             config = {**config, "tileOrder": plans.order_of(config)}
-        # Tiles dragged into a new order on a plan the hub makes leave it the hub's, so it keeps
-        # linking the devices that turn up; anything else makes it drawn by hand from now on.
+        if "scenes" in config:
+            if plans.scenes_of(config) is None:
+                return {"error": "scenes must be a list of scenes"}
+            config = {**config, "scenes": plans.scenes_of(config)}
+        # Tiles dragged into a new order, or scenes made, on a plan the hub makes leave it the
+        # hub's, so it keeps linking the devices that turn up; anything else makes it drawn by
+        # hand from now on.
         hubs = (plans.same_but_order(config, self.plan)
                 and (self.plan.get("generatedBy") == "hub" or self.plan.get("seededBy") == "hub"))
         if not hubs:
@@ -403,7 +408,7 @@ class Hub:
             os.replace(tmp, path)
             os.utime(path, ns=(now, now))
         if plans.same_but_order(config, self.plan):
-            log.info("Saved the tiles' new order")
+            log.info("Saved the panel's tile order and scenes (%d scenes)", len(config.get("scenes") or []))
         else:
             log.info("Saved the floor plan from the editor (%d rooms)", len(rooms))
         self._rebuild_plan(by=by if isinstance(by, str) and by else None)
@@ -726,6 +731,8 @@ async def scan() -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    # The AiDot library logs device login payloads, including LAN passwords.
+    logging.getLogger("aidot").setLevel(logging.WARNING)
     arg = sys.argv[1] if len(sys.argv) > 1 else "run"
     if arg == "install":
         install()

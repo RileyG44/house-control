@@ -221,6 +221,13 @@ export function createStore(config) {
       emit({ type: 'bulk', scene: sceneId });
     },
 
+    /** The lights are in `sceneId` now (it was just made from them): marked, nothing sent. */
+    markScene(sceneId) {
+      if (state.scene === sceneId || !config.scenes.some((s) => s.id === sceneId)) return;
+      state.scene = sceneId;
+      emit({ type: 'bulk', scene: sceneId });
+    },
+
     /** Reports the state again, for a view that has only just started. */
     share() { post('state', { lights: state.lights, acs: state.acs, scene: state.scene }); },
 

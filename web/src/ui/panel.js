@@ -5,6 +5,7 @@
 // shrinks into the strip above it.
 import * as THREE from 'three';
 import { h, clamp, createSlider, createColorPad, openMenu } from './dom.js';
+import { normalizeScenes } from '../config.js';
 import { icon } from './icons.js';
 import { lightColor } from '../three/lights.js';
 import { MODE_COLORS } from '../three/ac.js';
@@ -22,6 +23,10 @@ import { cycleTheme, themeChoice, resolved, onTheme } from './theme.js';
 const MODE_LABEL = { cool: 'Cool', heat: 'Heat', dry: 'Dry', fan: 'Fan', auto: 'Auto' };
 const FAN_LABEL = { auto: 'Auto', low: 'Low', medium: 'Medium', high: 'High', turbo: 'Turbo' };
 const SWING_LABEL = { swing: 'Swing', l1: 'L1', l2: 'L2', l3: 'L3', l4: 'L4', l5: 'L5', off: 'Off' };
+// The icons a scene can have (the iPhone app offers the same).
+const SCENE_ICONS = ['sun', 'bright', 'dim', 'sofa', 'film', 'tv', 'moon', 'bed', 'sparkles', 'leaf', 'kitchen', 'dining', 'bath', 'office', 'heat', 'cool', 'power'];
+const SCENE_ICON_NAMES = { sun: 'Sun', bright: 'Bright', dim: 'Dim', sofa: 'Sofa', film: 'Film', tv: 'TV', moon: 'Moon', bed: 'Bed',
+  sparkles: 'Sparkles', leaf: 'Leaf', kitchen: 'Kitchen', dining: 'Dining', bath: 'Bath', office: 'Office', heat: 'Warm', cool: 'Cool', power: 'Off' };
 const SWATCHES = ['#ff5a4f', '#ff9a3c', '#ffd84a', '#5fe08a', '#42d6e8', '#4f8dff', '#8b5cff', '#ff5fc4'];
 
 const TEMP_GRADIENT = 'linear-gradient(90deg, #2f7df6 0%, #58b4f5 34%, #f3e2c0 62%, #f6a54a 82%, #f0762c 100%)';
@@ -48,15 +53,18 @@ function acTemperatureColor(target, cfg) {
  * `onOrder(tileOrder)`: the tiles were dragged into a new order (the plan's `tileOrder`:
  * every tile's key, room by room), for the caller to keep. `onLayout(metrics)`: where the
  * card rests and stops when pulled up changed (the window was resized). `onRoomOrder(ids)`: the
- * rooms were dragged into a new order (the plan's `rooms`, in that order).
+ * rooms were dragged into a new order (the plan's `rooms`, in that order). `onScenes(scenes)`:
+ * a scene was made, edited or deleted (the plan's `scenes`, every one, in the plan's form).
  */
-export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEditPrefetch, onOrder, onRoomOrder, onLayout, editing = false, grown = false }) {
+export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEditPrefetch, onOrder, onRoomOrder, onScenes, onLayout, editing = false, grown = false }) {
   const { state } = store;
   const ui = { room: 'all', sheet: null };
   let homeDetent = 'rest'; // where the card was on the home page, for when a sheet closes
   let order = config.tileOrder.slice();
   let world = null;
   const roomName = new Map(config.rooms.map((r) => [r.id, r.name]));
+  const AXIS = 8; // px before a press on a tile or a scene is a slide or a scroll, not a tap or a hold
+  let lastPointer = 'mouse'; // the last press's pointerType: a right click opens a page, a held finger doesn't
 
   /* ---------- skeleton ---------- */
 
@@ -165,13 +173,126 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
 
   /* ---------- scenes ---------- */
 
+  // A tap sets the scene; held, a scene can be edited or deleted. The + chip at the end makes
+  // a new one from the lights as they are (ui.sheet { kind: 'scene' }, sceneSheet).
   const sceneButtons = new Map();
-  for (const s of config.scenes) {
-    const b = h('button.scene', { onclick: () => { haptic('medium'); store.applyScene(s.id); } }, icon(s.icon, 19), s.name);
-    sceneButtons.set(s.id, b);
-    scenes.append(b);
+  const addScene = h('button.scene.scene-add', { title: 'New scene', 'aria-label': 'New scene', onclick: () => { haptic('light'); openSheet({ kind: 'scene', id: null }); } },
+    icon('plus', 19, 2.2), h('span.scene-name', 'New'));
+
+  function sceneChip(s) {
+    const b = h('button.scene', { title: s.name, 'aria-keyshortcuts': 'Shift+F10' }, icon(s.icon, 19), h('span.scene-name', s.name));
+    let press = null;
+    let held = false;
+    const letGo = () => { if (press) clearTimeout(press.timer); press = null; b.classList.remove('holding'); };
+    b.addEventListener('pointerdown', (ev) => {
+      lastPointer = ev.pointerType;
+      held = false;
+      if (ev.button !== 0 || !ev.isPrimary) return;
+      press = { x: ev.clientX, y: ev.clientY, timer: setTimeout(() => { press = null; held = true; b.classList.remove('holding'); sceneMenu(s, b); }, 450) };
+      b.classList.add('holding');
+    });
+    b.addEventListener('pointermove', (ev) => { if (press && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > AXIS) letGo(); });
+    b.addEventListener('pointerup', letGo);
+    b.addEventListener('pointercancel', letGo);
+    b.addEventListener('pointerleave', (ev) => { if (ev.pointerType === 'mouse') letGo(); });
+    b.addEventListener('click', () => {
+      if (held) { held = false; return; } // the hold opened the menu
+      haptic('medium');
+      store.applyScene(s.id);
+    });
+    b.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault();
+      if (lastPointer === 'mouse' && !held) sceneMenu(s, b);
+    });
+    b.addEventListener('keydown', (ev) => {
+      if (ev.key === 'ContextMenu' || (ev.shiftKey && ev.key === 'F10')) { ev.preventDefault(); sceneMenu(s, b); }
+    });
+    return b;
   }
-  if (!config.scenes.length) scenes.style.display = 'none';
+
+  function sceneMenu(s, b) {
+    haptic('medium');
+    b.classList.add('menu-open');
+    openMenu(clip, b, [
+      { label: 'Edit', icon: icon('pencil', 16, 2), action: () => openSheet({ kind: 'scene', id: s.id }) },
+      { label: `Delete “${s.name}”`, icon: icon('trash', 16, 2), action: () => deleteScene(s.id) },
+    ], { onClose: () => b.classList.remove('menu-open') });
+  }
+
+  function renderScenes() {
+    sceneButtons.clear();
+    const chips = config.scenes.map((s) => {
+      const b = sceneChip(s);
+      sceneButtons.set(s.id, b);
+      return b;
+    });
+    scenes.replaceChildren(...chips, addScene);
+  }
+  renderScenes();
+
+  // The plan's form of a scene: `acs` only when it sets an AC.
+  const planScene = (s) => {
+    const out = { id: s.id, name: s.name, icon: s.icon, lights: s.lights };
+    if (s.acs && Object.keys(s.acs).length) out.acs = s.acs;
+    return out;
+  };
+
+  // The scenes changed here: shown at once, then kept by the caller (the plan's `scenes`).
+  function commitScenes(list) {
+    config.scenes.splice(0, config.scenes.length, ...list);
+    renderScenes();
+    update();
+    onScenes?.(config.scenes.map(planScene));
+  }
+
+  function deleteScene(id) {
+    const s = config.scenes.find((x) => x.id === id);
+    if (!s) return;
+    haptic('medium');
+    commitScenes(config.scenes.filter((x) => x.id !== id));
+    toast(`Deleted “${s.name}”`, null, { note: true });
+  }
+
+  // Scenes that came from elsewhere (another screen saved them).
+  function setScenes(list) {
+    config.scenes.splice(0, config.scenes.length, ...normalizeScenes(Array.isArray(list) ? list : []));
+    renderScenes();
+    if (ui.sheet?.kind === 'scene' && ui.sheet.id && !config.scenes.some((x) => x.id === ui.sheet.id)) closeSheet();
+    update();
+  }
+
+  // Every lamp as it is now, in a scene's form; an off lamp is just off.
+  function captureLights() {
+    const out = {};
+    for (const cfg of config.lights) {
+      const s = state.lights[cfg.id];
+      if (!s.on) { out[cfg.id] = { on: false }; continue; }
+      const caps = cfg.capabilities;
+      const l = { on: true };
+      if (caps.includes('brightness')) l.brightness = Math.round(s.brightness * 100) / 100;
+      if (caps.includes('color') && s.color) l.color = s.color;
+      else if (caps.includes('temp')) l.temp = s.temp;
+      out[cfg.id] = l;
+    }
+    return out;
+  }
+
+  function captureAcs() {
+    return Object.fromEntries(config.acs.map((a) => {
+      const s = state.acs[a.id];
+      return [a.id, { on: s.on, mode: s.mode, target: s.target, fan: s.fan }];
+    }));
+  }
+
+  // "custom-movie-night-3fa1": the name, and four random hex digits.
+  function newSceneId(name) {
+    const slug = name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24).replace(/-+$/, '') || 'scene';
+    for (;;) {
+      const hex = [...crypto.getRandomValues(new Uint8Array(2))].map((n) => n.toString(16).padStart(2, '0')).join('');
+      const id = `custom-${slug}-${hex}`;
+      if (!config.scenes.some((x) => x.id === id)) return id;
+    }
+  }
 
   /* ---------- rooms ---------- */
 
@@ -223,9 +344,11 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
 
   const tiles = new Map();
   // Long press a tile and drag it to another place in its room (reorder.js).
+  // Held a little longer than a room's heading: a finger that rests before it slides still dims.
   const reorder = createReorder({
     grid,
     scroller: grid.parentElement,
+    hold: 450,
     announce: (text) => { said.textContent = text; },
     onOrder: (keys) => {
       order = reordered(keys);
@@ -241,59 +364,146 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     return t;
   }
 
-  function lightTile(cfg) {
-    const dimmable = cfg.capabilities.includes('brightness');
-    const hasSheet = cfg.capabilities.length > 0;
-    const sub = h('div.tile-sub');
-    // A phone has no room for the button: touching and holding the tile opens the sheet there.
-    const more = hasSheet && !isPhone
-      ? h('button.tile-more', { 'aria-label': `${cfg.name} settings`, onclick: (e) => { e.stopPropagation(); openSheet({ kind: 'light', id: cfg.id }); } }, icon('sliders', 15))
-      : null;
-    const el = h(`div.tile${dimmable ? '.dimmable' : ''}`, { role: 'button', tabindex: 0, 'aria-label': cfg.name },
-      h('div.bubble', icon(cfg.capabilities.length ? cfg.type : 'plug', 19)),
-      h('div.tile-text', h('div.tile-name', cfg.name), sub),
-      more,
-      h('div.tile-level'));
-
-    // Tap toggles; dragging sideways dims (HomeKit-style). Held still, it lifts to be moved
-    // (reorder.js); on a phone, let go where it was, it opens the light's sheet.
-    let gesture = null;
+  // A tile under a finger or the mouse: a tap switches it, a slide sideways sets its level
+  // (a lamp's brightness, an AC's temperature), and held still it lifts (reorder.js): let go
+  // where it was, the device's page opens; dragged, the tile moves. Which it is, is decided
+  // after AXIS px: sideways is a slide; up or down belongs to the list and the card (deck.js)
+  // and is neither a tap nor a slide. A press on a button in the tile is that button's.
+  function gestures(el, { tap, open = null, slide = null }) {
+    let g = null; // { id, x, y, mode: null | 'slide' | 'away' }
     el.addEventListener('pointerdown', (ev) => {
-      if (ev.target.closest('.tile-more') || ev.button !== 0) return;
-      el.setPointerCapture(ev.pointerId);
-      const s = state.lights[cfg.id];
-      gesture = { x: ev.clientX, y: ev.clientY, start: s.on ? s.brightness : 0, moved: false, step: null };
+      lastPointer = ev.pointerType;
+      if (g || ev.button !== 0 || !ev.isPrimary || ev.target.closest('button')) return;
+      try { el.setPointerCapture(ev.pointerId); } catch { /* gone already */ }
+      g = { id: ev.pointerId, x: ev.clientX, y: ev.clientY, mode: null };
       el.classList.add('pressed');
     });
     el.addEventListener('pointermove', (ev) => {
-      if (!gesture || reorder.lifted(el)) return;
-      const dx = ev.clientX - gesture.x;
-      // A mostly vertical move is the list being scrolled, not a dim.
-      if (!gesture.moved && dimmable && Math.abs(dx) > 6 && Math.abs(dx) > Math.abs(ev.clientY - gesture.y)) {
-        gesture.moved = true;
-        el.classList.add('dragging');
+      if (!g || ev.pointerId !== g.id || reorder.lifted(el)) return;
+      if (!g.mode) {
+        const dx = ev.clientX - g.x;
+        const dy = ev.clientY - g.y;
+        if (Math.hypot(dx, dy) < AXIS) return;
+        g.mode = slide && Math.abs(dx) > Math.abs(dy) ? 'slide' : 'away';
+        el.classList.remove('pressed');
+        if (g.mode !== 'slide') return;
+        // From here, so the level does not jump by the few px it took to tell.
+        g.x = ev.clientX;
+        slide.begin();
+        el.classList.add('sliding');
       }
-      if (gesture.moved) {
-        const b = clamp(gesture.start + dx / el.clientWidth, 0, 1);
-        const step = Math.round(b * 20);
-        if (step !== gesture.step) { if (gesture.step !== null) haptic('tick'); gesture.step = step; }
-        store.setLight(cfg.id, b < 0.04 ? { on: false } : { on: true, brightness: b });
-      }
+      if (g.mode === 'slide') slide.move(ev.clientX - g.x);
     });
     const finish = (ev) => {
-      if (!gesture) return;
-      const tapped = !gesture.moved && ev.type === 'pointerup' && !reorder.lifted(el);
-      gesture = null;
-      el.classList.remove('pressed', 'dragging');
-      if (tapped) toggleLight(cfg.id);
+      if (!g || ev.pointerId !== g.id) return;
+      const d = g;
+      g = null;
+      el.classList.remove('pressed', 'sliding');
+      if (d.mode === 'slide') { slide.end(); return; }
+      // Lifted, it was a hold (reorder.js opens the page or moves the tile), never a tap.
+      if (ev.type === 'pointerup' && !d.mode && !reorder.lifted(el)) tap();
     };
     el.addEventListener('pointerup', finish);
     el.addEventListener('pointercancel', finish);
     // The card took the finger (it is being pulled up or down): not a tap.
     el.addEventListener('lostpointercapture', finish);
-    el.addEventListener('keydown', (ev) => {
-      if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); toggleLight(cfg.id); }
+    // While sliding, a finger moves the level, not the page.
+    el.addEventListener('touchmove', (ev) => { if (g?.mode === 'slide' && ev.cancelable) ev.preventDefault(); }, { passive: false });
+    // A right click opens the page too (a touch and hold is the reorder's).
+    el.addEventListener('contextmenu', (ev) => {
+      if (lastPointer !== 'mouse' || !open) return;
+      ev.preventDefault();
+      open();
     });
+    // Space switches, Enter opens the page, ← and → step the level (Alt + arrows move the tile).
+    el.addEventListener('keydown', (ev) => {
+      if (ev.altKey || ev.metaKey || ev.ctrlKey || ev.target !== el) return;
+      if (ev.key === ' ' || (ev.key === 'Enter' && !open)) { ev.preventDefault(); tap(); }
+      else if (ev.key === 'Enter') { ev.preventDefault(); open(); }
+      else if (slide?.step && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')) { ev.preventDefault(); slide.step(ev.key === 'ArrowRight' ? 1 : -1); }
+    });
+    return { get busy() { return Boolean(g?.mode); } };
+  }
+
+  // A slide's level shown on the tile: a fill from the left, and the value in big type.
+  function showLevel(el, readout, fraction, text) {
+    el.style.setProperty('--fill', String(clamp(fraction, 0, 1)));
+    readout.textContent = text;
+  }
+
+  // Sliding across the whole tile goes from off to full; a tick every 5 %. Under 5 % is off.
+  // The store gets at most one change a frame (and sends the lamp fewer still: store.js).
+  function lampSlide(cfg, el, readout) {
+    let start = 0;
+    let value = 0;
+    let step = 0;
+    let raf = 0;
+    const patch = () => (value < 0.05 ? { on: false } : { on: true, brightness: value });
+    const apply = () => { raf = 0; store.setLight(cfg.id, patch()); };
+    const show = () => showLevel(el, readout, value, value < 0.05 ? 'Off' : `${Math.round(value * 100)}%`);
+    return {
+      begin() {
+        const s = state.lights[cfg.id];
+        start = value = s.on ? s.brightness : 0;
+        step = Math.round(value * 20);
+        show();
+      },
+      move(dx) {
+        value = clamp(start + dx / el.clientWidth, 0, 1);
+        const at = Math.round(value * 20);
+        if (at !== step) { step = at; haptic('tick'); }
+        show();
+        if (!raf) raf = requestAnimationFrame(apply);
+      },
+      end() { if (raf) { cancelAnimationFrame(raf); apply(); } },
+      step(dir) {
+        const s = state.lights[cfg.id];
+        const next = Math.round(((s.on ? s.brightness : 0) + dir * 0.1) * 10) / 10;
+        haptic('tick');
+        store.setLight(cfg.id, next < 0.05 ? { on: false } : { on: true, brightness: Math.min(1, next) });
+      },
+    };
+  }
+
+  // A degree for every 24 px; a tick at each. Sliding a sleeping AC wakes it.
+  function acSlide(cfg, el, readout) {
+    let start = 0;
+    let value = 0;
+    let raf = 0;
+    const apply = () => { raf = 0; store.setAC(cfg.id, { on: true, target: value }); };
+    const show = () => showLevel(el, readout, (value - cfg.min) / (cfg.max - cfg.min), `${value}°`);
+    return {
+      begin() { start = value = state.acs[cfg.id].target; show(); },
+      move(dx) {
+        const next = clamp(start + Math.round(dx / 24), cfg.min, cfg.max);
+        if (next === value) return;
+        value = next;
+        haptic('tick');
+        show();
+        if (!raf) raf = requestAnimationFrame(apply);
+      },
+      end() { if (raf) { cancelAnimationFrame(raf); apply(); } },
+      step(dir) { haptic('tick'); store.setAC(cfg.id, { on: true, target: state.acs[cfg.id].target + dir }); },
+    };
+  }
+
+  function lightTile(cfg) {
+    const dimmable = cfg.capabilities.includes('brightness');
+    const hasSheet = cfg.capabilities.length > 0;
+    const sub = h('div.tile-sub');
+    const readout = h('div.tile-readout', { 'aria-hidden': 'true' });
+    const open = hasSheet ? () => openSheet({ kind: 'light', id: cfg.id }) : null;
+    // A phone has no room for the button (nor a pointer to show it): holding the tile opens the sheet.
+    const more = hasSheet && !isPhone
+      ? h('button.tile-more', { 'aria-label': `${cfg.name} settings`, onclick: (e) => { e.stopPropagation(); open(); } }, icon('sliders', 15))
+      : null;
+    const el = h(`div.tile.light${dimmable ? '.dimmable' : ''}`, { role: 'button', tabindex: 0, 'aria-label': cfg.name },
+      h('div.tile-fill'),
+      h('div.bubble', icon(cfg.capabilities.length ? cfg.type : 'plug', 19)),
+      h('div.tile-text', h('div.tile-name', cfg.name), sub),
+      more, readout,
+      h('div.tile-level'));
+    const touch = gestures(el, { tap: () => toggleLight(cfg.id), open, slide: dimmable ? lampSlide(cfg, el, readout) : null });
 
     return draggable({
       el, cfg, kind: 'light',
@@ -306,8 +516,8 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
         sub.textContent = ui.room === 'all' && !isPhone ? `${lightStatus(cfg, s)} · ${roomName.get(cfg.room)}` : lightStatus(cfg, s);
       },
     }, {
-      canLift: () => !gesture?.moved, // being dimmed
-      onHold: isPhone && hasSheet ? () => openSheet({ kind: 'light', id: cfg.id }) : null,
+      canLift: () => !touch.busy, // being dimmed
+      onHold: open,
     });
   }
 
@@ -315,21 +525,26 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     const sub = h('div.tile-sub');
     const value = h('div.value');
     const bubble = h('div.bubble');
+    const readout = h('div.tile-readout', { 'aria-hidden': 'true' });
+    const open = () => openSheet({ kind: 'ac', id: cfg.id });
     const step = (d) => (e) => {
       e.stopPropagation();
       haptic('tick');
       const s = state.acs[cfg.id];
       store.setAC(cfg.id, { on: true, target: s.target + d });
     };
-    const el = h('div.tile.ac', { role: 'button', tabindex: 0, 'aria-label': cfg.name, onclick: () => openSheet({ kind: 'ac', id: cfg.id }) },
+    const power = () => { haptic('medium'); store.setAC(cfg.id, { on: !state.acs[cfg.id].on }); };
+    const el = h('div.tile.ac', { role: 'button', tabindex: 0, 'aria-label': cfg.name },
+      h('div.tile-fill'),
       bubble,
       h('div.tile-text', h('div.tile-name', cfg.name), sub),
       h('div.stepper',
         h('button', { 'aria-label': 'Cooler', onclick: step(-1) }, icon('minus', 15, 2.2)),
         value,
         h('button', { 'aria-label': 'Warmer', onclick: step(1) }, icon('plus', 15, 2.2))),
-      h('button.mini-power', { 'aria-label': `${cfg.name} power`, onclick: (e) => { e.stopPropagation(); haptic('medium'); store.setAC(cfg.id, { on: !state.acs[cfg.id].on }); } }, icon('power', 16, 2.2)));
-    el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') openSheet({ kind: 'ac', id: cfg.id }); });
+      h('button.mini-power', { 'aria-label': `${cfg.name} power`, onclick: (e) => { e.stopPropagation(); power(); } }, icon('power', 16, 2.2)),
+      readout);
+    const touch = gestures(el, { tap: power, open, slide: acSlide(cfg, el, readout) });
     let shownMode = null;
     return draggable({
       el, cfg, kind: 'ac',
@@ -341,7 +556,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
         value.textContent = `${s.target}°`;
         sub.textContent = `${s.on ? MODE_LABEL[s.mode] : 'Off'} · Room ${s.roomTemp.toFixed(isPhone ? 0 : 1)}°`;
       },
-    });
+    }, { canLift: () => !touch.busy, onHold: open });
   }
 
   for (const cfg of config.acs) tiles.set(cfg.id, acTile(cfg));
@@ -384,9 +599,10 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     const name = h('div.tile-name');
     const bubble = h('div.bubble');
     const powerBtn = h('button.mini-power', { 'aria-label': 'TV power', onclick: (e) => { e.stopPropagation(); tvPower(t.id); } }, icon('power', 16, 2.2));
-    const el = h('div.tile.tv', { role: 'button', tabindex: 0, onclick: () => openSheet({ kind: 'tv', id: t.id }) },
+    const open = () => openSheet({ kind: 'tv', id: t.id });
+    const el = h('div.tile.tv', { role: 'button', tabindex: 0 },
       bubble, h('div.tile-text', name, sub), powerBtn);
-    el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') openSheet({ kind: 'tv', id: t.id }); });
+    gestures(el, { tap: () => tvPower(t.id), open });
     let shownApp;
     return draggable({
       el, cfg: { id: t.id, room: t.room }, kind: 'tv',
@@ -408,7 +624,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
         }
         powerBtn.disabled = !tv.state.available;
       },
-    });
+    }, { onHold: open });
   }
 
   // A TV that turns up (or goes) changes the list: lay it out again.
@@ -575,7 +791,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     }
     if (!nodes.length) nodes.push(h('div.group-label', 'No devices in this room yet'));
     else if (isPhone && config.lights.some((l) => l.capabilities.length && inScope(l))) {
-      nodes.push(h('div.grid-hint', 'Touch and hold a light for brightness and colour, or hold and drag any tile to move it'));
+      nodes.push(h('div.grid-hint', 'Tap a tile to switch it, slide across it to dim, hold it for everything else, or hold and drag it to move it'));
     }
     grid.classList.toggle('still', still);
     grid.replaceChildren(...nodes);
@@ -602,7 +818,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     const from = ui.sheet;
     sheetView?.dispose?.();
     ui.sheet = target;
-    sheetView = target.kind === 'ac' ? acSheet(target.id) : target.kind === 'tv' ? tvSheet(target.id) : lightSheet(target.id);
+    sheetView = { ac: acSheet, tv: tvSheet, scene: sceneSheet }[target.kind]?.(target.id) || lightSheet(target.id);
     sheet.replaceChildren(...sheetView.nodes);
     sheet.classList.toggle('tv', target.kind === 'tv');
     panel.classList.add('hidden');
@@ -611,9 +827,12 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     sheet.inert = false;
     card.classList.add('detail');
     hideTooltip();
-    onFocus(target.kind === 'ac' || target.kind === 'tv' ? target : { kind: 'room', id: store.lightCfg.get(target.id).room });
+    if (target.kind === 'scene') onFocus(ui.room === 'all' ? null : { kind: 'room', id: ui.room });
+    else onFocus(target.kind === 'ac' || target.kind === 'tv' ? target : { kind: 'room', id: store.lightCfg.get(target.id).room });
     if (!from) homeDetent = deck.detent;
-    deck.set(detent || (target.kind === 'tv' ? 'expanded' : 'rest'));
+    // The TV's remote and a scene's name and icons want the room; a lamp or the AC sits under its model.
+    deck.set(detent || (target.kind === 'tv' || target.kind === 'scene' ? 'expanded' : 'rest'));
+    sheetView.opened?.();
     update();
   }
 
@@ -798,6 +1017,84 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
         pad?.set(l.color);
         if (colorLabel) colorLabel.textContent = l.color ? l.color.toUpperCase() : 'White';
       },
+    };
+  }
+
+  // Makes a scene of the lights as they are now (`id` null), or edits one: its name, its
+  // icon, whether it sets the AC too, and (editing) whether to take the lights as they are now.
+  function sceneSheet(id) {
+    const existing = id ? config.scenes.find((x) => x.id === id) : null;
+    const hadAC = Boolean(existing && Object.keys(existing.acs || {}).length);
+    let iconName = existing?.icon || 'sparkles';
+    let withAC = hadAC;
+    let retake = !existing;
+    const name = h('input.scene-input', {
+      type: 'text', value: existing?.name || '', placeholder: 'Movie night, Reading, Dinner…', maxlength: 32,
+      autocomplete: 'off', autocapitalize: 'words', enterkeyhint: 'done', spellcheck: false, 'aria-label': 'Scene name',
+    });
+    name.addEventListener('input', () => name.classList.remove('invalid'));
+    name.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); save(); } });
+    const iconButtons = SCENE_ICONS.map((n) => h('button.scene-icon', {
+      'aria-label': SCENE_ICON_NAMES[n] || n, title: SCENE_ICON_NAMES[n] || n,
+      onclick: () => { haptic('tick'); iconName = n; sync(); },
+    }, icon(n, 21)));
+    const acChip = config.acs.length
+      ? h('button.toggle-chip.scene-toggle', { onclick: () => { haptic('light'); withAC = !withAC; sync(); } }, icon('ac', 17), h('span.grow', 'Include AC'), h('span.switch'))
+      : null;
+    const retakeChip = existing
+      ? h('button.toggle-chip.scene-toggle', { onclick: () => { haptic('light'); retake = !retake; sync(); } }, icon('refresh', 17), h('span.grow', 'Update to current lights'), h('span.switch'))
+      : null;
+    const what = h('div.sheet-note.scene-what');
+    const saveBtn = h('button.pill.scene-save', { onclick: () => save() }, 'Save');
+    const del = existing
+      ? h('button.scene-delete', { onclick: () => { closeSheet(); deleteScene(id); } }, icon('trash', 16, 2), 'Delete scene')
+      : null;
+
+    function sync() {
+      iconButtons.forEach((b, i) => {
+        b.classList.toggle('selected', SCENE_ICONS[i] === iconName);
+        b.setAttribute('aria-pressed', String(SCENE_ICONS[i] === iconName));
+      });
+      acChip?.classList.toggle('on', withAC);
+      retakeChip?.classList.toggle('on', retake);
+      // What Save keeps.
+      const on = config.lights.filter((l) => state.lights[l.id].on).length;
+      const parts = [!retake ? 'the lights as the scene has them'
+        : on ? `${on} of ${config.lights.length} lights on, as they are now` : 'every light off, as they are now'];
+      if (withAC) {
+        const a = state.acs[config.acs[0].id];
+        parts.push(hadAC && !retake ? 'its AC settings' : config.acs.length > 1 ? 'the ACs as they are'
+          : a.on ? `the AC at ${a.target}° on ${MODE_LABEL[a.mode]}` : 'the AC off');
+      }
+      what.replaceChildren(icon('sparkles', 16), h('span', `Saves ${parts.join(' and ')}.`));
+    }
+
+    function save() {
+      const label = name.value.trim();
+      if (!label) { name.classList.add('invalid'); name.focus(); haptic('error'); return; }
+      const lights = retake ? captureLights() : existing.lights;
+      const acs = !withAC ? {} : retake || !hadAC ? captureAcs() : existing.acs;
+      const scene = { id: existing?.id || newSceneId(label), name: label, icon: iconName, lights, acs };
+      haptic('success');
+      commitScenes(existing ? config.scenes.map((x) => (x.id === existing.id ? scene : x)) : [...config.scenes, scene]);
+      // Made from the lights as they are: that is the scene they are in now.
+      if (retake) store.markScene(scene.id);
+      closeSheet();
+    }
+
+    const sub = h('div.sheet-sub', existing ? existing.name : 'From the lights as they are now');
+    return {
+      nodes: [
+        sheetHead(existing ? 'Edit scene' : 'New scene', sub, saveBtn),
+        h('div.sheet-scroll.scene-form',
+          h('div.field-label', h('span', 'Name')), name,
+          h('div.field-label', h('span', 'Icon')), h('div.scene-icons', iconButtons),
+          acChip || retakeChip ? h('div.scene-toggles', retakeChip, acChip) : null,
+          what, del),
+      ],
+      // On a phone the keyboard would cover the icons: there the name is tapped when wanted.
+      opened() { if (!isPhone && !existing) setTimeout(() => name.focus({ preventScroll: true }), 60); },
+      update: sync,
     };
   }
 
@@ -1065,6 +1362,8 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     /** The tiles' order, as `tileOrder`. */
     get order() { return order.slice(); },
     setOrder,
+    /** Scenes saved on another screen (the plan's `scenes`). */
+    setScenes,
     setNotch(x) { card.style.setProperty('--notch-x', `${x}px`); },
     setAgentLive(live) { aiBadge.hidden = !live; },
     toast,

@@ -64,7 +64,7 @@
   --clip-line: rgba(255, 255, 255, 0.07);
   --glass-clip: rgba(12, 16, 30, 0.58);
   --glass-native: rgba(8, 11, 22, 0.42);
-  --halo: color-mix(in srgb, var(--accent) 55%, #fff); /* the swipe pad's light */
+  --halo: color-mix(in srgb, var(--accent) 55%, #fff); /* the direction pad's light */
   --widget-bg: linear-gradient(180deg, rgba(16, 21, 38, 0.97), rgba(9, 12, 23, 0.97));
   --body-bg:
     radial-gradient(90% 70% at 20% 0%, #5b6f8f 0%, transparent 60%),
@@ -463,7 +463,13 @@ html.glass .deck { background: color-mix(in srgb, var(--deck) 95%, transparent);
 .panel.hidden { transform: translateY(14px) scale(0.985); }
 .sheet.hidden { transform: translateY(26px); }
 
-.scenes { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; margin-top: 16px; flex: none; }
+/* As many as fit share the row; more (scenes made on a screen) scroll sideways. */
+.scenes {
+  display: flex; gap: 8px;
+  margin: 16px -14px 0; padding: 0 14px; flex: none;
+  overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; touch-action: pan-x;
+}
+.scenes::-webkit-scrollbar { display: none; }
 
 .scene {
   position: relative;
@@ -489,6 +495,47 @@ html.glass .deck { background: color-mix(in srgb, var(--deck) 95%, transparent);
   border-color: var(--accent-line);
 }
 .scene.active .icon { color: var(--accent-ink); }
+.scene { flex: 1 0 64px; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; min-width: 0; padding: 0 4px; }
+.scene-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Held: it sinks a little while the menu is on its way. */
+.scene.holding { transform: scale(0.95); transition: transform 450ms var(--ease); }
+.scene.menu-open { background: var(--glass-hi); color: var(--text); }
+.scene-add { flex: 0 0 52px; border-style: dashed; color: var(--faint); background: transparent; }
+@media (hover: hover) { .scene-add:hover { color: var(--text); } }
+
+/* Making or editing a scene (panel.js sceneSheet) */
+.scene-form .field-label { margin-bottom: 8px; }
+.scene-form .field-label:first-child { margin-top: 4px; }
+.scene-input {
+  width: 100%; height: 46px; padding: 0 14px; border-radius: 15px;
+  font: inherit; font-size: 15px; font-weight: 600; color: var(--text);
+  background: var(--well); border: 1px solid var(--well-line); outline: none;
+  transition: border-color 180ms, box-shadow 180ms;
+}
+.scene-input::placeholder { color: var(--faint); font-weight: 500; }
+.scene-input:focus { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.scene-input.invalid { border-color: var(--err-line); box-shadow: 0 0 0 3px color-mix(in srgb, var(--err-line) 35%, transparent); }
+.scene-icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 6px; }
+.scene-icon {
+  height: 44px; border-radius: 14px; display: grid; place-items: center;
+  color: var(--muted); background: var(--glass); border: 1px solid var(--line);
+  transition: background 180ms, color 180ms, border-color 180ms, transform 240ms var(--spring);
+}
+@media (hover: hover) { .scene-icon:hover { background: var(--glass-hi); color: var(--text); } }
+.scene-icon:active { transform: scale(0.9); }
+.scene-icon.selected { color: var(--accent-ink); background: var(--accent-soft); border-color: var(--accent-line); }
+.scene-toggles { display: grid; gap: 8px; margin-top: 16px; }
+.scene-toggle { width: 100%; text-align: left; }
+.scene-toggle .grow { flex: 1; }
+.scene-what { margin-top: 14px; }
+.pill.scene-save { height: 34px; padding: 0 16px; font-size: 13px; background: var(--accent); color: #fff; border-color: transparent; }
+@media (hover: hover) { .pill.scene-save:hover { background: var(--accent-hi); color: #fff; } }
+.scene-delete {
+  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 44px; margin-top: 16px;
+  border-radius: 15px; font-size: 13px; font-weight: 650; color: var(--danger-ink);
+  background: var(--glass); border: 1px solid var(--line);
+}
+@media (hover: hover) { .scene-delete:hover { background: var(--glass-hi); } }
 
 .rooms {
   display: flex;
@@ -700,9 +747,37 @@ html.glass .deck { background: color-mix(in srgb, var(--deck) 95%, transparent);
   transition: transform 260ms var(--ease);
 }
 .tile.on.dimmable .tile-level { opacity: 1; }
-.tile.dragging .tile-level::after { transition: none; }
-.tile.dragging .tile-level { height: 4px; }
-.tile.dimmable { cursor: ew-resize; }
+.tile.sliding .tile-level { opacity: 0; }
+
+/* Sliding across a lamp or the AC (panel.js): the level fills the tile from the left and the
+   value stands at its right, in big type, while the finger is down. */
+.tile { isolation: isolate; }
+.tile-fill {
+  position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  transform-origin: left; transform: scaleX(var(--fill, 0));
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c) 16%, transparent), color-mix(in srgb, var(--c) 34%, transparent));
+  box-shadow: inset -2px 0 0 color-mix(in srgb, var(--c) 70%, transparent);
+  opacity: 0; transition: opacity 220ms ease;
+}
+.tile.sliding .tile-fill { opacity: 1; transition-duration: 90ms; }
+.tile-readout {
+  position: absolute; right: 16px; top: 50%; pointer-events: none;
+  font-size: 26px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+  color: var(--text); opacity: 0; transform: translateY(-50%) scale(0.9);
+  transition: opacity 180ms ease, transform 240ms var(--spring);
+}
+.tile.sliding .tile-readout { opacity: 1; transform: translateY(-50%); }
+.tile.sliding .tile-more, .tile.sliding .stepper, .tile.sliding .mini-power { display: none; }
+.tile.sliding .tile-text { padding-right: 84px; }
+.tile.light .tile-readout { right: 13px; font-size: 22px; }
+.tile.light.sliding .tile-text { padding-right: 50px; }
+.tile.sliding { transform: none; }
+.tile.dimmable, .tile.ac { cursor: ew-resize; touch-action: pan-y; }
+.tile.ac .stepper, .tile.ac .mini-power { cursor: pointer; }
+@media (prefers-reduced-motion: reduce) {
+  .tile-readout { transform: translateY(-50%); transition: opacity 120ms; }
+  .tile.pressed { transform: none; }
+}
 
 .tile.ac { grid-column: 1 / -1; cursor: pointer; }
 .stepper { display: flex; align-items: center; gap: 2px; flex: none; }
@@ -1042,7 +1117,8 @@ html.ios .bubble { width: 42px; height: 42px; border-radius: 14px; }
 html.ios .tile-name { font-size: 14.5px; }
 html.ios .tile-sub { font-size: 12.5px; }
 html.ios .grid-hint { grid-column: 1 / -1; margin: 10px 18px 0; text-align: center; font-size: 12.5px; line-height: 1.4; color: var(--faint); transition: opacity 220ms; }
-html.ios .tile.dimmable { touch-action: pan-y; }
+html.ios .tile-readout { font-size: 28px; }
+html.ios .tile.light .tile-readout { font-size: 23px; }
 html.ios .stepper button { width: 36px; height: 38px; border-radius: 12px; }
 html.ios .stepper .value { font-size: 18px; min-width: 40px; }
 html.ios .mini-power { width: 40px; height: 40px; }
@@ -1326,29 +1402,33 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
 .tv-app.opening .tv-app-icon { animation: tv-opening 900ms ease-in-out infinite; }
 @keyframes tv-opening { 50% { transform: scale(0.93); opacity: 0.7; } }
 
-/* The remote: Back, Home, Play/Pause and Mute in a column, the swipe pad, the volume upright */
+/* The remote: Home, Back, Play/Pause and Mute in a column, the direction pad, the volume upright */
 .tv-remote {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: stretch;
   margin-top: 14px; transition: opacity 260ms;
 }
-.tv-remote.asleep .tv-swipe, .tv-remote.unreachable .tv-key { opacity: 0.55; }
+.tv-remote.asleep .tv-dpad-disc, .tv-remote.unreachable .tv-key { opacity: 0.55; }
 .tv-keys { display: flex; flex-direction: column; justify-content: space-between; gap: 10px; }
 .tv-key { width: 50px; height: 50px; color: var(--text); }
 .tv-key.active { background: rgba(255, 105, 95, 0.2); border-color: rgba(255, 130, 120, 0.4); color: #ff6d61; }
 .tv-playpause { display: flex; align-items: center; justify-content: center; gap: 0; }
 .tv-playpause .icon:first-child { margin-right: -2px; }
 
-/* A touch surface: swipe to move, tap to select (tv/remote.js). A tap spreads a ring from
-   the finger; each step of a swipe glows toward its edge; a faint light follows the finger. */
-.tv-swipe {
+/* The direction pad (tv/remote.js), like a Chromecast remote's: one disc, an arrow at each
+   quarter of its rim, a round OK in the middle. The quarter (or OK) being pressed lights up. */
+.tv-dpad {
+  display: grid; place-items: center; min-width: 0; outline: none; border-radius: 50%;
+}
+.tv-dpad-disc {
+  --dpad-hi: color-mix(in srgb, var(--halo) 30%, transparent);
   position: relative;
-  width: 100%;
-  min-height: 0;
-  border-radius: 26px;
-  overflow: hidden;
+  width: min(100%, 260px);
+  aspect-ratio: 1;
+  border-radius: 50%;
   isolation: isolate;
+  overflow: hidden;
   background:
-    radial-gradient(120% 90% at 50% 0%, var(--glass-hi), transparent 70%),
+    radial-gradient(70% 70% at 50% 20%, var(--glass-hi), transparent 70%),
     var(--glass);
   box-shadow: 0 0 0 1px var(--line) inset, 0 1px 0 0 var(--deck-edge) inset;
   touch-action: none;
@@ -1356,64 +1436,51 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
   user-select: none;
   -webkit-touch-callout: none;
   cursor: pointer;
-  outline: none;
-  transition: opacity 260ms, box-shadow 200ms, background-color 200ms;
+  transition: opacity 260ms;
 }
-.tv-swipe:focus-visible { box-shadow: 0 0 0 2px var(--accent) inset; }
-.tv-swipe.touching { background-color: var(--glass-hi); }
-.tv-swipe-hint {
-  position: absolute;
-  inset: auto 0 18px;
-  text-align: center;
-  font-size: 12.5px;
-  font-weight: 550;
-  letter-spacing: 0.01em;
-  color: var(--faint);
-  pointer-events: none;
-  transition: opacity 600ms ease;
+/* The quarter pressed: a wedge of light from the rim toward OK. */
+.tv-dpad-disc::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; border-radius: 50%;
+  opacity: 0; transition: opacity 160ms ease;
+  background: conic-gradient(from var(--wedge, 0deg), var(--dpad-hi) 0 90deg, transparent 90deg);
 }
-.tv-swipe.used .tv-swipe-hint { opacity: 0; }
-.tv-swipe-ring, .tv-swipe-glow, .tv-swipe-step, .tv-swipe-finger {
-  position: absolute;
-  left: 0;
-  top: 0;
-  border-radius: 50%;
-  pointer-events: none;
-  will-change: transform, opacity;
+.tv-dpad-disc[data-pressed='up'] { --wedge: -45deg; }
+.tv-dpad-disc[data-pressed='right'] { --wedge: 45deg; }
+.tv-dpad-disc[data-pressed='down'] { --wedge: 135deg; }
+.tv-dpad-disc[data-pressed='left'] { --wedge: 225deg; }
+.tv-dpad-disc:is([data-pressed='up'], [data-pressed='right'], [data-pressed='down'], [data-pressed='left'])::before { opacity: 1; transition-duration: 40ms; }
+.tv-dpad:focus-visible .tv-dpad-disc { box-shadow: 0 0 0 2px var(--accent) inset; }
+.tv-dpad-zone {
+  position: absolute; display: grid; place-items: center;
+  width: 30%; height: 30%;
+  color: var(--muted); pointer-events: none;
+  transition: color 160ms, transform 200ms var(--spring);
 }
-.tv-swipe-ring {
-  width: 120px;
-  height: 120px;
-  border: 2px solid var(--halo);
-  box-shadow: 0 0 18px -2px var(--halo), inset 0 0 14px -4px var(--halo);
-  opacity: 0;
+.tv-dpad-zone.up { left: 35%; top: 0; }
+.tv-dpad-zone.down { left: 35%; bottom: 0; }
+.tv-dpad-zone.left { left: 0; top: 35%; }
+.tv-dpad-zone.right { right: 0; top: 35%; }
+.tv-dpad-zone.pressed { color: var(--text); }
+.tv-dpad-zone.up.pressed { transform: translateY(2px); }
+.tv-dpad-zone.down.pressed { transform: translateY(-2px); }
+.tv-dpad-zone.left.pressed { transform: translateX(2px); }
+.tv-dpad-zone.right.pressed { transform: translateX(-2px); }
+.tv-dpad-ok {
+  position: absolute; left: 30%; top: 30%; width: 40%; height: 40%;
+  border-radius: 50%; display: grid; place-items: center; pointer-events: none;
+  font-size: 15px; font-weight: 700; letter-spacing: 0.04em; color: var(--text);
+  background: var(--deck);
+  box-shadow: 0 0 0 1px var(--line), 0 6px 16px -8px var(--shadow), 0 1px 0 0 var(--deck-edge) inset;
+  transition: transform 200ms var(--spring), background 160ms, box-shadow 160ms;
 }
-.tv-swipe-glow {
-  width: 150px;
-  height: 150px;
-  background: radial-gradient(closest-side, color-mix(in srgb, var(--halo) 55%, transparent), transparent);
-  opacity: 0;
+.tv-dpad-ok.pressed {
+  transform: scale(0.94);
+  background: color-mix(in srgb, var(--halo) 22%, var(--deck));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--halo) 50%, transparent), 0 0 18px -4px var(--halo);
 }
-.tv-swipe-step {
-  width: 110px;
-  height: 110px;
-  background: radial-gradient(closest-side, color-mix(in srgb, var(--halo) 60%, transparent), transparent);
+@media (prefers-reduced-motion: reduce) {
+  .tv-dpad-zone, .tv-dpad-ok { transition: color 160ms, background 160ms; transform: none !important; }
 }
-.tv-swipe-finger {
-  width: 88px;
-  height: 88px;
-  background: radial-gradient(closest-side, color-mix(in srgb, var(--halo) 26%, transparent), transparent);
-  opacity: 0;
-  transition: opacity 200ms ease;
-}
-.tv-swipe.touching .tv-swipe-finger { opacity: 1; transition-duration: 80ms; }
-.tv-swipe-edge { position: absolute; pointer-events: none; opacity: 0; will-change: opacity; }
-.tv-swipe-edge.up, .tv-swipe-edge.down { left: 8%; right: 8%; height: 46px; }
-.tv-swipe-edge.left, .tv-swipe-edge.right { top: 8%; bottom: 8%; width: 46px; }
-.tv-swipe-edge.up { top: 0; background: radial-gradient(50% 100% at 50% 0%, color-mix(in srgb, var(--halo) 70%, transparent), transparent); }
-.tv-swipe-edge.down { bottom: 0; background: radial-gradient(50% 100% at 50% 100%, color-mix(in srgb, var(--halo) 70%, transparent), transparent); }
-.tv-swipe-edge.left { left: 0; background: radial-gradient(100% 50% at 0% 50%, color-mix(in srgb, var(--halo) 70%, transparent), transparent); }
-.tv-swipe-edge.right { right: 0; background: radial-gradient(100% 50% at 100% 50%, color-mix(in srgb, var(--halo) 70%, transparent), transparent); }
 
 /* Volume */
 .tv-volume-row { margin-top: 18px; }
@@ -1550,8 +1617,12 @@ html.ios .tv-np-play { width: 54px; height: 54px; }
 html.ios .tv-np-controls { gap: 30px; }
 html.ios .tv-now-text span { font-size: 12px; }
 html.ios .tv-key { width: 54px; height: 54px; }
-html.ios .tv-swipe { border-radius: 28px; }
-html.ios .tv-swipe-hint { font-size: 13.5px; }
+html.ios .tv-dpad-ok { font-size: 17px; }
+/* Room for a 240 px pad between the keys and the volume: the row reaches into the sheet's margins. */
+html.ios .tv-remote { margin-left: -8px; margin-right: -8px; gap: 9px; }
+html.ios .tv-remote .tv-key { width: 48px; height: 48px; }
+html.ios .tv-remote .tv-volume.vertical .tv-track { width: 48px; }
+html.ios .tv-remote .tv-volume.vertical .tv-step { width: 48px; height: 48px; }
 html.ios .tv-step { width: 46px; height: 46px; }
 html.ios .tv-track { height: 50px; border-radius: 17px; }
 html.ios .tv-volume.vertical .tv-track { width: 54px; height: auto; }

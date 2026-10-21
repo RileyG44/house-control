@@ -1,4 +1,4 @@
-import { loadRawConfig, normalize, isLinked, DEFAULT_PLAN } from './config.js';
+import { loadRawConfig, normalize, normalizeScenes, isLinked, DEFAULT_PLAN } from './config.js';
 import { createStore } from './store.js';
 import { createWorld } from './three/world.js';
 import { createPanel } from './ui/panel.js';
@@ -72,8 +72,15 @@ async function boot(initialRaw = null) {
       return;
     }
     if (JSON.stringify(next) === JSON.stringify(home.raw)) return;
-    // Only the tiles were rearranged (on another screen): they slide into place here.
-    if (JSON.stringify({ ...next, tileOrder: null }) === JSON.stringify({ ...home.raw, tileOrder: null })) {
+    // Only the tiles were rearranged or the scenes changed (on another screen): taken in
+    // place here, the tiles sliding to their new places.
+    const panelOnly = (p) => ({ ...p, tileOrder: null, scenes: null });
+    if (JSON.stringify(panelOnly(next)) === JSON.stringify(panelOnly(home.raw))) {
+      if (JSON.stringify(next.scenes) !== JSON.stringify(home.raw.scenes)) {
+        if (next.scenes == null) delete home.raw.scenes; else home.raw.scenes = next.scenes;
+        home.panel.setScenes(next.scenes || []);
+        if (isNative) publishWidgets(home.config, home.store);
+      }
       if (next.tileOrder == null) delete home.raw.tileOrder; else home.raw.tileOrder = next.tileOrder;
       home.panel.setOrder(next.tileOrder);
       return;
@@ -114,6 +121,33 @@ function saveOrder(m, order) {
   saveSoon(m);
 }
 
+// Scenes made, edited or deleted on this screen: the plan's `scenes`, saved like the tiles'
+// order (a plain browser keeps them in this browser only). The panel already shows them.
+const scenesKey = (raw) => `house.scenes.${window.__HOUSE_BOOT__?.plan || new URLSearchParams(location.search).get('plan') || DEFAULT_PLAN}.${raw.name || ''}`;
+
+function keptScenes(raw) {
+  try {
+    const kept = JSON.parse(localStorage.getItem(scenesKey(raw)));
+    return Array.isArray(kept) ? kept : null;
+  } catch { return null; }
+}
+
+function saveScenes(m, scenes) {
+  // In place, like the order. Whatever else a scene carried in the plan stays with it.
+  const before = new Map((m.raw.scenes || []).map((s) => [s.id, s]));
+  m.raw.scenes = scenes.map((s) => {
+    const out = { ...before.get(s.id), ...s };
+    if (!s.acs) delete out.acs;
+    return out;
+  });
+  if (isNative) publishWidgets(m.config, m.store);
+  if (!savesOrder()) {
+    try { localStorage.setItem(scenesKey(m.raw), JSON.stringify(m.raw.scenes)); } catch { /* private browsing */ }
+    return;
+  }
+  saveSoon(m, 'scenes');
+}
+
 // The rooms in a new order: the plan keeps its rooms in that order (the list and the chips
 // follow it everywhere).
 function saveRoomOrder(m, ids) {
@@ -122,7 +156,7 @@ function saveRoomOrder(m, ids) {
   if (savesOrder()) saveSoon(m);
 }
 
-function saveSoon(m) {
+function saveSoon(m, what = 'order') {
   clearTimeout(m.orderTimer);
   m.orderTimer = setTimeout(async () => {
     try {
@@ -131,7 +165,7 @@ function saveSoon(m) {
       // hub's: a new order changes nothing else.)
       if (!isHub) Object.assign(window.__HOUSE_BOOT__ ||= {}, { plan: 'custom', hasCustomPlan: true });
     } catch (error) {
-      m.panel?.toast(`The new order wasn’t saved: ${error.message}`);
+      m.panel?.toast(what === 'scenes' ? `The scenes weren’t saved: ${error.message}` : `The new order wasn’t saved: ${error.message}`);
       haptic('error');
     }
   }, ORDER_SAVE);
@@ -157,7 +191,11 @@ export async function showPreviewPanel(raw) {
  */
 function mountHome(raw, { first = false, editing: underEditor = false, grown = false, state = null, room = null } = {}) {
   const config = normalize(structuredClone(raw));
-  if (!savesOrder()) config.tileOrder = keptOrder(raw) ?? config.tileOrder;
+  if (!savesOrder()) {
+    config.tileOrder = keptOrder(raw) ?? config.tileOrder;
+    const scenes = keptScenes(raw);
+    if (scenes) config.scenes = normalizeScenes(scenes);
+  }
   const lifetime = new AbortController();
   const { signal } = lifetime;
 
@@ -186,6 +224,7 @@ function mountHome(raw, { first = false, editing: underEditor = false, grown = f
     onEditPrefetch: () => { if (!isNative) loadEditor().catch(() => {}); },
     onOrder: (order) => saveOrder(m, order),
     onRoomOrder: (ids) => saveRoomOrder(m, ids),
+    onScenes: (scenes) => saveScenes(m, scenes),
     onLayout: () => m.applyInsets?.(),
     editing: underEditor,
     grown,

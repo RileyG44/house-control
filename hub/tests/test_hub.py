@@ -411,6 +411,48 @@ def test_tile_order_leaves_a_made_plan_the_hubs(tmp_path, monkeypatch):
     assert "generatedBy" not in hub.plan and hub.plan["tileOrder"] == ["tv:abc", "den.lamp"]
 
 
+CUSTOM_SCENE = {
+    "id": "custom-movie-night-3fa1", "name": "Movie night", "icon": "film",
+    "lights": {"den.lamp": {"on": True, "brightness": 0.2, "temp": 2700}, "den.strip": {"on": True, "brightness": 0.6, "color": "#4f8dff"},
+               "den.desk": {"on": False}},
+    "acs": {"den.ac": {"on": True, "mode": "cool", "target": 72, "fan": "auto"}},
+}
+
+
+def test_custom_scenes_round_trip(tmp_path, monkeypatch):
+    monkeypatch.setattr(house, "PANEL_PLAN", tmp_path / "no-mac-app" / "plan.json")
+    hub = house.Hub(tmp_path)
+    hub._rebuild_plan()
+    drawn = {"name": "Mine", "rooms": [{"id": "den", "rect": [0, 0, 4, 4]}],
+             "scenes": [plan.SCENES[0], CUSTOM_SCENE, {"name": "no id"}, "junk"]}
+    assert hub.save_plan(drawn, by="tab-1")["ok"]
+    assert hub.plan["scenes"] == [plan.SCENES[0], CUSTOM_SCENE]  # exactly as saved; ones without an id dropped
+    again = house.Hub(tmp_path)
+    again._rebuild_plan()
+    assert again.plan["scenes"] == [plan.SCENES[0], CUSTOM_SCENE]
+    # A built-in scene can be deleted, and a scene without an AC has no "acs".
+    lights_only = {k: v for k, v in CUSTOM_SCENE.items() if k != "acs"}
+    assert hub.save_plan({**hub.plan, "scenes": [lights_only]})["ok"]
+    assert hub.plan["scenes"] == [lights_only]
+    assert "error" in hub.save_plan({**hub.plan, "scenes": {"id": "x"}})
+    assert hub.plan["scenes"] == [lights_only]
+
+
+def test_custom_scenes_leave_a_made_plan_the_hubs(tmp_path, monkeypatch):
+    monkeypatch.setattr(house, "PANEL_PLAN", tmp_path / "no-mac-app" / "plan.json")
+    (tmp_path / "devices.json").write_text(json.dumps({"rooms": ["Den"]}))
+    hub = house.Hub(tmp_path)
+    (tmp_path / "plan.json").write_text(json.dumps(plan.build({"rooms": ["Den"]}, [], [])))
+    hub._rebuild_plan()
+    scenes = [*hub.plan["scenes"], CUSTOM_SCENE]
+    assert hub.save_plan({**hub.plan, "scenes": scenes, "tileOrder": ["den.lamp"]}, by="tab-1")["ok"]
+    assert hub.plan["generatedBy"] == "hub" and hub.plan["scenes"] == scenes
+    (tmp_path / "devices.json").write_text(json.dumps({"rooms": ["Den", "Kitchen"]}))
+    hub._rebuild_plan()
+    assert [r["name"] for r in hub.plan["rooms"]] == ["Den", "Kitchen"]  # still following devices.json
+    assert hub.plan["scenes"] == scenes and hub.plan["tileOrder"] == ["den.lamp"]  # and the scenes are kept
+
+
 def test_plan_seed_links_by_name():
     base = {"rooms": [], "lights": [{"id": "a", "name": "Door Light"}, {"id": "b", "name": "Desk",
                                      "link": {"service": "wiz", "id": "x"}}, {"id": "c", "name": "door light"}],

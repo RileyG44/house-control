@@ -58,6 +58,17 @@ function need(cond, msg) {
   if (!cond) throw new ConfigError(msg);
 }
 
+/**
+ * A plan's scenes as the panel uses them. Built in or made on a screen ("custom-<name>-<hex>"),
+ * each is { id, name, icon, lights: { "<lamp id>" | "*": patch }, acs: { "<AC id>" | "*": patch } };
+ * `acs` is left out of the plan when a scene sets no AC. One without an id is dropped.
+ */
+export function normalizeScenes(list) {
+  return list.filter((s) => typeof s?.id === 'string' && s.id).map((s) => ({
+    id: s.id, name: s.name || s.id, icon: s.icon || 'sun', lights: s.lights || {}, acs: s.acs || {},
+  }));
+}
+
 const isPoint = (p) => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite);
 
 export function normalize(raw) {
@@ -139,10 +150,8 @@ export function normalize(raw) {
     return { ...a, name: a.name || a.id, y: a.y ?? 2.2, unit, min: a.min ?? min, max: a.max ?? max };
   });
 
-  const scenes = (raw.scenes || []).map((s) => {
-    need(typeof s.id === 'string' && s.id, 'A scene is missing an "id"');
-    return { id: s.id, name: s.name || s.id, icon: s.icon || 'sun', lights: s.lights || {}, acs: s.acs || {} };
-  });
+  for (const s of raw.scenes || []) need(typeof s?.id === 'string' && s.id, 'A scene is missing an "id"');
+  const scenes = normalizeScenes(raw.scenes || []);
 
   // The device list's order, as the tiles were last dragged into it: lamp and AC ids, and
   // "tv:<id>" for a TV's tile. Tiles not listed follow, in the plan's order.

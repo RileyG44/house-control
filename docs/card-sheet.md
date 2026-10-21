@@ -1,4 +1,4 @@
-# Controls card, swipe-up sheet, light/dark, swipe pad, TV close-up
+# Controls card, swipe-up sheet, light/dark, direction pad, TV close-up
 
 Riley's request (2026-10-21), with a reference screenshot of another home app (a Mac menu-bar
 panel: a big, bright isometric model on top; below it ONE rounded card holding everything — a
@@ -79,24 +79,35 @@ light mode is a bright warm-white backdrop like the reference, dark is today's).
   transitions ~250 ms), no flash on load (apply before first paint from the saved value).
 - Contrast must pass in both (text on tiles, chips, the TV sheet, logos).
 
-## 4. Swipe pad (replaces the D-pad + OK)
+## 4. Direction pad (the swipe pad, replaced)
 
-A large rounded-rectangle touch surface (full card width minus margins, ~1:1 to 4:3, at least
-240 px tall on phone) with a faint hint ("Swipe to move · Tap to select") that fades after first use
-in a session. Back / Home / Play-Pause / Mute stay as round buttons around or below it.
-- **Tap** (pointer up within 220 ms and < 10 px movement) → `ok`. Halo: a soft ring expands from
-  the touch point and fades (~350 ms), plus a brief inner glow. Haptic: the keyboard-like light
-  tick (iPhone app: `haptic('tick')`/selection; phone browser: the hidden-switch trick from
-  reorder; Mac: trackpad alignment haptic).
-- **Swipe**: once movement passes ~24 px, it's a swipe (never also a tap). The dominant axis
-  gives the direction; send one step, then one more step for every further ~44 px travelled in that
-  direction (touchpad feel), max ~8 steps per gesture; a fast flick (velocity > ~1.2 px/ms) at
-  release adds 1–2 extra steps. Each step: a tick haptic and a halo — a soft glow that travels
-  toward and brightens the edge in the swipe's direction (and a faint trail following the finger).
-- A long press (> 500 ms, no movement) is neither a tap nor a swipe: it sends nothing.
-- Keyboard (desktop/Mac) arrow keys / Enter still work when the remote is focused.
-- `touch-action: none` on the pad, no text selection, no iOS callouts; the sheet drag must not
-  start from inside the pad.
+The remote first got a swipe pad (as specified at the end of this section). Then Riley:
+
+> Replace the swipe navigation panel with one like Google's Chromecast remote, the circle with the
+> selection button in the center. The swipe is crazy hard to control.
+
+So it is a Chromecast-style direction pad again, done properly this time: one big disc (~240 px on
+a phone, up to 260 px; at least 168 px in the Mac panel) with a chevron at each quarter of its rim and
+a round OK in the middle (40 % of the diameter). Home above Back, Play/Pause and Mute stay in a
+column on its left, the upright volume on its right; both looks.
+- **No swipes at all.** A press in a quarter of the rim (by angle) moves that way at once; a ring
+  around OK (3.5 % of the diameter) and the corners outside the disc do nothing. Held, an arrow
+  repeats after 300 ms, then every 120 ms; where the finger wanders meanwhile doesn't matter. OK
+  selects on press, never repeats.
+- Each step is `haptic('tick')`, OK is `haptic('light')`. The quarter pressed lights up (a wedge from
+  the rim, the chevron nudged toward the middle); OK sinks and glows. Reduced motion: no nudge, no
+  sink, just the light.
+- Arrow keys, Enter, Space (play/pause) and Backspace (or Escape while the pad has focus) work as
+  before.
+- `touch-action: none` on the disc, no callout or selection; the card never drags from it.
+
+Why the swipe pad went: its steps came from distance travelled (a step per 44 px, more for a fast
+flick), so the number of steps a swipe made was hard to predict, and a tap that moved a little was a
+step instead of a select. A press on an arrow is one step, every time.
+
+The swipe pad as it was specified: a large rounded-rectangle touch surface with a hint ("Swipe to
+move · Tap to select"); a tap (< 10 px, < 500 ms) selected with a ring halo; a swipe stepped once at
+24 px, then every 44 px (8 at most), a fast flick adding one or two; a long press sent nothing.
 
 ## 5. TV close-up camera
 
@@ -160,11 +171,13 @@ not yet on an iPhone or Mac:
   panel's window takes the choice and its glass a light or dark tint (`PanelController.setTheme`);
   the iPhone app's status bar follows (`RootView`), its own sheets stay dark. The editor stays
   dark. The Windows widget's tint is the theme's `--widget-bg`.
-- **Swipe pad**: `createPad` in `web/src/tv/remote.js` with Back, Home, Play/Pause and Mute
-  under it. A tap is a press that moves under 10 px and is let go within 500 ms (most taps are
-  under 220 ms; a slower deliberate tap still selects); a swipe starts at 24 px and steps every
-  44 px (8 at most), a release faster than 1.2 px/ms adds one or two, and a short quick flick is one
-  step. Held longer than 500 ms without moving, it sends nothing.
+- **Direction pad** (replaced the swipe pad, October 2026): `createPad` in `web/src/tv/remote.js`,
+  the disc's look in `style.css` (`.tv-dpad*`). On a phone the remote's row reaches 8 px into the
+  sheet's margins and its keys and volume are 48 px wide, so the disc is 236 px across on a 390 px
+  screen; 260 px in the Mac panel. Checked in Playwright (WebKit) by `web/tests/tiles-scenes.mjs`:
+  a press on the right quarter sends `right`, the middle `ok`, the dead ring and the corners nothing,
+  a held up repeats (with the finger wandering off it) and the keyboard still drives it; screenshots
+  in both looks.
 - **TV close up**: `world.focus` on a TV flies (0.7 s) to 0.9 m straight in front of the screen at
   its centre height, the field of view fitted to the screen and its surround, the near plane
   pushed past anything in between, orbiting off. Pulled up, the small view is a rounded 2:1 window

@@ -1,4 +1,4 @@
-// The TV sheet's controls: the swipe pad of a touch remote, the volume pill and the title
+// The TV sheet's controls: the direction pad of a remote, the volume pill and the title
 // search. Each one only reports what was asked (`onKey`, `onVolume`, …); the panel sends it
 // to the TV.
 import { h, clamp } from '../ui/dom.js';
@@ -6,188 +6,98 @@ import { icon } from '../ui/icons.js';
 import { haptic, isPhone } from '../bridge.js';
 import { logoSVG, appInfo, APPS } from './apps.js';
 
-const HOLD = 300;       // ms before a held volume button repeats…
+const HOLD = 300;       // ms before a held button (an arrow, the volume's − and +) repeats…
 const REPEAT = 120;     // …and then every this many ms
 const ARROWS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
 
-// The swipe pad: what tells a tap from a swipe from a held finger.
-const TAP_SLOP = 10;    // px a tap may wander
-const PRESS_MS = 500;   // a tap is let go within this (most take under 220 ms); held longer, it is neither
-const SWIPE = 24;       // px before a move is a swipe (and never also a tap): one step…
-const STEP = 44;        // …and one more for every this many px on
-const MAX_STEPS = 8;    // per gesture
-const FLICK = 1.2;      // px/ms at release: one more step (and two past twice that)
-const HINT_KEY = 'house.padUsed';
-const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+// The direction pad, as fractions of its diameter.
+const OK_SIZE = 0.4;    // the round OK button in the middle
+const DEAD = 0.035;     // a ring around OK where a press is neither OK nor an arrow
+const DIRS = ['up', 'right', 'down', 'left'];
+const CHEVRON = { up: 'up', right: 'next', down: 'down', left: 'back' };
+const DIR_LABEL = { up: 'Up', right: 'Right', down: 'Down', left: 'Left' };
 
 /**
- * The swipe pad: swipe to move (a step per stretch of travel, like a touchpad; a fast flick
- * goes a step or two further), tap to select. A ring spreads from a tap; each step glows
- * toward the edge it moves to, and a faint light follows the finger. A tick you can feel
- * with each (the iPhone's keyboard tick; a Mac's trackpad). Holding still sends nothing.
- * Arrow keys, Enter, Space (play/pause) and Backspace or Escape (back) work while it has focus.
+ * The direction pad of a Chromecast remote: one disc, an arrow at each quarter of its rim and
+ * a round OK in the middle. A press on a quarter moves that way at once (held, it repeats:
+ * after 300 ms, then every 120 ms), a press on OK selects; the quarter or OK pressed lights up,
+ * and each step is a tick you can feel. Nothing is a swipe: where the finger goes after the
+ * press does not matter. Arrow keys, Enter, Space (play/pause) and Backspace or Escape (back)
+ * work while it has focus.
+ *
+ * (It replaced a swipe pad, which moved a step per stretch of a swipe: hard to control.)
  */
 export function createPad({ onKey }) {
-  const glow = h('span.tv-swipe-glow');
-  const finger = h('span.tv-swipe-finger');
-  const edges = Object.fromEntries(['up', 'right', 'down', 'left'].map((d) => [d, h(`span.tv-swipe-edge.${d}`)]));
-  let used = false;
-  try { used = sessionStorage.getItem(HINT_KEY) === '1'; } catch { /* no storage */ }
-  const hint = h('span.tv-swipe-hint', { 'aria-hidden': 'true' }, 'Swipe to move · Tap to select');
-  const el = h(`div.tv-swipe${used ? '.used' : ''}`, { tabindex: 0, role: 'group', 'aria-label': 'Touch pad: swipe or use the arrow keys to move, tap or Enter to select' },
-    glow, ...Object.values(edges), finger, hint);
+  const zones = Object.fromEntries(DIRS.map((d) => [d, h(`button.tv-dpad-zone.${d}`,
+    { tabindex: -1, 'aria-label': DIR_LABEL[d], onclick: (ev) => { if (ev.detail === 0) press(d, true); } },
+    icon(CHEVRON[d], isPhone ? 30 : 26, 2.4))]));
+  const ok = h('button.tv-dpad-ok', { tabindex: -1, 'aria-label': 'OK', onclick: (ev) => { if (ev.detail === 0) press('ok', true); } },
+    h('span', 'OK'));
+  const disc = h('div.tv-dpad-disc', ...Object.values(zones), ok);
+  const el = h('div.tv-dpad', { tabindex: 0, role: 'group', 'aria-label': 'Direction pad: press an arrow or OK, or use the arrow keys and Enter' }, disc);
 
-  let g = null;        // the finger: { id, x, y, t, ax, ay, steps, swiping, trail, timer }
-  let follow = 0;      // the finger light's next frame
+  let g = null; // the press: { id, dir, hold, every }
+  const partOf = (dir) => (dir === 'ok' ? ok : zones[dir]);
 
-  const firstUse = () => {
-    if (used) return;
-    used = true;
-    el.classList.add('used');
-    try { sessionStorage.setItem(HINT_KEY, '1'); } catch { /* no storage */ }
-  };
-  const local = (ev) => {
-    const r = el.getBoundingClientRect();
-    return { x: ev.clientX - r.left, y: ev.clientY - r.top, w: r.width, h: r.height };
-  };
-  const send = (key) => { haptic('tick', { drag: true }); onKey(key); };
-
-  /* ---------- halos ---------- */
-
-  // A tap: a ring spreads from the finger and fades, over a brief glow under it.
-  function ring(x, y) {
-    if (reduced.matches) { glowAt(x, y, 0.5); return; }
-    const r = el.appendChild(h('span.tv-swipe-ring'));
-    r.style.left = `${x}px`;
-    r.style.top = `${y}px`;
-    r.animate([{ transform: 'translate(-50%, -50%) scale(0.25)', opacity: 0.85 }, { transform: 'translate(-50%, -50%) scale(1.7)', opacity: 0 }],
-      { duration: 380, easing: 'cubic-bezier(.2, .7, .3, 1)' }).onfinish = () => r.remove();
-    glowAt(x, y, 0.9);
+  function send(dir) {
+    haptic(dir === 'ok' ? 'light' : 'tick', { drag: true });
+    onKey(dir);
   }
 
-  function glowAt(x, y, strength) {
-    glow.style.left = `${x}px`;
-    glow.style.top = `${y}px`;
-    glow.animate([{ opacity: strength, transform: 'translate(-50%, -50%) scale(0.7)' }, { opacity: 0, transform: 'translate(-50%, -50%) scale(1.15)' }],
-      { duration: 420, easing: 'ease-out' });
-  }
-
-  // A step: a soft light travels from the finger toward the edge it moves to, and that
-  // edge brightens.
-  function stepHalo(dir, x, y) {
-    const e = edges[dir];
-    e.animate([{ opacity: 0 }, { opacity: 1, offset: 0.25 }, { opacity: 0 }], { duration: 460, easing: 'ease-out' });
-    if (reduced.matches) return;
-    const b = el.appendChild(h('span.tv-swipe-step'));
-    b.style.left = `${x}px`;
-    b.style.top = `${y}px`;
-    const r = el.getBoundingClientRect();
-    const [dx, dy] = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[dir];
-    const reach = Math.min(dx ? r.width : r.height, 160) * 0.42;
-    b.animate([
-      { transform: 'translate(-50%, -50%) scale(0.6)', opacity: 0.9 },
-      { transform: `translate(calc(-50% + ${dx * reach}px), calc(-50% + ${dy * reach}px)) scale(1.05)`, opacity: 0 },
-    ], { duration: 420, easing: 'cubic-bezier(.25, .8, .35, 1)' }).onfinish = () => b.remove();
-  }
-
-  function moveFinger(x, y) {
-    cancelAnimationFrame(follow);
-    follow = requestAnimationFrame(() => { finger.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`; });
-  }
-
-  function step(gesture, dir, at) {
-    if (gesture.steps >= MAX_STEPS) return;
-    gesture.steps++;
+  // A press that lights its part for a moment (the keyboard, a screen reader).
+  function press(dir, flash = false) {
     send(dir);
-    stepHalo(dir, at.x, at.y);
+    if (!flash) return;
+    const part = partOf(dir);
+    part.classList.add('pressed');
+    clearTimeout(part.flash);
+    part.flash = setTimeout(() => part.classList.remove('pressed'), 140);
   }
 
-  /* ---------- the finger ---------- */
+  /** What a press at (x, y) on the page is: 'ok', a direction, or null (the dead ring, outside). */
+  function at(x, y) {
+    const r = disc.getBoundingClientRect();
+    const size = Math.min(r.width, r.height);
+    const dx = x - (r.left + r.width / 2);
+    const dy = y - (r.top + r.height / 2);
+    const d = Math.hypot(dx, dy) / size;
+    if (d <= OK_SIZE / 2) return 'ok';
+    if (d < OK_SIZE / 2 + DEAD || d > 0.5) return null;
+    return Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
+  }
 
-  el.addEventListener('pointerdown', (ev) => {
-    if (ev.button !== 0 || g) return;
-    el.setPointerCapture(ev.pointerId);
-    const p = local(ev);
-    g = { id: ev.pointerId, x: p.x, y: p.y, t: ev.timeStamp, ax: p.x, ay: p.y, steps: 0, swiping: false, moved: 0, trail: [[ev.timeStamp, p.x, p.y]] };
-    el.classList.add('touching');
-    finger.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -50%)`;
-  });
-
-  el.addEventListener('pointermove', (ev) => {
-    if (!g || ev.pointerId !== g.id) return;
-    const p = local(ev);
-    g.trail.push([ev.timeStamp, p.x, p.y]);
-    while (g.trail.length > 2 && ev.timeStamp - g.trail[0][0] > 80) g.trail.shift();
-    g.moved = Math.max(g.moved, Math.hypot(p.x - g.x, p.y - g.y));
-    moveFinger(p.x, p.y);
-    if (!g.swiping) {
-      if (g.moved < SWIPE) return;
-      // A swipe from here on: its first step goes the way it went the most.
-      g.swiping = true;
-      el.classList.add('swiping');
-      firstUse();
-      const dx = p.x - g.x;
-      const dy = p.y - g.y;
-      step(g, Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'), p);
-      g.ax = p.x;
-      g.ay = p.y;
-      return;
-    }
-    // On from there, like a touchpad: a step for every STEP px along the way it goes.
-    const ax = p.x - g.ax;
-    const ay = p.y - g.ay;
-    if (Math.abs(ax) >= STEP && Math.abs(ax) >= Math.abs(ay)) {
-      g.ax += Math.sign(ax) * STEP;
-      g.ay = p.y;
-      step(g, ax > 0 ? 'right' : 'left', p);
-    } else if (Math.abs(ay) >= STEP) {
-      g.ay += Math.sign(ay) * STEP;
-      g.ax = p.x;
-      step(g, ay > 0 ? 'down' : 'up', p);
-    }
-  });
-
-  const finish = (ev) => {
-    if (!g || ev.pointerId !== g.id) return;
-    const d = g;
+  function release() {
+    if (!g) return;
+    clearTimeout(g.hold);
+    clearInterval(g.every);
+    partOf(g.dir).classList.remove('pressed');
+    disc.dataset.pressed = '';
     g = null;
-    el.classList.remove('touching', 'swiping');
-    if (ev.type !== 'pointerup') return;
-    const p = local(ev);
-    const held = ev.timeStamp - d.t;
-    const [t0, x0, y0] = d.trail[0];
-    const dt = Math.max(1, ev.timeStamp - t0);
-    const vx = (p.x - x0) / dt;
-    const vy = (p.y - y0) / dt;
-    const v = Math.max(Math.abs(vx), Math.abs(vy));
-    const dir = Math.abs(vx) > Math.abs(vy) ? (vx > 0 ? 'right' : 'left') : (vy > 0 ? 'down' : 'up');
-    if (!d.swiping) {
-      if (d.moved < TAP_SLOP && held <= PRESS_MS) {
-        // A tap (a quick one, or a slower one that stayed put): select.
-        firstUse();
-        send('ok');
-        ring(d.x, d.y);
-      } else if (d.moved >= TAP_SLOP && v > FLICK * 0.5) {
-        // Too short for a swipe but quick: a flick, one step.
-        firstUse();
-        step(d, dir, p);
-      }
-      return;
+  }
+
+  disc.addEventListener('pointerdown', (ev) => {
+    if (ev.button !== 0 || !ev.isPrimary) return;
+    const dir = at(ev.clientX, ev.clientY);
+    if (!dir) return;
+    ev.preventDefault(); // the pad keeps its focus ring off, and a mouse selects no text
+    release();
+    try { disc.setPointerCapture(ev.pointerId); } catch { /* gone already */ }
+    g = { id: ev.pointerId, dir, hold: 0, every: 0 };
+    partOf(dir).classList.add('pressed');
+    disc.dataset.pressed = dir;
+    send(dir);
+    if (dir !== 'ok') {
+      const held = g;
+      held.hold = setTimeout(() => { held.every = setInterval(() => send(held.dir), REPEAT); }, HOLD);
     }
-    // A fast flick at the end goes a step or two further, the way it was going.
-    if (v > FLICK) {
-      const extra = Math.min(MAX_STEPS - d.steps, v > FLICK * 2 ? 2 : 1);
-      for (let i = 1; i <= extra; i++) {
-        setTimeout(() => { send(dir); stepHalo(dir, p.x, p.y); }, 70 * i);
-      }
-    }
-  };
-  el.addEventListener('pointerup', finish);
-  el.addEventListener('pointercancel', finish);
-  el.addEventListener('lostpointercapture', finish);
+  });
+  const end = (ev) => { if (g && ev.pointerId === g.id) release(); };
+  disc.addEventListener('pointerup', end);
+  disc.addEventListener('pointercancel', end);
+  disc.addEventListener('lostpointercapture', end);
   // No page scroll, magnifier or menu from a finger on the pad.
-  el.addEventListener('touchmove', (ev) => { if (ev.cancelable) ev.preventDefault(); }, { passive: false });
-  el.addEventListener('contextmenu', (ev) => ev.preventDefault());
+  disc.addEventListener('touchmove', (ev) => { if (ev.cancelable) ev.preventDefault(); }, { passive: false });
+  disc.addEventListener('contextmenu', (ev) => ev.preventDefault());
 
   /* ---------- the keyboard ---------- */
 
@@ -199,10 +109,8 @@ export function createPad({ onKey }) {
     if (!name) return false;
     ev.preventDefault();
     ev.stopPropagation();
-    send(name);
-    const r = el.getBoundingClientRect();
-    if (name === 'ok') ring(r.width / 2, r.height / 2);
-    else if (ARROWS[ev.key]) stepHalo(name, r.width / 2, r.height / 2);
+    if (name === 'ok' || ARROWS[ev.key]) press(name, true);
+    else send(name);
     return true;
   }
   el.addEventListener('keydown', (ev) => key(ev, true));
@@ -211,7 +119,7 @@ export function createPad({ onKey }) {
     el,
     /** A key pressed anywhere in the sheet (not in a field): true when the pad took it. */
     key: (ev) => key(ev, false),
-    stop() { g = null; cancelAnimationFrame(follow); el.classList.remove('touching', 'swiping'); },
+    stop() { release(); },
   };
 }
 
