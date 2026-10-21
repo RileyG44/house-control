@@ -270,9 +270,12 @@ final class HomeScene {
 
     var closeUpOn: Bool { if case .tv(let id) = focus { return tvUnits.contains { $0.id == id } }; return false }
 
+    /// Whether the goal is the TV's close-up (the TV may be linked only after the focus was set).
+    private var framedClose = false
+
     func setFocus(_ next: Focus) {
         guard next != focus else { return }
-        let wasClose = closeUpOn
+        let wasClose = framedClose
         focus = next
         zoom = 1
         if case .ac(let id) = next, let u = acUnits[id] {
@@ -283,6 +286,7 @@ final class HomeScene {
             goal.el = Float(plan.elevation)
         }
         frameGoal()
+        framedClose = closeUpOn
         if wasClose != closeUpOn { tween = (rig, CACurrentMediaTime(), 0.7) }
     }
 
@@ -410,6 +414,12 @@ final class HomeScene {
             u.link(id)
             u.apply(id.flatMap { i in tvState.devices.first { $0.id == i } })
             _ = u.update(dt)
+        }
+        // The TV turned up (or went) while its page was open: fly in (or out) now.
+        if closeUpOn != framedClose {
+            framedClose = closeUpOn
+            frameGoal()
+            tween = (rig, CACurrentMediaTime(), 0.7)
         }
     }
 
