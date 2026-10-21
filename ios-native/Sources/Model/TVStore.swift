@@ -15,7 +15,8 @@ import Observation
 /// What only the hub can do stays with the hub: opening apps and titles (it checks the links),
 /// search, the keys only tv-remote has, a volume level when the launcher's is fixed, and waking
 /// a TV the launcher didn't wake. The first time the launcher fails (no answer, or a 401), the
-/// hub takes over at once and the command goes there; a 401 also forgets the token.
+/// hub takes over at once and the command goes there; a 401 also forgets the token. A toggle
+/// (play/pause, mute, power) that timed out isn't sent again: the TV may already have done it.
 @MainActor @Observable
 final class TVStore {
     private let hub: HubClient
@@ -199,7 +200,14 @@ final class TVStore {
         let previous = q.tail
         let task = Task<Bool, Never> { [hub] in
             _ = await previous?.value
-            if await self.sendDirect(id, body) { return true }
+            switch await self.sendDirect(id, body) {
+            case .done: return true
+            case .unanswered:
+                // The TV may have toggled already: sending it again through the hub could undo it.
+                await MainActor.run { self.held[id] = nil }
+                return false
+            case .notSent: break
+            }
             do {
                 _ = try await hub.post("api/tv/\(Self.path(id))", .object(body))
                 return true
@@ -376,17 +384,26 @@ final class TVStore {
     /// TV did it; false sends it to the hub: the route is down, the hub does this one, the
     /// launcher said no (the hub has tv-remote to step in, and the words for a no), or it
     /// failed (then the hub is the way from now on).
-    private func sendDirect(_ id: String, _ body: [String: JSON]) async -> Bool {
-        guard let link = direct, link.id == id, let cmd = command(body, link) else { return false }
+    private enum Direct { case done, notSent, unanswered }
+
+    /// Actions that flip the TV's state: one that may have reached it isn't sent again.
+    static let toggles: Set<String> = ["playpause", "mute", "power"]
+
+    /// Through the launcher: `done`, `notSent` (the hub should do it), or `unanswered` when a
+    /// toggle timed out and may have happened; that one isn't sent to the hub as well.
+    private func sendDirect(_ id: String, _ body: [String: JSON]) async -> Direct {
+        guard let link = direct, link.id == id, let cmd = command(body, link) else { return .notSent }
         do {
-            guard try await link.client.cmd(cmd) else { return false }
+            guard try await link.client.cmd(cmd) else { return .notSent }
             if body["action"]?.string == "wake" { checkAwake(id) }
-            return true
+            return .done
         } catch {
-            if !(error is CancellationError) {
-                fallBack(link.client, unpaired: (error as? LauncherClient.Failure) == .unpaired)
+            if error is CancellationError { return .notSent }
+            fallBack(link.client, unpaired: (error as? LauncherClient.Failure) == .unpaired)
+            if (error as? LauncherClient.Failure) == .timedOut, Self.toggles.contains(body["action"]?.string ?? "") {
+                return .unanswered
             }
-            return false
+            return .notSent
         }
     }
 

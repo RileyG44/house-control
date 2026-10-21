@@ -14,8 +14,10 @@ import Security
 /// Every /api call carries the token as X-LR-Key; without the right one the answer is 401.
 struct LauncherClient: Sendable, Equatable {
     enum Failure: Error, Equatable {
-        /// No answer in time, or an answer that isn't the launcher's.
+        /// No connection (refused, no route), or an answer that isn't the launcher's.
         case unreachable
+        /// The request went out but no answer came in time: the TV may have done it anyway.
+        case timedOut
         /// The launcher answered, but doesn't take this token (it was paired again, or reset).
         case unpaired
     }
@@ -118,14 +120,15 @@ struct LauncherClient: Sendable, Equatable {
         return req
     }
 
-    /// The answer's body and HTTP status. Anything that isn't an answer (no route, a timeout)
-    /// is `unreachable`; a cancelled task stays a cancellation.
+    /// The answer's body and HTTP status. No answer in time is `timedOut`; anything else that
+    /// isn't an answer (refused, no route) is `unreachable`; a cancelled task stays a cancellation.
     private static func fetch(_ req: URLRequest) async throws -> (Data, Int) {
         do {
             let (data, resp) = try await session.data(for: req)
             return (data, (resp as? HTTPURLResponse)?.statusCode ?? 0)
         } catch {
             if error is CancellationError || (error as? URLError)?.code == .cancelled { throw CancellationError() }
+            if (error as? URLError)?.code == .timedOut { throw Failure.timedOut }
             throw Failure.unreachable
         }
     }
