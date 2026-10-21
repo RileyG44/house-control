@@ -70,6 +70,7 @@ struct CardHeader: View {
     @Environment(\.colorScheme) private var scheme
     @State private var themeNote: String?
     @State private var noteTask: Task<Void, Never>?
+    @State private var editing = false
 
     var body: some View {
         let on = store.lightsOn
@@ -151,6 +152,11 @@ struct CardHeader: View {
                     .accessibilityLabel("Everything on or off")
 
                     Menu {
+                        Button("Edit home…", systemImage: "pencil.and.ruler") {
+                            Haptics.medium()
+                            editing = true
+                        }
+                        .disabled(hub.baseURL == nil)
                         Button("Hub addresses", systemImage: "network") { card.open(.settings) }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -161,6 +167,11 @@ struct CardHeader: View {
                     .buttonBorderShape(.circle)
                     .accessibilityLabel("More")
                 }
+            }
+        }
+        .fullScreenCover(isPresented: $editing, onDismiss: { store.refreshPlan() }) {
+            if let base = hub.baseURL {
+                EditorScreen(base: base) { editing = false }
             }
         }
         .overlay(alignment: .topTrailing) {
