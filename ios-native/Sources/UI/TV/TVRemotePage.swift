@@ -2,10 +2,15 @@ import SwiftUI
 
 /// The TV's remote, pushed inside the card (docs/tv-remote.md, docs/card-sheet.md): what's on,
 /// the direction pad with the keys and an upright volume beside it, the apps, and a title search.
+/// While it is open, the TV's own launcher is driven straight over the Wi-Fi when this phone is
+/// paired with it (TVStore); the ••• menu says which way, and offers the pairing.
 struct TVRemotePage: View {
     let id: String
     @Environment(HomeStore.self) private var store
+    @Environment(HubClient.self) private var hub
     @State private var opening: (app: TVAppInfo, until: Date)?
+    @State private var pairing = false
+    @State private var askingTV = false
 
     private var tv: TVStore { store.tv }
 
@@ -23,6 +28,17 @@ struct TVRemotePage: View {
                         .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.fill))
+                }
+                if tv.pairable == id {
+                    Button(action: startPairing) {
+                        Label("Faster remote: pair with the TV", systemImage: "bolt.horizontal")
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(Color.muted)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(askingTV)
                 }
                 if let d, on, let np = d.nowPlaying {
                     NowPlayingCard(device: d, np: np,
@@ -51,8 +67,50 @@ struct TVRemotePage: View {
             ToolbarItem(placement: .topBarTrailing) {
                 PowerToolbarButton(on: on, disabled: !available) { power(d) }
             }
+            if d?.direct != nil {
+                ToolbarItem(placement: .topBarTrailing) { routeMenu }
+            }
         }
         .onChange(of: d?.app?.id) { _, now in if now == opening?.app.id { opening = nil } }
+        .onAppear { tv.remoteOpened(id) }
+        .onDisappear { tv.remoteClosed(id) }
+        .sheet(isPresented: $pairing) { PairTVSheet(id: id) }
+    }
+
+    /// Which way the remote reaches the TV, and the pairing that makes the direct way possible.
+    private var routeMenu: some View {
+        Menu {
+            Section(tv.isDirect(id) ? "Direct to the TV" : "via \(hub.which)") {
+                if tv.isPaired(id) {
+                    Button("Forget this phone’s pairing", systemImage: "bolt.slash", role: .destructive) {
+                        tv.forgetPairing(id)
+                    }
+                } else {
+                    Button("Pair with the TV", systemImage: "bolt.horizontal", action: startPairing)
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 15, weight: .semibold))
+        }
+        .accessibilityLabel(tv.isDirect(id) ? "More. The remote talks to the TV directly" : "More. The remote goes through the hub")
+    }
+
+    /// The TV shows a 4-digit code; the sheet takes it.
+    private func startPairing() {
+        guard !askingTV else { return }
+        Haptics.light()
+        askingTV = true
+        Task {
+            let why = await tv.startPairing(id)
+            askingTV = false
+            if let why {
+                store.show(why, error: true)
+                Haptics.error()
+            } else {
+                pairing = true
+            }
+        }
     }
 
     private func status(_ d: TVDevice?) -> String {

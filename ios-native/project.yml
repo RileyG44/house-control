@@ -27,7 +27,7 @@ targets:
           UIColorName: LaunchBackground
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         ITSAppUsesNonExemptEncryption: false
-        NSLocalNetworkUsageDescription: House talks to the House Control hub on your Mac over this Wi-Fi network to switch your lights, air conditioner and TV.
+        NSLocalNetworkUsageDescription: House talks to the House Control hub, and straight to your TV, over this Wi-Fi network to switch your lights, air conditioner and TV.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         CFBundleURLTypes:

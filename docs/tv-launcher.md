@@ -2,7 +2,9 @@
 
 Plan, October 21, 2026. **Status:** phases 1 and 2 are built (`tv-launcher/`, `hub/launcher.py`,
 the launcher backend in `hub/tv.py`, `python hub/house.py --pair-tv`); not yet installed on the TV
-or checked there, and not yet deployed to the hubs. Per-client tokens are not done.
+or checked there, and not yet deployed to the hubs. Phase 3 is written (the hub's `direct` on the
+TV; `LauncherClient`, `LauncherState` and the direct route in the iPhone app's `TVStore`, pairing
+on the TV remote page), not yet built in Xcode or tried on the phone. Per-client tokens are not done.
 
 **Goal.** Bring the Chromecast launcher ("Living Room", from `RileyG44/custom-tv-interface`, `tv/`) into this repo. Then let House Control's remote (web panel and the iPhone app "Riley's Place") drive the TV through the launcher instead of through `~/tv-remote` on the Mac. Smart home devices stay where they are: the Dell hub first, the Mac as backup. The iPhone remote from the other repo (`ios/LivingRoom`) is not brought over, because House Control's remote replaces it.
 
@@ -49,7 +51,7 @@ The hub and the phone both talk to the launcher.
 
 - The launcher has **one token** today (`prefs.token`). Anyone who pairs gets the same one, and it can't be revoked per device. It travels over plain HTTP, so it is LAN-grade security, the same level as the hub, which has no sign-in.
 - **Hub:** paired once with the 4-digit code. A new command does it: `python hub/house.py --pair-tv` (or a "Pair TV" button in Settings on the panel). The hub stores `{url, token}` in `~/.house-hub/tv.json`, which never goes into git. Each hub (Dell and Mac) pairs on its own, and they don't copy the token to each other.
-- **Phone:** it pairs with the launcher directly, using the same 4-digit code, from the TV sheet ("Pair this phone with the TV" the first time the LAN route answers 401). The token lives in the iOS Keychain. Until it's paired, the phone just uses the hub route, so nothing breaks.
+- **Phone:** it pairs with the launcher directly, using the same 4-digit code, from the TV remote page ("Faster remote: pair with the TV", shown when the launcher answers `/pair/hello` on this Wi-Fi and the phone has no token, or its token got a 401). The hub tells the phone where the launcher is (`direct: {url, id}` on the TV) and never passes its own token on. The token lives in the iOS Keychain. Until it's paired, the phone just uses the hub route, so nothing breaks.
 - **Launcher change (small):** per-client tokens (`/pair/finish` returns a new token per client name, and Settings on the TV lists them with Forget). This lets Riley revoke a lost phone without re-pairing the hubs. It's worth doing, but optional for the first cut.
 
 ## API calls the remote needs

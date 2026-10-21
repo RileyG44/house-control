@@ -72,6 +72,15 @@ HouseApp
 - **TV**: `GET /api/tv`, `{"tv":…}` events, `POST /api/tv/{id}` (keys, `volume`, `open`, `play`,
   `seek`, `skip`, `text`, `search`), `GET /api/tv/search?q=` — shapes in docs/tv-remote.md and
   docs/tile-reorder-now-playing.md.
+- **TV, direct** (docs/tv-launcher.md, phase 3): when the TV carries `direct` (the hub drives it
+  through its launcher), the remote page asks the launcher itself (`LauncherClient`, port 8686)
+  with a 600 ms timeout when it opens and whenever the network changes. With this phone's token
+  (Keychain, from pairing on that page), the keys, pad, play/pause, seek, volume and typing go
+  to it, and the state comes from its long poll, mapped like hub/tv.py's `from_launcher`
+  (`LauncherState`). Opening apps and titles, search, `menu`, a fixed volume's level and a wake
+  the launcher didn't manage stay on the hub; any launcher failure goes back to the hub at once
+  and the command is sent there (a 401 also forgets the token). The page's ••• menu says which
+  way ("Direct to the TV" / "via Home server").
 
 ### Plan model
 
@@ -202,6 +211,10 @@ Top to bottom (docs/tv-remote.md and docs/card-sheet.md):
 5. **Search**: a search field (debounced 350 ms → `/api/tv/search`), result rows with poster,
    title, year · Movie/Show and the app logos it streams on; tap a logo (or the row if one app) to
    `play`. Rent/buy only says so. Below: "Search on the TV for “…”" and "Type into the TV".
+6. **Pairing** (only when the launcher answers on this Wi-Fi and the phone has no token): one quiet
+   row, "Faster remote: pair with the TV". It makes the TV show a 4-digit code (`/pair/start`) and
+   opens a sheet with a 4-digit field; the fourth digit sends it (`/pair/finish`), Cancel hides
+   the code (`/pair/cancel`). The ••• menu in the head also pairs, or forgets the pairing.
 
 ## Theme
 

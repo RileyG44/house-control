@@ -95,6 +95,7 @@ final class HomeStore {
         adoptPlan(plan, first: true)
         hub.onDevices = { [weak self] in self?.applyRemote($0) }
         hub.onTV = { [weak self] in self?.tv.take($0) }
+        hub.onPathChanged = { [weak self] in self?.tv.networkChanged() }
         hub.onPlanChanged = { [weak self] in self?.refreshPlan() }
         hub.onConnected = { [weak self] _ in
             self?.refreshPlan()

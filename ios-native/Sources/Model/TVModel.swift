@@ -49,6 +49,23 @@ struct NowPlaying: Sendable, Equatable {
     }
 }
 
+/// Where the TV's own launcher answers on the house Wi-Fi (`direct`, which the hub adds when it
+/// drives the TV through the launcher): its address, and its own id when the hub knows it.
+struct TVDirect: Sendable, Equatable {
+    var url: URL
+    var id: String?
+
+    init?(json: JSON?) {
+        guard let j = json, let s = j["url"]?.string, let url = URL(string: s), url.scheme == "http" || url.scheme == "https" else { return nil }
+        self.url = url
+        id = j["id"]?.string.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// The Keychain accounts this phone's token for it is kept under: the launcher's id first,
+    /// then its address (all there is when the hub doesn't know the id).
+    var accounts: [String] { [id.map { "id:\($0)" }, "url:\(url.absoluteString)"].compactMap { $0 } }
+}
+
 struct TVDevice: Sendable, Equatable, Identifiable {
     var id: String
     var name: String
@@ -59,6 +76,7 @@ struct TVDevice: Sendable, Equatable, Identifiable {
     var volumeMax: Int?
     var muted: Bool
     var nowPlaying: NowPlaying?
+    var direct: TVDirect?
 
     init?(json: JSON) {
         guard let id = json["id"]?.string else { return nil }
@@ -71,6 +89,7 @@ struct TVDevice: Sendable, Equatable, Identifiable {
         volumeMax = json["volumeMax"]?.int
         muted = json["muted"]?.bool ?? false
         nowPlaying = NowPlaying(json: json["nowPlaying"])
+        direct = TVDirect(json: json["direct"])
     }
 
     /// "Netflix", "Google TV home", "Off", "Not reachable".

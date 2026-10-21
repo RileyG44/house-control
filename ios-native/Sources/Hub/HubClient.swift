@@ -44,6 +44,8 @@ final class HubClient {
     @ObservationIgnored var onPlanChanged: (() -> Void)?
     /// A fresh connection: the plan should be read again.
     @ObservationIgnored var onConnected: ((URL) -> Void)?
+    /// The phone's network changed (another Wi-Fi, cellular): the TV's launcher is looked for again.
+    @ObservationIgnored var onPathChanged: (() -> Void)?
 
     @ObservationIgnored private var base: URL?
     @ObservationIgnored private var streamTask: Task<Void, Never>?
@@ -109,7 +111,9 @@ final class HubClient {
 
     private func pathChanged(_ key: String) {
         defer { lastPath = key }
-        guard lastPath != nil, lastPath != key, active else { return }
+        guard lastPath != nil, lastPath != key else { return }
+        onPathChanged?()
+        guard active else { return }
         reconnect()
     }
 
