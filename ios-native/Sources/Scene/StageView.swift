@@ -45,6 +45,13 @@ struct StageView: View {
         .simultaneousGesture(orbit)
         .simultaneousGesture(magnify)
         .frame(width: size.width, height: t.stageHeight)
+        // Shortened (the TV strip), its foot fades out under the card instead of ending in a line.
+        .mask {
+            LinearGradient(stops: [.init(color: .black, location: 0),
+                                   .init(color: .black, location: max(0, 1 - Self.tuck * 1.6 / max(1, t.stageHeight))),
+                                   .init(color: .black.opacity(1 - t.tuck), location: 1)],
+                           startPoint: .top, endPoint: .bottom)
+        }
         .frame(width: size.width, height: size.height, alignment: .top)
         .scaleEffect(t.scale, anchor: .topLeading)
         .offset(t.offset)
@@ -87,7 +94,7 @@ struct StageView: View {
         let restBottom = size.height - CardMetrics.restTop + 10
         let h = stageHeight(k)
         box.scene?.resize(CGSize(width: size.width, height: h), top: safeTop + 4,
-                          bottom: restBottom + (16 - restBottom) * k)
+                          bottom: restBottom + (16 + Self.tuck - restBottom) * k)
     }
 
     private func applyFocus() {
@@ -161,12 +168,16 @@ struct StageView: View {
         var radius: CGFloat = 0
         var feather: CGFloat = 0
         var stageHeight: CGFloat = 0
+        var tuck: CGFloat = 0
     }
 
     /// At rest the model fills the area above the card; pulled up, the same picture is scaled and
     /// moved into the strip between the Dynamic Island and the card, in step with the card.
+    /// How far the shortened view runs on under the card, where it fades out.
+    static let tuck: CGFloat = 46
+
     private func stageHeight(_ k: CGFloat) -> CGFloat {
-        (size.height + (CardMetrics.expandedTop + 10 - size.height) * k).rounded()
+        (size.height + (CardMetrics.expandedTop + 10 + Self.tuck - size.height) * k).rounded()
     }
 
     private func framing() -> Framing {
@@ -174,7 +185,7 @@ struct StageView: View {
         guard let scene = box.scene else { return Framing(clip: full, stageHeight: size.height) }
         let k = min(1, max(0, card.progress)) * box.tvness
         let p = min(1, max(0, card.progress)) * (1 - box.tvness)
-        if k > 0.0005 { return Framing(clip: full, stageHeight: stageHeight(k)) }
+        if k > 0.0005 { return Framing(clip: full, stageHeight: stageHeight(k), tuck: k) }
         guard p > 0.0005, let r = scene.restRect() else { return Framing(clip: full, stageHeight: size.height) }
         let side: CGFloat = 12
         let miniTop = safeTop + 4, miniBottom = CardMetrics.expandedTop - 6
