@@ -9,7 +9,8 @@ HTTP API on the Chromecast itself, port 8686.
 Every /api call carries the token in the X-LR-Key header. The hub pairs once
 (`python house.py --pair-tv`), and keeps the launcher's address and token in
 ~/.house-hub/tv.json under "launcher", next to whatever else that file holds. The token never
-leaves the hub: the panels get the pictures through the hub (/api/tv/art/now).
+leaves the hub: the panels get the pictures through the hub (/api/tv/art/now). The iPhone app
+is told only the launcher's address and id (`direct` on the TV), and pairs with it on its own.
 """
 from __future__ import annotations
 
@@ -50,13 +51,17 @@ def base_url(where: str) -> str:
 
 class Launcher:
     """One TV's launcher. `device` and `name` are what the panels call the TV (the same id
-    tv-remote gives it, so a plan's linked TV stays linked whichever way the hub reaches it)."""
+    tv-remote gives it, so a plan's linked TV stays linked whichever way the hub reaches it).
+    `install_id` is the launcher's own id (its /pair/hello "id"), when the hub knows it: the
+    iPhone app keeps its own token for this TV under it."""
 
-    def __init__(self, url: str, token: str, device: str = "living-room", name: str | None = None):
+    def __init__(self, url: str, token: str, device: str = "living-room", name: str | None = None,
+                 install_id: str | None = None):
         self.url = url.rstrip("/")
         self.token = token
         self.device = device
         self.name = name
+        self.install_id = install_id
 
     @property
     def host(self) -> str | None:
@@ -164,7 +169,7 @@ def read_conf(conf: Path) -> dict:
 
 
 def save(conf: Path, entry: dict) -> Path:
-    """Writes the launcher's {url, token, device, name} into tv.json, keeping every other key
+    """Writes the launcher's {url, token, device, name, id} into tv.json, keeping every other key
     (tv-remote's "url" among them). Only this user can read the file: it holds the token."""
     path = conf / "tv.json"
     conf.mkdir(parents=True, exist_ok=True)
@@ -187,7 +192,8 @@ def from_conf(conf: Path) -> Launcher | None:
         return None
     device = entry.get("device") if isinstance(entry.get("device"), str) and entry["device"] else "living-room"
     name = entry.get("name") if isinstance(entry.get("name"), str) and entry["name"] else None
-    return Launcher(url, token, device=device, name=name)
+    install_id = entry.get("id") if isinstance(entry.get("id"), str) and entry["id"] else None
+    return Launcher(url, token, device=device, name=name, install_id=install_id)
 
 
 async def pair(http: aiohttp.ClientSession, conf: Path, url: str, ask: Callable[[str], Awaitable[str]],
@@ -218,13 +224,15 @@ async def pair(http: aiohttp.ClientSession, conf: Path, url: str, ask: Callable[
     if not got:
         await pair_cancel(http, url)
         return None
-    device, name = str(got.get("id") or who.get("id") or "living-room"), got.get("name") or who.get("name")
+    install_id = str(got.get("id") or who.get("id") or "") or None
+    device, name = install_id or "living-room", got.get("name") or who.get("name")
     if known:
         with contextlib.suppress(Exception):
             match = await known(urlsplit(url).hostname or "")
             if match:
                 device, name = match
-    entry = {"url": url, "token": got["token"], "device": device, "name": name or "TV"}
+    entry = {"url": url, "token": got["token"], "device": device, "name": name or "TV",
+             **({"id": install_id} if install_id else {})}
     path = save(conf, entry)
     say(f"Paired with {entry['name']}. Saved in {path}.")
     return entry

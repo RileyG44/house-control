@@ -26,6 +26,10 @@ panel's remote keys on, only the ones listed here. App links from the streaming 
 comes from the launcher's media sessions; when it sees none (an app that only reports over
 Cast), from the TV over Cast (nowplaying.py), and seeking goes the same way it came. The
 launcher's pictures go to the panels through the hub (/api/tv/art/now), so its token stays here.
+
+With a launcher, its TV also says where the launcher is (`direct`: {"url", "id"}), whichever way
+the hub reaches it right now: the iPhone app pairs with it on its own and drives it straight
+over the house Wi-Fi while its remote is open, and comes back here when that doesn't answer.
 """
 from __future__ import annotations
 
@@ -410,6 +414,7 @@ class TvRemote:
         self._volume: dict | None = None     # tv-remote's volume for the launcher's TV (see from_launcher)
         self._volume_at = 0.0
         self._volume_busy = False
+        self._asked_id = False           # the launcher was asked for its id (older pairings didn't save it)
         if launcher:
             log.info("The TV: through its launcher at %s, with tv-remote at %s when it doesn't answer", launcher.url, url)
         self.publish = publish
@@ -437,6 +442,27 @@ class TvRemote:
     def unreachable(self) -> str:
         return UNREACHABLE_BOTH if self.launcher else UNREACHABLE
 
+    @property
+    def direct(self) -> dict | None:
+        """Where the iPhone app finds the launcher on the house Wi-Fi: its address, and its own id
+        when the hub knows it (the app keeps its token under it). Never the hub's token."""
+        if not self.launcher:
+            return None
+        lr = self.launcher
+        return {"url": lr.url, **({"id": lr.install_id} if lr.install_id else {})}
+
+    def _with_direct(self, state: dict) -> dict:
+        """`state` with `direct` on the launcher's TV: the one under its id, or (read from
+        tv-remote) the one at its address."""
+        direct = self.direct
+        if not direct:
+            return state
+        assert self.launcher
+
+        def mine(d: dict) -> bool:
+            return d.get("id") == self.launcher.device or (self.raw.get(d.get("id")) or {}).get("host") == self.launcher.host
+        return {**state, "devices": [{**d, "direct": direct} if mine(d) else d for d in state.get("devices") or []]}
+
     # ---------- reading the launcher ----------
 
     def _launcher_down(self, e: Exception) -> None:
@@ -463,12 +489,25 @@ class TvRemote:
         if self.route != "launcher":
             log.info("The TV's launcher answers again at %s", self.launcher.url)
         self.route = "launcher"
+        if self.launcher.install_id is None and not self._asked_id:
+            self._asked_id = True
+            asyncio.ensure_future(self._learn_id())
         self.lr_rev = st["rev"] if _count(st.get("rev")) else -1
         volume = None
         if (st.get("tv") or {}).get("volumeFixed"):
             self._peek_volume()
             volume = self._volume
         return from_launcher(st, self.launcher, time.time(), volume)
+
+    async def _learn_id(self) -> None:
+        """A pairing from before tv.json kept the launcher's id: asks the TV once (/pair/hello),
+        so `direct` can carry it, and tells the panels."""
+        assert self.launcher and self.http
+        with contextlib.suppress(aiohttp.ClientError, asyncio.TimeoutError, ValueError, OSError, LauncherError):
+            got = (await launchers.hello(self.http, self.launcher.url)).get("id")
+            if isinstance(got, str) and got:
+                self.launcher.install_id = got
+                self.kick()
 
     def _peek_volume(self) -> None:
         """Asks tv-remote (in the background, at most every POLL_IDLE s) for the TV's own volume,
@@ -546,6 +585,7 @@ class TvRemote:
 
     def _commit(self, new: dict) -> None:
         self.read_at = time.monotonic()
+        new = self._with_direct(new)
         if new != self.state:
             self.state = new
             self.publish({"tv": new})

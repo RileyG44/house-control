@@ -210,7 +210,7 @@ Built (October 2026), everything above except the "Done when" checks that need t
 
 ## Through the launcher (October 21, 2026)
 
-- **Which way**: `~/.house-hub/tv.json` `"launcher": {"url", "token", "device", "name"}`
+- **Which way**: `~/.house-hub/tv.json` `"launcher": {"url", "token", "device", "name", "id"}`
   (written by `python hub/house.py --pair-tv [host]`, which keeps the file's other keys) makes
   the launcher the way in; `HOUSE_TV_BACKEND=tvremote` turns it off. `device` and `name` are
   tv-remote's for the same TV when it answered at pairing (`79519fff`, "Living Room TV"), so a
@@ -231,4 +231,9 @@ Built (October 2026), everything above except the "Done when" checks that need t
   `chup`, `chdown` and `input`, tv-remote does it; when that isn't there either, the answer is
   409 with the launcher's reason. When the launcher doesn't answer at all, the hub uses
   tv-remote and tries the launcher again every 15 s.
+- **The phone's own way in**: with a launcher, the TV's device also carries
+  `"direct": {"url": "http://<the TV's LAN address>:8686", "id": "<the launcher's id>"}` (the id
+  is the one `/pair/hello` gives; a pairing saved before it was kept is asked once), whichever
+  way the hub reaches the TV right now. Never the token: the iPhone app pairs with the launcher
+  itself and keeps its token in the Keychain (see docs/tv-launcher.md, phase 3).
 - Tests: `hub/tests/test_launcher.py` against `hub/tests/fake_launcher.py`.

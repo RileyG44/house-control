@@ -387,6 +387,63 @@ def test_tv_remote_only_when_told(tmp_path, monkeypatch):
     run(go())
 
 
+def test_the_phone_is_told_where_the_launcher_is_but_never_its_token(tmp_path, monkeypatch):
+    async def go():
+        monkeypatch.setattr(tv, "LAUNCHER_RETRY", 0.3)
+        # Paired before tv.json kept the launcher's id: the hub asks the TV for it once.
+        fake, lr, server, state, sent, hub, client = await hub_with_launcher(tmp_path, monkeypatch)
+        url = str(lr.make_url("")).rstrip("/")
+        try:
+            await client.get("/api/tv")
+            await until(lambda: hub.tv.launcher.install_id == "5e1f00aa77bb")
+            await until(lambda: hub.tv.snapshot["devices"][0].get("direct", {}).get("id") == "5e1f00aa77bb")
+            text = await (await client.get("/api/tv")).text()
+            assert json.loads(text)["devices"][0]["direct"] == {"url": url, "id": "5e1f00aa77bb"}
+            assert TOKEN not in text
+            events = await client.get("/api/events")
+            await next_event(events.content)
+            first = await next_event(events.content)
+            assert first["tv"]["devices"][0]["direct"] == {"url": url, "id": "5e1f00aa77bb"}
+            # The hub can't reach the launcher: the phone may still (the Dell's Wi-Fi is the weak
+            # one), so tv-remote's view of the same TV says where it is too.
+            fake.broken = True
+            fake.bump()
+            moved = (await next_event(events.content, timeout=3))["tv"]
+            assert hub.tv.route == "tvremote"
+            assert moved["devices"][0]["direct"] == {"url": url, "id": "5e1f00aa77bb"}
+            assert TOKEN not in json.dumps(moved)
+            events.close()
+        finally:
+            await client.close()
+            await server.close()
+            await lr.close()
+    run(go())
+    # Without a launcher (or told to use tv-remote only), there is nothing to reach directly.
+    async def without():
+        monkeypatch.setenv("HOUSE_TV_BACKEND", "tvremote")
+        fake, lr, server, state, sent, hub, client = await hub_with_launcher(tmp_path, monkeypatch)
+        try:
+            d = (await (await client.get("/api/tv")).json())["devices"][0]
+            assert d["id"] == TV_ID and "direct" not in d
+        finally:
+            await client.close()
+            await server.close()
+            await lr.close()
+    run(without())
+
+
+def test_direct_carries_the_saved_id_at_once(tmp_path):
+    lr = launchers.Launcher("http://192.168.0.225:8686", TOKEN, device=TV_ID, install_id="5e1f00aa77bb")
+    remote = tv.TvRemote("http://192.168.0.188:8765", publish=lambda _: None, launcher=lr)
+    s = remote._with_direct(tv.from_launcher(youtube_paused(), lr, time.time()))
+    assert s["devices"][0]["direct"] == {"url": "http://192.168.0.225:8686", "id": "5e1f00aa77bb"}
+    # Another TV that tv-remote knows (not at the launcher's address) gets none.
+    remote.raw = {"other": {"id": "other", "host": "192.168.0.50"}}
+    two = remote._with_direct({"available": True, "error": "", "devices": [{"id": "other"}, {"id": TV_ID}]})
+    assert "direct" not in two["devices"][0] and two["devices"][1]["direct"]["url"] == lr.url
+    assert TOKEN not in json.dumps(s)
+
+
 # ---------- pairing ----------
 
 def test_pairing_saves_the_token_and_keeps_the_rest(tmp_path):
@@ -407,7 +464,7 @@ def test_pairing_saves_the_token_and_keeps_the_rest(tmp_path):
 
         async with aiohttp.ClientSession() as http:
             entry = await launchers.pair(http, tmp_path, url, ask=ask, say=said.append, known=known)
-        assert entry == {"url": url, "token": TOKEN, "device": TV_ID, "name": "Living Room TV"}
+        assert entry == {"url": url, "token": TOKEN, "device": TV_ID, "name": "Living Room TV", "id": "5e1f00aa77bb"}
         saved = json.loads((tmp_path / "tv.json").read_text())
         assert saved == {"url": "http://192.168.0.188:8765", "launcher": entry}
         assert stat.S_IMODE(os.stat(tmp_path / "tv.json").st_mode) == 0o600
@@ -436,7 +493,9 @@ def test_pair_tv_command(tmp_path, monkeypatch):
         assert await house.pair_tv(f"127.0.0.1:{lr.port}")
         saved = json.loads((tmp_path / "tv.json").read_text())["launcher"]
         # tv-remote didn't answer (port 9), so the TV keeps the launcher's own id and name.
-        assert saved == {"url": f"http://127.0.0.1:{lr.port}", "token": TOKEN, "device": "5e1f00aa77bb", "name": "Living Room"}
+        assert saved == {"url": f"http://127.0.0.1:{lr.port}", "token": TOKEN, "device": "5e1f00aa77bb", "name": "Living Room",
+                         "id": "5e1f00aa77bb"}
+        assert launchers.from_conf(tmp_path).install_id == "5e1f00aa77bb"
         await lr.close()
     run(go())
 
