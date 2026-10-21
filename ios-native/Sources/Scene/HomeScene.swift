@@ -308,14 +308,21 @@ final class HomeScene {
         let (fwd, _, up) = basis(rig.az, rig.el)
         // The model sits in the middle of the part of the screen the card leaves (the web shifts the
         // projection; here the camera looks a little lower instead).
-        let dyPx = Float((topInset - bottomInset) / 2)
-        let shift = dyPx / Float(size.height / 2) * tan(rig.fov * .pi / 360) * rig.dist
-        let aim = rig.target + up * shift
-        let pos = rig.target - fwd * rig.dist
+        let (aim, pos) = eyeAndAim(rig, up: up, fwd: fwd, tv: Float(tvness))
         camera.look(at: aim, from: pos, relativeTo: nil)
         let close = min(1, max(0, (2 - rig.dist) / (2 - Self.tvDist)))
         camera.camera.near = Self.near + max(0, rig.dist - Self.tvClear - Self.near) * close
         camera.camera.fieldOfViewInDegrees = rig.fov
+    }
+
+    /// Where the camera looks and stands. The model is lowered into the part of the screen the card
+    /// leaves: for the home by tilting the camera a little, in front of the TV by moving the camera
+    /// down instead (a lens shift), so the camera stays level and the screen is seen face on.
+    private func eyeAndAim(_ r: Rig, up: SIMD3<Float>, fwd: SIMD3<Float>, tv: Float) -> (aim: SIMD3<Float>, eye: SIMD3<Float>) {
+        let dyPx = Float((topInset - bottomInset) / 2)
+        let shift = dyPx / Float(size.height / 2) * tan(r.fov * .pi / 360) * r.dist
+        let level = SIMD3<Float>(0, shift * tv, 0)
+        return (r.target + up * shift * (1 - tv) + level, r.target - fwd * r.dist + level)
     }
 
     private func updateRig(_ dt: Float) -> Bool {
@@ -364,10 +371,7 @@ final class HomeScene {
     func restRect() -> CGRect? {
         guard !corners.isEmpty else { return nil }
         let (fwd, right, up) = basis(goal.az, goal.el)
-        let dyPx = Float((topInset - bottomInset) / 2)
-        let shift = dyPx / Float(size.height / 2) * tan(goal.fov * .pi / 360) * goal.dist
-        let eye = goal.target - fwd * goal.dist
-        let aim = goal.target + up * shift
+        let (aim, eye) = eyeAndAim(goal, up: up, fwd: fwd, tv: closeUpOn ? 1 : 0)
         let f = simd_normalize(aim - eye)
         let r = simd_normalize(simd_cross(f, [0, 1, 0]))
         let u = simd_cross(r, f)

@@ -15,7 +15,7 @@ final class SceneBox {
 
 /// The 3D home behind the card: full screen and never resized. As the card is pulled up the view
 /// is scaled and moved (from the card's live position) into the strip above it; in front of the
-/// TV that strip shows the TV in a rounded 2:1 window.
+/// TV that strip shows the TV and the wall around it, its edges fading out softly.
 struct StageView: View {
     var size: CGSize
     var safeTop: CGFloat
@@ -45,6 +45,7 @@ struct StageView: View {
             RoundedRectangle(cornerRadius: t.radius, style: .continuous)
                 .frame(width: t.clip.width, height: t.clip.height)
                 .position(x: t.clip.midX, y: t.clip.midY)
+                .blur(radius: t.feather)
         }
         .onAppear(perform: rebuildIfNeeded)
         .onChange(of: store.modelRev) { rebuildIfNeeded() }
@@ -141,6 +142,7 @@ struct StageView: View {
         var offset: CGSize = .zero
         var clip: CGRect
         var radius: CGFloat = 0
+        var feather: CGFloat = 0
     }
 
     /// At rest the model fills the area above the card; pulled up, the same picture is scaled and
@@ -154,16 +156,17 @@ struct StageView: View {
         let mw = max(10, size.width - side * 2), mh = max(10, miniBottom - miniTop)
         let tv = scene.tvness
         let fit = mh * 0.94 / r.height
-        let s1 = min(1, mw * 0.96 / r.width, fit + (fit * 1.3 - fit) * tv)
+        // In front of the TV the strip keeps the wall and cabinet around the screen (the picture is
+        // only fitted by height), so it reads as a small view of the room, not a cut-out.
+        let s1 = min(1, fit, mw * 0.96 / r.width + (fit - mw * 0.96 / r.width) * tv)
         let s = 1 + (s1 - 1) * p
         let R = CGPoint(x: r.midX, y: r.midY)
         let M = CGPoint(x: size.width / 2, y: (miniTop + miniBottom) / 2)
         let C = CGPoint(x: R.x + (M.x - R.x) * p, y: R.y + (M.y - R.y) * p)
         let k = p * tv
-        let ww = min(mw, mh * 2)
-        let window = CGRect(x: M.x - ww / 2, y: miniTop, width: ww, height: mh)
+        let window = CGRect(x: M.x - mw / 2, y: miniTop, width: mw, height: mh)
         let clip = CGRect(x: full.minX + (window.minX - full.minX) * k, y: full.minY + (window.minY - full.minY) * k,
                           width: full.width + (window.width - full.width) * k, height: full.height + (window.height - full.height) * k)
-        return Framing(scale: s, offset: CGSize(width: C.x - R.x * s, height: C.y - R.y * s), clip: clip, radius: 16 * k)
+        return Framing(scale: s, offset: CGSize(width: C.x - R.x * s, height: C.y - R.y * s), clip: clip, radius: 22 * k, feather: 14 * k)
     }
 }
