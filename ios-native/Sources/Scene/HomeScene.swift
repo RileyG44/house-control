@@ -53,6 +53,12 @@ final class HomeScene {
     var size = CGSize(width: 430, height: 932)
     var topInset: CGFloat = 63
     var bottomInset: CGFloat = 500
+    /// Where the card's top is right now (it moves with the drag and its spring). In front of the
+    /// TV the camera keeps the TV and its wall framed in the space above it, so pulled up, the
+    /// strip under the Dynamic Island is a smaller view of the same wall, not a cut-out.
+    var cardTop: CGFloat?
+    /// 0 … 1: how far the camera is into the TV's close-up (eased with the fly-in).
+    private(set) var tvWeight: Float = 0
 
     /// 0 dark … 1 light, eased toward `lookGoal` over 0.3 s.
     private var look: Float = 0
@@ -262,8 +268,12 @@ final class HomeScene {
         let H = Float(size.height), W = Float(size.width)
         let usableH = max(40, H - Float(topInset + bottomInset))
         let bw = w * Self.tvAround.x, bh = h * Self.tvAround.y
-        let t = max(bw * H / (2 * Self.tvDist * W), bh * H / (2 * Self.tvDist * usableH))
-        goal.fov = min(110, max(20, 2 * atan(t) * 180 / .pi))
+        let t = min(tan(55 * Float.pi / 180), max(tan(10 * Float.pi / 180),
+                    max(bw * H / (2 * Self.tvDist * W), bh * H / (2 * Self.tvDist * usableH))))
+        goal.fov = 2 * atan(t) * 180 / .pi
+        // The same view from further back when the card leaves less room (no zoom, no cut-out).
+        let liveH = max(30, H - Float(topInset + closeBottomInset))
+        goal.dist = max(Self.tvDist, max(bw * H / (2 * t * W), bh * H / (2 * t * liveH)))
         let side = SIMD3(n.z, 0, -n.x)
         corners = [(-1, -1), (1, -1), (1, 1), (-1, 1)].map { (sx: Float, sy: Float) in c + side * (sx * bw / 2) + SIMD3(0, sy * bh / 2, 0) }
     }
@@ -308,18 +318,20 @@ final class HomeScene {
         let (fwd, _, up) = basis(rig.az, rig.el)
         // The model sits in the middle of the part of the screen the card leaves (the web shifts the
         // projection; here the camera looks a little lower instead).
-        let (aim, pos) = eyeAndAim(rig, up: up, fwd: fwd, tv: Float(tvness))
+        let (aim, pos) = eyeAndAim(rig, up: up, fwd: fwd, tv: tvWeight)
         camera.look(at: aim, from: pos, relativeTo: nil)
-        let close = min(1, max(0, (2 - rig.dist) / (2 - Self.tvDist)))
-        camera.camera.near = Self.near + max(0, rig.dist - Self.tvClear - Self.near) * close
+        camera.camera.near = Self.near + max(0, rig.dist - Self.tvClear - Self.near) * tvWeight
         camera.camera.fieldOfViewInDegrees = rig.fov
     }
 
     /// Where the camera looks and stands. The model is lowered into the part of the screen the card
     /// leaves: for the home by tilting the camera a little, in front of the TV by moving the camera
     /// down instead (a lens shift), so the camera stays level and the screen is seen face on.
+    private var closeBottomInset: CGFloat { cardTop.map { size.height - $0 + 10 } ?? bottomInset }
+
     private func eyeAndAim(_ r: Rig, up: SIMD3<Float>, fwd: SIMD3<Float>, tv: Float) -> (aim: SIMD3<Float>, eye: SIMD3<Float>) {
-        let dyPx = Float((topInset - bottomInset) / 2)
+        let bottom = bottomInset + (closeBottomInset - bottomInset) * CGFloat(tv)
+        let dyPx = Float((topInset - bottom) / 2)
         let shift = dyPx / Float(size.height / 2) * tan(r.fov * .pi / 360) * r.dist
         let level = SIMD3<Float>(0, shift * tv, 0)
         return (r.target + up * shift * (1 - tv) + level, r.target - fwd * r.dist + level)
@@ -334,8 +346,10 @@ final class HomeScene {
             rig.dist = exp(log(tw.from.dist) + (log(goal.dist) - log(tw.from.dist)) * e)
             rig.fov = tw.from.fov + (goal.fov - tw.from.fov) * e
             rig.target = tw.from.target + (goal.target - tw.from.target) * e
+            tvWeight = closeUpOn ? max(tvWeight, e) : min(tvWeight, 1 - e)
             if p >= 1 {
                 tween = nil
+                tvWeight = closeUpOn ? 1 : 0
                 if !closeUpOn {
                     let turns = ((rig.az - baseAz) / 360).rounded() * 360
                     rig.az -= turns; goal.az -= turns
@@ -391,7 +405,7 @@ final class HomeScene {
     }
 
     /// How close the camera is to the TV, 0 … 1.
-    var tvness: CGFloat { CGFloat(min(1, max(0, (2 - rig.dist) / (2 - Self.tvDist)))) }
+    var tvness: CGFloat { CGFloat(tvWeight) }
 
     // MARK: - every frame
 
@@ -422,7 +436,14 @@ final class HomeScene {
             look = lookGoal > look ? min(lookGoal, look + step) : max(lookGoal, look - step)
             applyLook()
         }
-        _ = updateRig(dt)
+        // In front of the TV the framing follows the card every frame (no easing lag).
+        if closeUpOn, tween == nil, case .tv(let id) = focus, let u = tvUnits.first(where: { $0.id == id }) {
+            closeUp(u)
+            rig = goal
+            placeCamera()
+        } else {
+            _ = updateRig(dt)
+        }
         for (id, u) in lamps {
             if let s = store.lights[id] { u.apply(s) }
             _ = u.update(dt)

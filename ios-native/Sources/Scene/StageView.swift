@@ -15,7 +15,7 @@ final class SceneBox {
 
 /// The 3D home behind the card: full screen and never resized. As the card is pulled up the view
 /// is scaled and moved (from the card's live position) into the strip above it; in front of the
-/// TV that strip shows the TV and the wall around it, its edges fading out softly.
+/// TV the camera itself frames the TV and its wall into whatever room the card leaves.
 struct StageView: View {
     var size: CGSize
     var safeTop: CGFloat
@@ -52,6 +52,7 @@ struct StageView: View {
         .onChange(of: scheme, initial: true) { box.scene?.lookGoal = scheme == .light ? 1 : 0 }
         .onChange(of: card.route, initial: true) { applyFocus() }
         .onChange(of: size, initial: true) { resize() }
+        .onChange(of: card.top, initial: true) { box.scene?.cardTop = card.top }
         .accessibilityLabel("The 3D view of \(store.plan.name)")
     }
 
@@ -149,24 +150,19 @@ struct StageView: View {
     /// moved into the strip between the Dynamic Island and the card, in step with the card.
     private func framing() -> Framing {
         let full = CGRect(origin: .zero, size: size)
-        let p = min(1, max(0, card.progress))
-        guard p > 0.0005, let scene = box.scene, let r = scene.restRect() else { return Framing(clip: full) }
+        guard let scene = box.scene else { return Framing(clip: full) }
+        // In front of the TV the camera itself frames the strip (HomeScene.cardTop): no scaling.
+        let p = min(1, max(0, card.progress)) * (1 - scene.tvness)
+        guard p > 0.0005, let r = scene.restRect() else { return Framing(clip: full) }
         let side: CGFloat = 12
         let miniTop = safeTop + 4, miniBottom = CardMetrics.expandedTop - 6
         let mw = max(10, size.width - side * 2), mh = max(10, miniBottom - miniTop)
-        let tv = scene.tvness
         let fit = mh * 0.94 / r.height
-        // In front of the TV the strip keeps the wall and cabinet around the screen (the picture is
-        // only fitted by height), so it reads as a small view of the room, not a cut-out.
-        let s1 = min(1, fit, mw * 0.96 / r.width + (fit - mw * 0.96 / r.width) * tv)
+        let s1 = min(1, fit, mw * 0.96 / r.width)
         let s = 1 + (s1 - 1) * p
         let R = CGPoint(x: r.midX, y: r.midY)
         let M = CGPoint(x: size.width / 2, y: (miniTop + miniBottom) / 2)
         let C = CGPoint(x: R.x + (M.x - R.x) * p, y: R.y + (M.y - R.y) * p)
-        let k = p * tv
-        let window = CGRect(x: M.x - mw / 2, y: miniTop, width: mw, height: mh)
-        let clip = CGRect(x: full.minX + (window.minX - full.minX) * k, y: full.minY + (window.minY - full.minY) * k,
-                          width: full.width + (window.width - full.width) * k, height: full.height + (window.height - full.height) * k)
-        return Framing(scale: s, offset: CGSize(width: C.x - R.x * s, height: C.y - R.y * s), clip: clip, radius: 22 * k, feather: 14 * k)
+        return Framing(scale: s, offset: CGSize(width: C.x - R.x * s, height: C.y - R.y * s), clip: full)
     }
 }
