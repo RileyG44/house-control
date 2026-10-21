@@ -94,10 +94,13 @@ fun AllAppsOverlay(apps: List<TvApp>) {
     }
 }
 
-/** Pairing: scan with the phone camera, open the link, add it to the Home Screen. */
+/** House Control's panel on the Dell hub. The QR code opens it on the phone. */
+private const val HOUSE_CONTROL_URL = "http://192.168.0.127:8766"
+
+/** Points the phone at House Control, whose remote drives this TV. */
 @Composable
 fun PairOverlay(onClose: () -> Unit) {
-    val url = remember { Graph.server.pairingUrl() }
+    val url = HOUSE_CONTROL_URL
     val qr = remember(url) { qrBitmap(url, 480).asImageBitmap() }
     val done = remember { FocusRequester() }
     LaunchedEffect(Unit) {
@@ -107,15 +110,15 @@ fun PairOverlay(onClose: () -> Unit) {
     Box(Modifier.fillMaxSize().background(Palette.Bg.copy(alpha = .96f)), contentAlignment = Alignment.Center) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(44.dp)) {
             Box(Modifier.size(220.dp).clip(RoundedCornerShape(18.dp)).background(Color.White).padding(14.dp)) {
-                Image(qr, "Pairing code", Modifier.fillMaxSize(), filterQuality = FilterQuality.None)
+                Image(qr, "House Control link", Modifier.fillMaxSize(), filterQuality = FilterQuality.None)
             }
             Column(Modifier.width(360.dp)) {
-                Text("Use your phone as the remote", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text("Control this TV from House Control", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 Spacer(Modifier.height(16.dp))
                 listOf(
                     "Open your phone’s camera and point it at this code.",
-                    "Tap the link. Your phone becomes the remote for this TV.",
-                    "In Safari, tap Share → Add to Home Screen for one-tap access.",
+                    "Tap the link to open House Control’s panel.",
+                    "Open the TV remote there, or use the House Control app.",
                 ).forEachIndexed { i, step ->
                     Row(Modifier.padding(bottom = 10.dp)) {
                         Text("${i + 1}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFFA0D7FF), modifier = Modifier.width(20.dp))
@@ -123,7 +126,7 @@ fun PairOverlay(onClose: () -> Unit) {
                     }
                 }
                 Spacer(Modifier.height(6.dp))
-                Text(url.substringBefore("?"), fontSize = 10.sp, color = Palette.Tertiary)
+                Text(url, fontSize = 10.sp, color = Palette.Tertiary)
                 Spacer(Modifier.height(22.dp))
                 Surface(
                     onClick = onClose,

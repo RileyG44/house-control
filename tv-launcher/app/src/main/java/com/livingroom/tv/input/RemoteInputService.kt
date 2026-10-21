@@ -86,7 +86,7 @@ class RemoteInputService : AccessibilityService() {
                 fontFeatureSettings = "tnum"
                 setPadding(0, (6 * d).toInt(), 0, (4 * d).toInt())
             })
-            addView(text("Enter this code in the Living Room app", 14f, 0x99EBEBF5.toInt()))
+            addView(text("Enter this code in House Control", 14f, 0x99EBEBF5.toInt()))
         }
         val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
