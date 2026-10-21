@@ -137,9 +137,24 @@ and the iOS 26 default glass background (no custom background that would kill th
   it away (chevron rotates, content collapses with a spring; folded state kept per room in
   UserDefaults, matching what the web panel stores where practical).
 - **Tiles**: lamps in a two-column grid, AC and TV as full-width rows; on tiles get a warm tint in
-  light mode / glow in dark. Tap a lamp tile toggles it; tap its label area or long-press-release
-  opens its page. AC tile: mode, current/target temperature, power. TV tile: app logo, "Netflix ·
-  title" or "Off", power.
+  light mode / glow in dark. AC tile: mode, current/target temperature, power. TV tile: app logo,
+  "Netflix · title" or "Off", power. Riley (2026-10-21):
+  - **Tap** a tile = switch it on/off (lamp, AC power, TV wake/sleep).
+  - **Slide sideways** across a lamp tile sets its brightness directly (the tile's fill shows the level,
+    a tick every 5 %, sliding from off turns it on, commands coalesced); across the AC tile it sets the
+    target (1° per ~24 pt, a tick per step, the value shown big while sliding). The axis is decided after
+    ~8 pt: mostly vertical lets the card scroll.
+  - **Press and hold** (medium haptic) then let go without moving = the device's page; hold then drag =
+    reorder (below).
+- **Scenes of your own**: a **+ New** chip ends the scenes row. A new scene captures every lamp as it is
+  now (on/off, brightness, white temperature or colour) and, with "Include the AC", the AC (`on`, `mode`,
+  `target`, `fan`); it gets a name and an icon from the set shared with the web panel (sun, bright, dim,
+  sofa, film, tv, moon, bed, sparkles, leaf, kitchen, dining, bath, office, heat, cool, power; mapped to
+  SF Symbols here, lucide there). Saved into the plan's ordered `scenes` with `savePlan`
+  (`{"id":"custom-<slug>-<4 hex>","name","icon","lights":{"<id>":{…}},"acs":{"<id>":{…}}}`, one entry
+  per lamp, no `"*"`, so web/src/store.js `applyScene` plays it). Holding a scene chip offers Edit (name,
+  icon, take the lamps as they are now, include the AC) and Delete; the built-in ones can be edited and
+  deleted too.
 - **Reorder** (rooms and tiles): long-press (~0.38 s) lifts (scale 1.04, shadow, medium haptic),
   drag 1:1, others slide out of the way (spring), tick on each slot change, settle with a short
   spring; tiles move only within their room; rooms reorder as whole sections (collapse them while
@@ -163,14 +178,15 @@ Top to bottom (docs/tv-remote.md and docs/card-sheet.md):
    scrubber extrapolated from `position` + `at` (`TimelineView(.animation)`), a time bubble while
    dragging, tick every 10 %, seek on release (optimistic). Not seekable → plain progress. When an
    app is open but nothing reports playing: the "Now on" strip with the app logo.
-3. **Swipe pad + side buttons**: a large rounded pad beside a column of round buttons (Home above
-   Back, Play/Pause, Mute) and an **upright volume** control (vertical capsule: + / level / −,
-   drag to set, hold repeats), matching the web's current layout (commit e221e5e / 03595e0,
-   `web/src/tv/remote.js`). The pad is a UIKit view (`UIViewRepresentable`) so its touches never
-   start the sheet drag: tap (< 10 px, < 500 ms) = `ok`; swipe starts at 24 px, one step then one
-   per 44 px (max 8), a release over 1.2 px/ms adds 1–2; long press sends nothing. Halo: a ring
-   expanding from the tap point; for swipes a glow travelling to the edge in the swipe direction.
-   `UISelectionFeedbackGenerator` tick on every tap and step (keyboard-like).
+3. **Direction pad + side buttons** (Riley, 2026-10-21: "replace the swipe navigation panel with one like
+   Google's Chromecast remote, the circle with the selection button in the center"): one big glass disc
+   (~250 pt) with four chevron zones at its rim and a round **OK** in the middle (40 % of the disc). A press
+   in a rim quarter is that direction, picked by its angle from the centre; a thin ring between OK and the
+   rim does nothing; no swiping at all. Held, an arrow repeats after 300 ms every 120 ms. The pressed
+   quarter lights up; a selection tick with each press and repeat, a firmer tap for OK. Its touches never
+   start the sheet's drag (an immediate UIKit recognizer). Beside it: a column of round buttons (Home above
+   Back, Play/Pause, Mute) and the **upright volume** (vertical capsule: + / level / −, drag to set, hold
+   repeats).
 4. **Apps**: horizontally scrolling glass tiles with the brand logos, drawn natively (port
    `web/src/tv/apps.js` shapes to SwiftUI `Canvas`/`Path`, no image downloads); running app ringed.
    Tap = `open` (wakes the TV), optimistic "Opening Netflix…".
@@ -198,4 +214,61 @@ any/dark appearances) mirroring the tokens at the top of `web/src/style.css`.
 
 ## Status
 
-Not built yet.
+Built (October 2026) in `ios-native/` (XcodeGen `project.yml`, Swift 6, iOS 26, no package dependencies,
+no entitlements), signed with team `PMJ8NUCVG3` (a free personal team: its profiles last 7 days).
+`scripts/build-ios-native.sh` generates, builds, installs on the iPhone connected by cable and launches.
+
+What is where:
+
+- `Sources/Hub/HubClient.swift`: the two addresses (LAN, then Tailscale; the last good one first; editable
+  under the card's ⋯ → Hub addresses), reconnect with backoff, re-pick on `scenePhase` and network path
+  changes, `/api/events` read with `URLSession.bytes` while the app is active.
+- `Sources/Model/`: `Plan` (the plan kept as JSON so a save writes back every key; normalised like
+  config.js; walls split like house.js), `HomeStore` (optimistic lamp / AC commands, one in flight per
+  device and the rest merged, roll-back with an error tick and a toast; tile order, room order and scenes
+  saved with `savePlan` 0.7 s after the last change, only ever onto a plan read from the hub in this
+  session), `TVStore` (state, held optimistic fields, a queue per TV that drops a held key's backlog,
+  search).
+- `Sources/Scene/`: the RealityKit model built from the plan once per plan (house, all 30 furniture
+  builders, merged into one mesh per material), lamps with their glow and a real light each (RealityKit's
+  eight, the moon included), the AC's LED, flap and a wash of the mode's colour (the moving air streaks of
+  the web are a soft translucent fan here), the TV's picture drawn from the app logos (`ImageRenderer`)
+  with a 0.3 s cross-fade, image-based light blended between the dark and light looks, the camera rig of
+  world.js (orbit, pinch, room / AC focus, the 0.7 s fly to 0.9 m in front of the TV with the near plane
+  pushed past what stands between). The card's progress scales and moves the full-screen `RealityView`
+  into the strip under the Dynamic Island; in front of the TV the strip is a rounded 2:1 window.
+- `Sources/UI/`: the sheet (two custom detents, `presentationBackgroundInteraction`, the iOS 26 glass), a
+  probe that reads the sheet's presentation layer every frame (so the model follows the system spring
+  too), the header with glass buttons, scenes (and scenes of your own), rooms that fold and tiles that
+  switch, slide and reorder, room ordering, the light / AC / TV / scene / hub pages. iOS 26 floats a
+  partial sheet higher than its detent height says; the app measures where the card settles once per
+  launch and keeps the correction (`card.restFix` / `card.expandedFix`).
+
+Checked on Riley's iPhone 15 Pro Max (iOS 27.2), from screenshots taken with
+`xcrun devicectl device capture screenshot` (no simulator is installed here):
+
+- It installs and launches; it finds the hub on the Wi-Fi and shows the live state (5 of 5 lights on,
+  their real colours, the AC on Auto 72°, the TV and its app).
+- The studio renders in RealityKit with the lamps lit in their colours, the AC's wash, the TV showing the
+  running app's picture; dark and light looks; the card at rest and pulled up with the model in the strip
+  (the sheet's position read every frame through the system's spring, logged on the device); the card
+  stops at `safeTop + 92` after the measured correction.
+- The light and AC pages (the camera on the room / the AC), and the TV page (it renders; its first
+  version, with the swipe pad, before the direction pad replaced it).
+- Riley used the build on the phone while it was being made (rooms folded, the look switched), so taps,
+  folding and the appearance button work.
+
+Not checked (the phone was disconnected from the Mac for the last part of the work, and touches can't be
+driven from here):
+
+- The direction pad, sliding across tiles, tap-to-switch / hold-to-open, scenes of your own (new, edit,
+  delete), tile and room reordering with their haptics, and that the order and scenes reach the web panel
+  — all built, none seen on the phone. Nothing was sent to the real devices or saved to the hub from here.
+- The TV close-up flight and its 2:1 window on the phone (the fix that links the TV before flying landed
+  after the last screenshot), seeking and now playing against something that reports over Cast, search
+  results, app launches.
+- Frame rate: debug builds write it every 2 s to `Documents/frames.txt` in the app's container
+  (`xcrun devicectl device copy from --domain-type appDataContainer --domain-identifier
+  dev.riley.HouseControl --source Documents --destination …`); not read yet.
+- The scene format: colours are written as `"#rrggbb"` strings, which is how the hub and the store keep a
+  lamp's colour; `[r, g, b]` (0–255) is read too.
