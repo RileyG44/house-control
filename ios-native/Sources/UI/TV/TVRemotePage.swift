@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The TV's remote, pushed inside the card (docs/tv-remote.md, docs/card-sheet.md): what's on,
-/// the swipe pad with the keys and an upright volume beside it, the apps, and a title search.
+/// the direction pad with the keys and an upright volume beside it, the apps, and a title search.
 struct TVRemotePage: View {
     let id: String
     @Environment(HomeStore.self) private var store
@@ -89,7 +89,7 @@ struct TVRemotePage: View {
         }
     }
 
-    // MARK: - the pad, its keys and the volume
+    // MARK: - the direction pad, its keys and the volume
 
     private func remote(_ d: TVDevice?, on: Bool, available: Bool) -> some View {
         HStack(alignment: .center, spacing: 12) {
@@ -99,8 +99,8 @@ struct TVRemotePage: View {
                 KeyButton(symbol: "playpause", label: "Play or pause") { key("playpause") }
                 KeyButton(symbol: d?.muted == true && on ? "speaker.slash.fill" : "speaker.slash", label: "Mute", active: d?.muted == true && on) { key("mute") }
             }
-            SwipePad(enabled: available && on) { key($0) }
-                .frame(height: 268)
+            DPad(enabled: available && on, onKey: { key($0) }, size: 250)
+                .frame(maxWidth: .infinity)
             VolumeColumn(level: d?.volume, max: d?.volumeMax ?? 25, muted: d?.muted == true, enabled: on && d?.volume != nil,
                          onStep: { key($0 > 0 ? "volup" : "voldown") },
                          onLevel: { level in Task { await tv.act(id, ["action": .string("volume"), "level": .number(Double(level))]) } })
@@ -236,7 +236,7 @@ struct VolumeColumn: View {
             }
             RepeatKey(symbol: "minus", label: "Volume down") { onStep(-1) }
         }
-        .frame(width: 50, height: 268)
+        .frame(width: 50, height: 250)
         .opacity(enabled ? 1 : 0.45)
         .allowsHitTesting(enabled)
         .accessibilityElement(children: .contain)

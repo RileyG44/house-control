@@ -33,6 +33,14 @@ struct LiftGesture: UIGestureRecognizerRepresentable {
     }
 }
 
+/// A tile held and dragged is not also tapped: taps are ignored from the lift until shortly after the drop.
+@MainActor
+enum TileGuard {
+    static var lifted = false
+    static var droppedAt = Date.distantPast
+    static var allowsTap: Bool { !lifted && Date().timeIntervalSince(droppedAt) > 0.35 }
+}
+
 /// Where each tile of a room goes: lamps two to a row, the AC and the TV across the whole width.
 enum TileLayout {
     static let gap: CGFloat = 10
@@ -141,6 +149,7 @@ struct RoomSection: View {
     // MARK: - dragging
 
     private func lift(_ tile: Tile, at p: CGPoint, frame: CGRect) {
+        TileGuard.lifted = true
         Haptics.medium()
         startOrder = tiles.map(\.id)
         dragOrder = startOrder
@@ -177,6 +186,8 @@ struct RoomSection: View {
     }
 
     private func drop(_ tile: Tile, done: Bool) {
+        TileGuard.lifted = false
+        TileGuard.droppedAt = Date()
         guard lifted == tile.id else { return }
         let order = done ? (dragOrder ?? startOrder) : startOrder
         let still = hypot(finger.x - startFinger.x, finger.y - startFinger.y) < 10
@@ -188,9 +199,13 @@ struct RoomSection: View {
             lifted = nil
             dragOrder = nil
         }
-        // A lamp held and let go where it was opens its page.
-        if done, still, order == startOrder, tile.kind == .light, store.lightConfig(tile.deviceID)?.capabilities.isEmpty == false {
-            card.open(.light(tile.deviceID))
+        // Held and let go where it was: the device's page.
+        if done, still, order == startOrder {
+            switch tile.kind {
+            case .light: card.open(.light(tile.deviceID))
+            case .ac: card.open(.ac(tile.deviceID))
+            case .tv: card.open(.tv(tile.deviceID))
+            }
         }
     }
 }

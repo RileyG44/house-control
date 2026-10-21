@@ -254,6 +254,30 @@ button. A paired Mac also puts the code on its screen for you, and **Share code*
 
 The session is kept in the iPhone's Keychain and never leaves the device.
 
+### Native iPhone app (SwiftUI)
+
+`ios-native/` is a second, fully native iPhone app (display name **House**, bundle id `dev.riley.HouseControl`,
+iOS 26) that talks to the hub on your Mac instead of showing the panel in a web view: SwiftUI with Liquid Glass,
+the studio rebuilt in RealityKit from the plan, the controls card as a real sheet with two detents (the model shrinks
+under the Dynamic Island as it is pulled up), light / dark / automatic, rooms that fold away and tiles and rooms that
+can be held and dragged into order (saved to the plan, so the web panel shows the same order), light and AC pages,
+and the TV remote with now playing, the swipe pad, the volume, the apps and a title search. Design and status:
+[docs/native-ios.md](docs/native-ios.md).
+
+It needs the hub (`hub/house.py`) running on the Mac and reaches it at `http://192.168.0.188:8766` on the Wi-Fi, or
+over Tailscale; both addresses can be changed from the card's **⋯** menu → **Hub addresses**. Without the hub it
+shows the bundled studio plan.
+
+```bash
+echo 'DEVELOPMENT_TEAM = ABCDE12345' > ios-native/Config/Local.xcconfig   # your team, once
+./scripts/build-ios-native.sh          # build, install on the iPhone connected by cable, launch
+./scripts/build-ios-native.sh build    # build only
+```
+
+It has no entitlements, so a free personal team signs it too (such a build stops opening after 7 days: run the
+script again). The first time, the iPhone asks to trust the developer (Settings → General → VPN & Device
+Management) and whether House may use the local network (allow it, or it can only reach the hub over Tailscale).
+
 ## Widgets
 
 <p align="center">

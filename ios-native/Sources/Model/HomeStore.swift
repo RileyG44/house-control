@@ -79,6 +79,11 @@ final class HomeStore {
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     @ObservationIgnored private var planTask: Task<Void, Never>?
+    /// Whether the plan shown came from the hub in this session (only such a plan is saved back,
+    /// never the bundled one or an old copy, which would undo changes made elsewhere).
+    @ObservationIgnored private var planFresh = false
+    /// The scenes as edited here, until the hub has them.
+    @ObservationIgnored private var localScenes: [JSON]?
 
     private struct Outbox { var pending: [String: JSON]?; var before: [String: JSON] = [:] }
 
@@ -109,11 +114,14 @@ final class HomeStore {
         planTask = Task {
             guard let next = try? await hub.plan(), !Task.isCancelled else { return }
             try? next.raw.data().write(to: Self.cacheURL)
+            planFresh = true
             adoptPlan(next, first: false)
         }
     }
 
-    private func adoptPlan(_ next: Plan, first: Bool) {
+    private func adoptPlan(_ incoming: Plan, first: Bool) {
+        // Scenes edited here and not yet saved stay as edited.
+        let next = localScenes.map { incoming.with(scenes: $0) } ?? incoming
         let rebuild = first || next.modelKey != plan.modelKey
         plan = next
         if rebuild { modelRev += 1 }
@@ -207,12 +215,22 @@ final class HomeStore {
         saveTask = Task {
             try? await Task.sleep(for: .milliseconds(700))
             guard !Task.isCancelled else { return }
-            let config = plan.saving(tileOrder: tileOrder, roomOrder: roomOrder)
+            if !planFresh {
+                guard let next = try? await hub.plan() else {
+                    show("The change wasn’t saved: the hub on the Mac can’t be reached", error: true)
+                    saveTask = nil
+                    return
+                }
+                planFresh = true
+                adoptPlan(next, first: false)   // keeps the order shown here (a save is under way)
+            }
+            let config = plan.saving(tileOrder: tileOrder, roomOrder: roomOrder, scenes: localScenes)
             do {
                 _ = try await hub.post("api/call", .object(["type": .string("savePlan"), "config": config, "client": .string(hub.clientID)]))
                 if let saved = try? Plan(json: config) { plan = saved }
+                localScenes = nil
             } catch {
-                show("The new order wasn’t saved: \(error.localizedDescription)", error: true)
+                show("The change wasn’t saved: \(error.localizedDescription)", error: true)
                 Haptics.error()
             }
             saveTask = nil
@@ -294,6 +312,77 @@ final class HomeStore {
             if !patch.isEmpty { writeAC(a.id, patch, remote: false) }
         }
         scene = id
+    }
+
+    // MARK: - scenes of your own
+
+    /// What every lamp (and, if asked, the AC) is doing now, as a scene's `lights` / `acs`
+    /// (the shape web/src/store.js `applyScene` reads: one entry per lamp, no "*").
+    func captureLights() -> JSON {
+        var out: [String: JSON] = [:]
+        for l in plan.lights {
+            guard let s = lights[l.id] else { continue }
+            guard s.on else { out[l.id] = .object(["on": .bool(false)]); continue }
+            var e: [String: JSON] = ["on": .bool(true)]
+            if l.dimmable { e["brightness"] = .number((s.brightness * 100).rounded() / 100) }
+            if let c = s.color, l.hasColor { e["color"] = .string(c) }
+            else if l.hasTemp { e["temp"] = .number(s.temp.rounded()) }
+            out[l.id] = .object(e)
+        }
+        return .object(out)
+    }
+
+    func captureACs() -> JSON {
+        var out: [String: JSON] = [:]
+        for a in plan.acs {
+            guard let s = acs[a.id] else { continue }
+            out[a.id] = .object(["on": .bool(s.on), "mode": .string(s.mode), "target": .number(Double(s.target)), "fan": .string(s.fan)])
+        }
+        return .object(out)
+    }
+
+    /// Saves a new scene (`id` nil) or changes one; `capture`: take what the lamps (and the AC,
+    /// with `includeAC`) do now, otherwise keep what the scene already sets.
+    @discardableResult
+    func saveScene(id: String?, name: String, icon: String, capture: Bool, includeAC: Bool) -> String {
+        var list = plan.scenesJSON
+        let index = id.flatMap { i in list.firstIndex { $0["id"]?.string == i } }
+        var entry: [String: JSON] = index.flatMap { list[$0].object } ?? [:]
+        let sceneID = id ?? Self.newSceneID(name)
+        entry["id"] = .string(sceneID)
+        entry["name"] = .string(name.isEmpty ? "Scene" : name)
+        entry["icon"] = .string(icon)
+        if capture || index == nil {
+            entry["lights"] = captureLights()
+            entry["acs"] = includeAC && !plan.acs.isEmpty ? captureACs() : nil
+        } else if !includeAC {
+            entry["acs"] = nil
+        } else if entry["acs"] == nil, !plan.acs.isEmpty {
+            entry["acs"] = captureACs()
+        }
+        if let index { list[index] = .object(entry) } else { list.append(.object(entry)) }
+        setScenes(list)
+        if index == nil { scene = sceneID }
+        return sceneID
+    }
+
+    func deleteScene(_ id: String) {
+        setScenes(plan.scenesJSON.filter { $0["id"]?.string != id })
+        if scene == id { scene = nil }
+    }
+
+    private func setScenes(_ list: [JSON]) {
+        localScenes = list
+        plan = plan.with(scenes: list)
+        saveSoon()
+    }
+
+    static func newSceneID(_ name: String) -> String {
+        let slug = name.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }
+            .reduce(into: "") { s, c in if !(c == "-" && s.last == "-") { s.append(c) } }
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        let hex = String(format: "%04x", Int.random(in: 0..<65536))
+        return "custom-\(slug.isEmpty ? "scene" : String(slug.prefix(24)))-\(hex)"
     }
 
     // MARK: - air conditioners

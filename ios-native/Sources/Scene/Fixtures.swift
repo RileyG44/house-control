@@ -211,6 +211,7 @@ final class ACUnit {
     private var swing = "swing"
     private var angle: Float = 38
     private var clock: Float = 0
+    private var shownMaterial: (RGB, Float)?
     var hasLight = true
 
     static let wallRot: [String: Float] = ["north": 0, "south": .pi, "west": .pi / 2, "east": -.pi / 2]
@@ -275,21 +276,27 @@ final class ACUnit {
         let target = swing == "swing" ? 38 + sin(clock * 0.9) * 26 : (Self.swingAngle[swing] ?? 38)
         ease(&angle, target, dt, 4)
         flapPivot.orientation = simd_quatf(angle: (angle * 0.9 + 10) * .pi / 180 * power, axis: [1, 0, 0])
-        if let led {
-            var m = PhysicallyBasedMaterial()
-            m.baseColor = .init(tint: UIColor(rgb: RGB(hex: "#30343c")))
-            m.emissiveColor = .init(color: UIColor(rgb: color))
-            m.emissiveIntensity = power * 3
-            led.model?.materials = [m]
-        }
-        if let air {
-            air.isEnabled = power > 0.01
-            if power > 0.01 {
+        // Materials change only when the colour or the power does; the air's pulse is an opacity.
+        let key = (color, (power * 200).rounded())
+        if shownMaterial == nil || shownMaterial!.0 != key.0 || shownMaterial!.1 != key.1 {
+            shownMaterial = key
+            if let led {
+                var m = PhysicallyBasedMaterial()
+                m.baseColor = .init(tint: UIColor(rgb: RGB(hex: "#30343c")))
+                m.emissiveColor = .init(color: UIColor(rgb: color))
+                m.emissiveIntensity = power * 3
+                led.model?.materials = [m]
+            }
+            if let air {
                 var m = UnlitMaterial(color: UIColor(rgb: color))
-                m.blending = .transparent(opacity: .init(floatLiteral: (0.1 + 0.05 * sin(clock * 2.2)) * power))
+                m.blending = .transparent(opacity: 1.0)
                 m.faceCulling = .none
                 air.model?.materials = [m]
             }
+        }
+        if let air {
+            air.isEnabled = power > 0.01
+            if power > 0.01 { air.components.set(OpacityComponent(opacity: (0.1 + 0.05 * sin(clock * 2.2)) * power)) }
         }
         if hasLight, var c = wash.components[PointLightComponent.self] {
             c.color = UIColor(rgb: color)

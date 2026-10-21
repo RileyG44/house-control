@@ -88,7 +88,14 @@ struct LightPatch: Sendable, Equatable {
         on = json?["on"]?.bool
         brightness = json?["brightness"]?.double
         temp = json?["temp"]?.double
-        if let c = json?["color"] { color = .some(c.string) } else { color = nil }
+        // A colour as "#rrggbb", or as [r, g, b] (0…255).
+        if let c = json?["color"] {
+            if let a = c.array?.compactMap(\.double), a.count >= 3 {
+                color = .some(RGB(a[0] / 255, a[1] / 255, a[2] / 255).hex)
+            } else {
+                color = .some(c.string)
+            }
+        } else { color = nil }
     }
 
     func merged(over base: LightPatch) -> LightPatch {
@@ -225,6 +232,7 @@ struct Plan: Sendable {
     var modelKey: String {
         guard case .object(var o) = raw else { return "" }
         o["tileOrder"] = nil
+        o["scenes"] = nil
         if case .array(let r)? = o["rooms"] {
             o["rooms"] = .array(r.sorted { ($0["id"]?.string ?? "") < ($1["id"]?.string ?? "") })
         }
@@ -232,9 +240,10 @@ struct Plan: Sendable {
     }
 
     /// The plan to save with a new tile order and room order; every other key as it came.
-    func saving(tileOrder: [String], roomOrder: [String]) -> JSON {
+    func saving(tileOrder: [String], roomOrder: [String], scenes: [JSON]? = nil) -> JSON {
         guard case .object(var o) = raw else { return raw }
         o["tileOrder"] = .array(tileOrder.map(JSON.string))
+        if let scenes { o["scenes"] = .array(scenes) }
         if case .array(let list)? = o["rooms"] {
             let rank = Dictionary(uniqueKeysWithValues: roomOrder.enumerated().map { ($1, $0) })
             let sorted = list.enumerated().sorted { a, b in
@@ -245,6 +254,16 @@ struct Plan: Sendable {
             o["rooms"] = .array(sorted)
         }
         return .object(o)
+    }
+
+    /// The plan's scenes as written (an ordered list).
+    var scenesJSON: [JSON] { raw["scenes"]?.array ?? [] }
+
+    /// The same plan with other scenes.
+    func with(scenes: [JSON]) -> Plan {
+        guard case .object(var o) = raw else { return self }
+        o["scenes"] = .array(scenes)
+        return (try? Plan(json: .object(o))) ?? self
     }
 
     /// The smallest room a point of the floor is in.

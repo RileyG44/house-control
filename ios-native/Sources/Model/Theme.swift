@@ -115,13 +115,29 @@ func lampSymbol(_ type: String, plug: Bool = false) -> String {
     }
 }
 
+/// The scene icons the web panel and this app share (the web draws them with lucide).
+let sceneIcons = ["sun", "bright", "dim", "sofa", "film", "tv", "moon", "bed", "sparkles", "leaf",
+                  "kitchen", "dining", "bath", "office", "heat", "cool", "power"]
+
 func sceneSymbol(_ icon: String) -> String {
     switch icon {
     case "sun": return "sun.max"
+    case "bright": return "sun.max.fill"
+    case "dim": return "sun.min"
     case "sofa": return "sofa"
-    case "moon": return "moon"
-    case "power": return "power"
     case "film": return "film"
+    case "tv": return "tv"
+    case "moon": return "moon"
+    case "bed": return "bed.double"
+    case "sparkles": return "sparkles"
+    case "leaf": return "leaf"
+    case "kitchen": return "frying.pan"
+    case "dining": return "fork.knife"
+    case "bath": return "bathtub"
+    case "office": return "desktopcomputer"
+    case "heat": return "flame"
+    case "cool": return "snowflake"
+    case "power": return "power"
     case "door": return "door.left.hand.open"
     default: return "sparkles"
     }

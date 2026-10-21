@@ -391,7 +391,27 @@ final class HomeScene {
 
     // MARK: - every frame
 
+    #if DEBUG
+    private var frameTimes: [Float] = []
+    private var frameLog: [String] = []
+    /// Debug builds note the frame rate every 2 s in Documents/frames.txt (read it with
+    /// `xcrun devicectl device copy from … --domain-type appDataContainer`).
+    private func noteFrame(_ dt: Float) {
+        frameTimes.append(dt)
+        guard frameTimes.reduce(0, +) >= 2 else { return }
+        let avg = frameTimes.reduce(0, +) / Float(frameTimes.count)
+        let worst = frameTimes.max() ?? 0
+        frameLog.append(String(format: "%@ fps %.1f worst %.1f ms frames %d", ISO8601DateFormatter().string(from: Date()), 1 / avg, worst * 1000, frameTimes.count))
+        frameTimes.removeAll()
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appending(path: "frames.txt")
+        try? frameLog.suffix(200).joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+    #endif
+
     func update(dt: Float) {
+        #if DEBUG
+        noteFrame(dt)
+        #endif
         guard let store else { return }
         if look != lookGoal {
             let step = dt / 0.3

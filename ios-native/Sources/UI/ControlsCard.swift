@@ -13,6 +13,7 @@ struct ControlsCard: View {
                     case .light(let id): LightPage(id: id)
                     case .ac(let id): ACPage(id: id)
                     case .tv(let id): TVRemotePage(id: id)
+                    case .scene(let id): ScenePage(id: id)
                     case .settings: SettingsPage()
                     }
                 }
@@ -34,7 +35,7 @@ struct HomeCard: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 CardHeader()
-                if !store.plan.scenes.isEmpty { ScenesRow() }
+                ScenesRow()
                 if card.arrangingRooms {
                     RoomArranger()
                 } else {
@@ -42,7 +43,7 @@ struct HomeCard: View {
                         let tiles = store.tiles(in: room.id)
                         if !tiles.isEmpty { RoomSection(room: room, tiles: tiles) }
                     }
-                    Text("Touch and hold a tile to move it. Hold a light and let go for brightness and colour.")
+                    Text("Tap a tile to switch it, slide across it to dim or set the temperature. Hold and let go for its page; hold and drag to move it.")
                         .font(.footnote)
                         .foregroundStyle(Color.faint)
                         .frame(maxWidth: .infinity)
@@ -63,6 +64,7 @@ struct HomeCard: View {
 /// everything off (or on).
 struct CardHeader: View {
     @Environment(HomeStore.self) private var store
+    @Environment(HubClient.self) private var hub
     @Environment(ThemeStore.self) private var theme
     @Environment(CardModel.self) private var card
     @Environment(\.colorScheme) private var scheme
@@ -80,6 +82,13 @@ struct CardHeader: View {
                     .foregroundStyle(Color.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
+                if case .offline = hub.link {
+                    Label("Hub not reachable · last known state", systemImage: "wifi.slash")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(Color.warm)
+                        .lineLimit(1)
+                        .onTapGesture { card.open(.settings) }
+                } else {
                 HStack(spacing: 6) {
                     Circle()
                         .fill(store.anyOn ? Color.green : Color.idle)
@@ -89,6 +98,7 @@ struct CardHeader: View {
                         .font(.subheadline)
                         .foregroundStyle(Color.muted)
                         .lineLimit(1)
+                }
                 }
             }
             Spacer(minLength: 4)
@@ -173,9 +183,10 @@ struct CardHeader: View {
     }
 }
 
-/// The plan's scenes, one tap each.
+/// The plan's scenes, one tap each; held, one can be edited or deleted; + makes a new one.
 struct ScenesRow: View {
     @Environment(HomeStore.self) private var store
+    @Environment(CardModel.self) private var card
 
     var body: some View {
         ScrollView(.horizontal) {
@@ -200,7 +211,29 @@ struct ScenesRow: View {
                         }
                         .buttonStyle(active ? AnyPrimitiveButtonStyle(.glassProminent) : AnyPrimitiveButtonStyle(.glass))
                         .buttonBorderShape(.roundedRectangle(radius: 16))
+                        .contextMenu {
+                            Button("Edit", systemImage: "pencil") { card.open(.scene(s.id)) }
+                            Button("Delete", systemImage: "trash", role: .destructive) {
+                                Haptics.medium()
+                                withAnimation(.snappy) { store.deleteScene(s.id) }
+                            }
+                        }
                     }
+                    Button {
+                        Haptics.light()
+                        card.open(.scene(nil))
+                    } label: {
+                        VStack(spacing: 5) {
+                            Image(systemName: "plus").font(.system(size: 18, weight: .semibold))
+                            Text("New").font(.footnote.weight(.semibold))
+                        }
+                        .frame(minWidth: 52)
+                        .padding(.vertical, 6)
+                        .foregroundStyle(Color.ink)
+                    }
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.roundedRectangle(radius: 16))
+                    .accessibilityLabel("New scene")
                 }
             }
         }
