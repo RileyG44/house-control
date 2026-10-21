@@ -4,15 +4,16 @@
 import * as THREE from 'three';
 import { appInfo, paintBackground, paintMark, SYSTEM } from '../tv/apps.js';
 
-const W = 512;
-const H = 288;
+// Sharp enough for the close-up in front of the TV, where the screen fills the view.
+const W = 1024;
+const H = 576;
 const GLOW = 1.05;    // the screen's emissive intensity when lit
 const SPILL = 0.55;   // the coloured light it throws into the room
 const FADE = 0.3;     // seconds for a cross-fade
 
 export class TvUnit {
   /** `piece`: one of buildFurniture's userData.tvs. */
-  constructor({ index, item, group, screen, box }) {
+  constructor({ index, item, group, screen, box }, { anisotropy = 4 } = {}) {
     this.index = index;
     this.item = item;
     this.group = group;
@@ -28,7 +29,7 @@ export class TvUnit {
     this.ctx.fillRect(0, 0, W, H);
     this.texture = new THREE.CanvasTexture(this.canvas);
     this.texture.colorSpace = THREE.SRGBColorSpace;
-    this.texture.anisotropy = 4;
+    this.texture.anisotropy = anisotropy;
     const m = screen.material;
     m.emissive = new THREE.Color('#ffffff');
     m.emissiveMap = this.texture;
@@ -128,6 +129,16 @@ export class TvUnit {
     }
     this.write();
     return fading || this.level !== before || Math.abs(this.hoverGoal - this.hover) > 0.004;
+  }
+
+  /** The screen's middle and the way it faces (world space), and its size in metres. */
+  face() {
+    this.screen.updateWorldMatrix(true, false);
+    const center = this.screen.localToWorld(new THREE.Vector3(0, this.h / 2 + 0.01, 0.006));
+    const normal = new THREE.Vector3(0, 0, 1).transformDirection(this.screen.matrixWorld);
+    normal.y = 0;
+    normal.normalize();
+    return { center, normal, w: this.w, h: this.h };
   }
 
   /** The top middle of the screen, for the tooltip. */

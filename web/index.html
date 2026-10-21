@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="dark light" />
     <meta name="theme-color" content="#0a0e1a" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
@@ -12,6 +12,19 @@
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <link rel="manifest" href="./manifest.json" />
     <title>House Control</title>
+    <script>
+      // The panel's light or dark look, before the first paint (ui/theme.js takes over).
+      (function () {
+        try {
+          var q = new URLSearchParams(location.search);
+          var mode = (window.__HOUSE_BOOT__ && window.__HOUSE_BOOT__.mode) || q.get('mode') || 'panel';
+          if (mode !== 'panel') return;
+          var choice = q.get('theme') || localStorage.getItem('house.theme') || 'auto';
+          var light = choice === 'light' || (choice !== 'dark' && matchMedia('(prefers-color-scheme: light)').matches);
+          document.documentElement.setAttribute('data-theme', light ? 'light' : 'dark');
+        } catch (e) { /* the dark look */ }
+      })();
+    </script>
     <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body>

@@ -8,13 +8,14 @@ import { icon } from './ui/icons.js';
 import { isNative, isHub, isPhone, post, call, incoming, haptic, CLIENT_ID, listenForPlanChanges } from './bridge.js';
 import { publishWidgets, runWidgetAction } from './widgets.js';
 import { tv } from './tv/client.js';
+import { initTheme, onTheme, resolved } from './ui/theme.js';
 
 const DEMO_PLANS = [
   { id: 'riley', name: 'Riley’s Studio' },
   { id: 'home', name: 'Demo apartment' },
   { id: 'studio', name: 'Demo studio' },
 ];
-const STAGE_INSETS = [62, 50]; // header above, panel overlap below
+const MODEL_GAP = 16; // px between the model and the card's top, at rest
 
 const app = document.getElementById('app');
 if (isNative) document.documentElement.classList.add('native');
@@ -34,14 +35,6 @@ for (const edge of ['top', 'bottom']) {
   if (isPhone && px) document.documentElement.style.setProperty(`--safe-${edge}-preview`, `${px}px`);
 }
 
-// Height of the status bar / Dynamic Island on a phone; 0 everywhere else.
-function safeAreaTop() {
-  const probe = document.body.appendChild(h('div', { style: { position: 'fixed', paddingTop: 'var(--safe-top-preview, env(safe-area-inset-top, 0px))' } }));
-  const top = parseFloat(getComputedStyle(probe).paddingTop) || 0;
-  probe.remove();
-  return top;
-}
-
 function fatal(title, error) {
   console.error(error);
   app.replaceChildren(h('div.fatal', h('h1', title),
@@ -51,6 +44,7 @@ function fatal(title, error) {
 }
 
 async function boot(initialRaw = null) {
+  initTheme();
   let raw;
   try {
     raw = initialRaw || await loadRawConfig();
@@ -179,18 +173,27 @@ function mountHome(raw, { first = false, editing: underEditor = false, grown = f
     onEdit: () => openEditor(),
     onEditPrefetch: () => { if (!isNative) loadEditor().catch(() => {}); },
     onOrder: (order) => saveOrder(m, order),
+    onLayout: () => m.applyInsets?.(),
     editing: underEditor,
     grown,
   });
 
   try {
+    // See-through: the window's own background (or the desktop, on glass) shows behind the
+    // model, so it meets the page's colour exactly and changes with the look.
     world = createWorld(panel.canvas, config, store, {
-      ...(glass && { background: null }),
+      background: null,
+      theme: resolved(),
       onHover: panel.showTooltip,
-      onPick(target) {
+      onPick(target, { mini } = {}) {
+        // The small view over the pulled-up card: a lamp still switches and the AC or the TV
+        // still opens; anywhere else, the card goes down and the view is big again.
+        const device = target && target.kind !== 'room';
+        const same = target?.kind === panel.sheetTarget?.kind && target?.id === panel.sheetTarget?.id;
+        if (mini && (!device || same)) { haptic('tick'); panel.deck.set('rest'); return; }
         if (!target) return;
         if (target.kind === 'light') { haptic('light'); store.toggleLight(target.id); }
-        else if (target.kind === 'ac' || target.kind === 'tv') panel.openSheet(target);
+        else if ((target.kind === 'ac' || target.kind === 'tv') && !same) panel.openSheet(target);
         else if (target.kind === 'room') panel.selectRoom(target.id);
       },
     });
@@ -203,15 +206,21 @@ function mountHome(raw, { first = false, editing: underEditor = false, grown = f
   Object.assign(m, { world, panel, card: panel.card });
 
   panel.attach(world);
-  // On a phone the header sits lower (status bar) but is closer to the model. While the
+  // At rest the model fills the space above the card (below the status bar on a phone);
+  // pulled up, the strip between the top (the Dynamic Island) and the card. While the
   // editor is open it decides where the model is framed.
   m.applyInsets = () => {
     if (m.editing) return;
-    if (isPhone) world.setInsets(50 + safeAreaTop(), 36); else world.setInsets(...STAGE_INSETS);
+    const { rest, expanded, safeTop } = panel.metrics;
+    const h = panel.canvas.clientHeight;
+    if (!h) return;
+    world.setMini({ top: isPhone ? safeTop + 4 : 8, bottom: expanded - 8, side: 14 });
+    world.setInsets(isPhone ? safeTop + 10 : 18, Math.max(0, h - rest) + MODEL_GAP);
   };
   m.applyInsets();
-  const ro = new ResizeObserver(() => (isPhone && !m.editing ? m.applyInsets() : world.resize()));
+  const ro = new ResizeObserver(() => (m.editing ? world.resize() : m.applyInsets()));
   ro.observe(panel.canvas);
+  const offTheme = onTheme((look) => world.setTheme(look));
 
   const show = () => { tv.setVisible(true); if (m.editing) return; world.setRunning(true); world.intro(); };
   const hide = () => { tv.setVisible(false); world.setRunning(false); };
@@ -343,6 +352,7 @@ function mountHome(raw, { first = false, editing: underEditor = false, grown = f
   function dispose() {
     lifetime.abort();
     ro.disconnect();
+    offTheme();
     panel.dispose();
     world.dispose();
     store.dispose();
@@ -401,9 +411,12 @@ async function openEditor() {
   const m = home;
   const session = { m, editor: null, pending: null };
   editing = session;
-  m.editing = true;
-  m.panel.closeSheet();
   haptic('medium');
+  // From a pulled-up card: down first, then into the editor.
+  m.panel.closeSheet();
+  if (m.panel.deck.detent !== 'rest' || m.panel.deck.busy) await m.panel.deck.set('rest');
+  if (editing !== session) return;
+  m.editing = true;
   const grow = canGrow();
   m.card.classList.add('editing');
   if (grow) m.card.classList.add('grow');

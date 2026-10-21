@@ -165,8 +165,8 @@ export function buildHouse(config, camDir) {
   const Hi = Math.min(config.interiorWallHeight, H);
   const { minX, minZ, maxX, maxZ } = config.bounds;
 
-  // Plinth the model stands on.
-  const plinth = box(maxX - minX + 0.7, 0.3, maxZ - minZ + 0.7, mat('#141927', { rough: 0.9 }), { r: 0.12 });
+  // Plinth the model stands on (its own material: its colour follows the light or dark look).
+  const plinth = box(maxX - minX + 0.7, 0.3, maxZ - minZ + 0.7, mat('#141927', { rough: 0.9 }).clone(), { r: 0.12 });
   at(plinth, (minX + maxX) / 2, -0.305, (minZ + maxZ) / 2);
   plinth.receiveShadow = true;
   group.add(plinth);
@@ -314,7 +314,7 @@ export function buildHouse(config, camDir) {
     }
   }
 
-  return { group, floors };
+  return { group, floors, plinth };
 }
 
 // How far along a segment a point lies, in metres from its `from` end.

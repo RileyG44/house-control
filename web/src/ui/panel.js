@@ -1,6 +1,8 @@
-// The control panel that lives in the menu bar popover: header, scenes, rooms,
-// device tiles (in the order they were dragged into) and the detail sheets for a light,
-// an AC or the TV.
+// The control panel that lives in the menu bar popover (and fills the iPhone's screen): the
+// 3D view, and over it one card holding everything else — the home's header, scenes, rooms,
+// device tiles (in the order they were dragged into) and the detail sheets for a light, an
+// AC or the TV. The card is a sheet with two detents (ui/deck.js): pulled up, the model
+// shrinks into the strip above it.
 import * as THREE from 'three';
 import { h, clamp, createSlider, createColorPad, openMenu } from './dom.js';
 import { icon } from './icons.js';
@@ -14,6 +16,8 @@ import { APPS, appInfo, statusOf, glowOf, logoSVG } from '../tv/apps.js';
 import { createPad, createVolume, createSearch } from '../tv/remote.js';
 import { createNowPlaying } from '../tv/nowplaying.js';
 import { createReorder, flip } from './reorder.js';
+import { createDeck } from './deck.js';
+import { cycleTheme, themeChoice, resolved, onTheme } from './theme.js';
 
 const MODE_LABEL = { cool: 'Cool', heat: 'Heat', dry: 'Dry', fan: 'Fan', auto: 'Auto' };
 const FAN_LABEL = { auto: 'Auto', low: 'Low', medium: 'Medium', high: 'High', turbo: 'Turbo' };
@@ -25,6 +29,8 @@ const DIM_GRADIENT = 'linear-gradient(90deg, #4a4f5e 0%, #b9a98c 45%, #ffe2b0 10
 const KELVIN_GRADIENT = 'linear-gradient(90deg, #ff9438 0%, #ffbd7a 30%, #ffe2c2 62%, #dfe9ff 100%)';
 
 const NAVY = new THREE.Color('#17274f');
+const THEME_ICON = { auto: 'themeAuto', light: 'sun', dark: 'moon' };
+const THEME_NAME = { auto: 'Automatic', light: 'Light', dark: 'Dark' };
 const tmp = new THREE.Color();
 const css = (c) => `#${c.getHexString()}`;
 
@@ -40,11 +46,13 @@ function acTemperatureColor(target, cfg) {
 
 /**
  * `onOrder(tileOrder)`: the tiles were dragged into a new order (the plan's `tileOrder`:
- * every tile's key, room by room), for the caller to keep.
+ * every tile's key, room by room), for the caller to keep. `onLayout(metrics)`: where the
+ * card rests and stops when pulled up changed (the window was resized).
  */
-export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEditPrefetch, onOrder, editing = false, grown = false }) {
+export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEditPrefetch, onOrder, onLayout, editing = false, grown = false }) {
   const { state } = store;
   const ui = { room: 'all', sheet: null };
+  let homeDetent = 'rest'; // where the card was on the home page, for when a sheet closes
   let order = config.tileOrder.slice();
   let world = null;
   const roomName = new Map(config.rooms.map((r) => [r.id, r.name]));
@@ -54,7 +62,27 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
   const canvas = h('canvas', { tabindex: -1 });
   const tooltip = h('div.tooltip');
   const homeSub = h('div.home-sub');
-  const power = h('button.round.power', { title: 'Everything on / off', 'aria-label': 'Toggle everything', onclick: toggleEverything }, icon('power', 21, 2.2));
+  const power = h('button.round.power', { title: 'Everything on / off', 'aria-label': 'Toggle everything', onclick: toggleEverything }, icon('power', isPhone ? 23 : 21, 2.2));
+  // Light, dark, or the system's (Auto): the next one in turn, named for a moment.
+  const themeBtn = h('button.round.theme', { onclick: () => { haptic('light'); cycleTheme(); } });
+  const themeHint = h('div.theme-hint', { 'aria-live': 'polite' });
+  let themeShown = null;
+  function showTheme(look, choice, announce) {
+    themeBtn.dataset.choice = choice;
+    if (themeShown !== choice) themeBtn.replaceChildren(icon(THEME_ICON[choice], 18, 2));
+    themeBtn.title = `Appearance: ${THEME_NAME[choice]}`;
+    themeBtn.setAttribute('aria-label', `Appearance: ${THEME_NAME[choice]}. Change`);
+    if (announce && themeShown !== null && themeShown !== choice) {
+      themeHint.replaceChildren(icon(THEME_ICON[choice], 14, 2.2),
+        choice === 'auto' ? h('span', 'Automatic', h('small', ` · ${look === 'light' ? 'light' : 'dark'} now`)) : h('span', `${THEME_NAME[choice]} appearance`));
+      themeHint.classList.add('show');
+      clearTimeout(themeHint.timer);
+      themeHint.timer = setTimeout(() => themeHint.classList.remove('show'), 1500);
+    }
+    themeShown = choice;
+  }
+  showTheme(resolved(), themeChoice(), false);
+  const offTheme = onTheme((look, choice) => showTheme(look, choice, true));
   // The hub has nothing else to put in the menu: the editor finds new devices itself.
   const gear = isHub ? null : h('button.round', { title: 'Floor plan', 'aria-label': 'Floor plan menu', onclick: () => onMenu(gear) }, icon('settings', 17));
   // Starting to load the editor on press means it is ready when the camera lands.
@@ -68,8 +96,13 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
   const listTitle = h('span.title');
   const grid = h('div.grid');
   const said = h('div.sr-only', { 'aria-live': 'polite' }); // a tile moved with the keyboard
+  // The home's header is the top of the card: name and lights on the left, then the look,
+  // the editor and everything off.
+  const head = h('header.deck-head.deck-grab',
+    h('div.home', h('div.home-name', config.name), homeSub),
+    aiBadge, themeBtn, gear, pencil, power);
   const panel = h('section.panel',
-    scenes, rooms,
+    head, scenes, rooms,
     h('div.list-head', listTitle,
       h('button.pill', { onclick: () => bulk(true) }, 'All on'),
       h('button.pill', { onclick: () => bulk(false) }, 'All off')),
@@ -77,19 +110,56 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
   const sheet = h('section.sheet.hidden');
   sheet.inert = true;
   const toastEl = h('div.panel-toast');
+  const grabber = h('button.grabber.deck-grab', { 'aria-label': 'Show more controls', onclick: () => { haptic('tick'); deck.toggle(); } }, h('span'));
+  const deckEl = h('div.deck', grabber, h('div.deck-pages', panel, sheet));
+  const safeProbe = h('div.safe-probe');
 
   const clip = h('div.card-clip',
     h('div.stage', canvas),
     h('div.tint'),
-    h('header.top',
-      h('div.home', h('div.home-badge', icon('home', 17)),
-        h('div', h('div.home-name', config.name), homeSub)),
-      aiBadge, gear, pencil, power),
-    tooltip, panel, sheet, toastEl);
+    // Only the Windows widget shows it: the strip its frameless window is dragged by.
+    h('header.top'),
+    safeProbe, tooltip, deckEl, themeHint, toastEl);
   // Built under an open editor: already in its editing shape, so nothing animates into it.
   const card = h(`div.card.booting${editing ? '.editing.faded' : ''}${grown ? '.grow' : ''}`, h('div.notch'), clip);
   // Appended: while the plan is swapped, the new card fades in over the old one.
   root.append(card);
+
+  /* ---------- the card as a sheet ---------- */
+
+  const deck = createDeck({
+    el: deckEl,
+    scrollers: '.devices, .sheet-scroll',
+    handles: '.deck-grab',
+    canDrag: () => !reorder.busy && !card.classList.contains('editing'),
+    onGrab: () => { reorder.cancel(); hideTooltip(); },
+    onProgress: (p) => world?.setSheetProgress(p),
+    onDetent: (d) => {
+      if (!ui.sheet) homeDetent = d;
+      grabber.setAttribute('aria-label', d === 'expanded' ? 'Show the home' : 'Show more controls');
+    },
+    // The 3D view's frame loop moves the card, so both move in the same frame.
+    ticker: () => (world?.running ? (world.wake(), true) : false),
+  });
+
+  // Where the card rests (the panel started there before it became a sheet) and where it
+  // stops pulled up: about an inch below the top on a phone, past its status bar and island.
+  const metrics = { rest: 400, expanded: 150, safeTop: 0, height: 800 };
+  function measure() {
+    const height = clip.clientHeight;
+    if (!height) return;
+    const safeTop = isPhone ? safeProbe.offsetHeight : 0;
+    const rest = Math.round(Math.min(isPhone ? 470 : 408, height * 0.52) - 34);
+    const expanded = Math.min(rest, isPhone ? safeTop + 92 : 96);
+    if (rest === metrics.rest && expanded === metrics.expanded && height === metrics.height && safeTop === metrics.safeTop) return;
+    Object.assign(metrics, { rest, expanded, safeTop, height });
+    card.style.setProperty('--rest-top', `${rest}px`);
+    card.style.setProperty('--exp-top', `${expanded}px`);
+    deck.layout(metrics);
+    onLayout?.({ ...metrics });
+  }
+  const layoutRO = new ResizeObserver(measure);
+  layoutRO.observe(clip);
 
   /* ---------- scenes ---------- */
 
@@ -105,7 +175,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
 
   const roomButtons = new Map();
   for (const r of [{ id: 'all', name: 'All' }, ...config.rooms]) {
-    const count = h('span.count.zero', '0');
+    const count = h('span.count.zero', { 'aria-hidden': 'true' }, '0');
     const b = h('button.room', { onclick: () => { haptic('tick'); selectRoom(r.id); } }, r.name, count);
     roomButtons.set(r.id, { b, count });
     rooms.append(b);
@@ -211,6 +281,8 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     };
     el.addEventListener('pointerup', finish);
     el.addEventListener('pointercancel', finish);
+    // The card took the finger (it is being pulled up or down): not a tap.
+    el.addEventListener('lostpointercapture', finish);
     el.addEventListener('keydown', (ev) => {
       if (ev.key === ' ' || ev.key === 'Enter') { ev.preventDefault(); toggleLight(cfg.id); }
     });
@@ -408,7 +480,11 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
 
   let sheetView = null;
 
-  function openSheet(target) {
+  // A device's sheet takes the card's place. The TV's remote opens pulled up, its screen in
+  // the strip above; a light's or an AC's opens at rest, under its room or the AC in the
+  // model. Back returns the card to where it was on the home page.
+  function openSheet(target, { detent } = {}) {
+    const from = ui.sheet;
     sheetView?.dispose?.();
     ui.sheet = target;
     sheetView = target.kind === 'ac' ? acSheet(target.id) : target.kind === 'tv' ? tvSheet(target.id) : lightSheet(target.id);
@@ -421,6 +497,8 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     card.classList.add('detail');
     hideTooltip();
     onFocus(target.kind === 'ac' || target.kind === 'tv' ? target : { kind: 'room', id: store.lightCfg.get(target.id).room });
+    if (!from) homeDetent = deck.detent;
+    deck.set(detent || (target.kind === 'tv' ? 'expanded' : 'rest'));
     update();
   }
 
@@ -435,12 +513,13 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     sheet.inert = true;
     card.classList.remove('detail');
     onFocus(ui.room === 'all' ? null : { kind: 'room', id: ui.room });
+    deck.set(homeDetent);
     update();
     return true;
   }
 
   function sheetHead(name, sub, powerBtn) {
-    return h('div.sheet-head',
+    return h('div.sheet-head.deck-grab',
       h('button.round', { 'aria-label': 'Back', onclick: closeSheet }, icon('back', 19, 2.2)),
       h('div.sheet-title', h('div.sheet-name', name), sub),
       powerBtn);
@@ -518,12 +597,13 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     return {
       nodes: [
         sheetHead(cfg.name, sub, powerBtn),
-        h('div.readout', big.el, eco),
-        h('div.slider-row',
-          h('button.round', { 'aria-label': 'Cooler', onclick: () => { haptic('tick'); set({ on: true, target: s().target - 1 }); } }, icon('minus', 18, 2.2)),
-          slider.el,
-          h('button.round', { 'aria-label': 'Warmer', onclick: () => { haptic('tick'); set({ on: true, target: s().target + 1 }); } }, icon('plus', 18, 2.2))),
-        options,
+        h('div.sheet-scroll',
+          h('div.readout', big.el, eco),
+          h('div.slider-row',
+            h('button.round', { 'aria-label': 'Cooler', onclick: () => { haptic('tick'); set({ on: true, target: s().target - 1 }); } }, icon('minus', 18, 2.2)),
+            slider.el,
+            h('button.round', { 'aria-label': 'Warmer', onclick: () => { haptic('tick'); set({ on: true, target: s().target + 1 }); } }, icon('plus', 18, 2.2))),
+          options),
       ],
       update() {
         const a = s();
@@ -535,7 +615,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
         options.style.gridTemplateColumns = `repeat(${shown.filter(([, on]) => on).length || 1}, 1fr)`;
         powerBtn.classList.toggle('on', a.on);
         sub.replaceChildren(icon('thermo', 14), 'Room ', h('b', `${a.roomTemp.toFixed(cfg.unit === 'F' ? 0 : 1)}°${cfg.unit}`),
-          h('span.live', { style: { background: a.on ? MODE_COLORS[a.mode] : 'rgba(255,255,255,.25)', boxShadow: a.on ? `0 0 8px ${MODE_COLORS[a.mode]}` : 'none' } }));
+          h(`span.live${a.on ? '' : '.idle'}`, { style: a.on ? { background: MODE_COLORS[a.mode], boxShadow: `0 0 8px ${MODE_COLORS[a.mode]}` } : {} }));
         big.set(a.target, !a.on);
         slider.set(a.target);
         eco.classList.toggle('on', a.eco);
@@ -554,7 +634,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     const sub = h('div.sheet-sub');
     const powerBtn = h('button.round.power', { 'aria-label': 'Power', onclick: () => toggleLight(id) }, icon('power', 21, 2.2));
     const big = bigNumber('%');
-    const nodes = [sheetHead(cfg.name, sub, powerBtn), h('div.readout', big.el)];
+    const body = [h('div.readout', big.el)];
     const sliders = {};
 
     if (caps.includes('brightness')) {
@@ -562,7 +642,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
         min: 5, max: 100, value: Math.round(s().brightness * 100), gradient: DIM_GRADIENT, detent: 5,
         onInput: (v) => set({ on: true, brightness: v / 100 }),
       });
-      nodes.push(h('div.slider-row',
+      body.push(h('div.slider-row',
         h('button.round', { 'aria-label': 'Dimmer', onclick: () => { haptic('tick'); set({ on: true, brightness: s().brightness - 0.1 }); } }, icon('dim', 18)),
         sliders.brightness.el,
         h('button.round', { 'aria-label': 'Brighter', onclick: () => { haptic('tick'); set({ on: true, brightness: s().brightness + 0.1 }); } }, icon('bright', 18))));
@@ -574,7 +654,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
         min: 2200, max: 6500, step: 100, value: s().temp, gradient: KELVIN_GRADIENT, compact: true, detent: 500,
         onInput: (v) => set({ on: true, temp: v }),
       });
-      nodes.push(h('div.field-label', h('span', 'Colour temperature'), kelvinLabel), h('div.slider-row', sliders.temp.el));
+      body.push(h('div.field-label', h('span', 'Colour temperature'), kelvinLabel), h('div.slider-row', sliders.temp.el));
     }
     let swatches = [];
     let pad = null;
@@ -583,14 +663,14 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
       colorLabel = h('span');
       pad = createColorPad({ value: s().color, onInput: (c) => set({ on: true, color: c }) });
       swatches = SWATCHES.map((c) => h('button.swatch', { 'aria-label': `Colour ${c}`, vars: { '--sw': c }, onclick: () => { haptic('light'); set({ on: true, color: c }); } }));
-      nodes.push(h('div.field-label', h('span', 'Colour'), colorLabel), pad.el, h('div.swatches', swatches));
+      body.push(h('div.field-label', h('span', 'Colour'), colorLabel), pad.el, h('div.swatches', swatches));
     } else {
-      nodes.push(h('div.sheet-note', icon(cfg.type, 20),
+      body.push(h('div.sheet-note', icon(cfg.type, 20),
         `${roomName.get(cfg.room)} · drag across a light tile to dim it, or ${isPhone ? 'tap' : 'click'} the lamp in the 3D view to toggle.`));
     }
 
     return {
-      nodes,
+      nodes: [sheetHead(cfg.name, sub, powerBtn), h('div.sheet-scroll', body)],
       update() {
         const l = s();
         powerBtn.classList.toggle('on', l.on);
@@ -638,14 +718,15 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
       h('span.tv-app-icon', logoSVG(a, 58), h('i.tv-app-dot')), h('span.tv-app-name', a.name))]));
     const apps = h('div.tv-apps', [...appButtons.values()]);
 
+    // The swipe pad, and under it Back, Home, Play/Pause and Mute.
     const pad = createPad({ onKey: key });
     const side = (label, name, action, extra = null) => h('button.round.tv-key', { 'aria-label': label, title: label, onclick: () => { haptic('light'); key(action); } }, icon(name, 19, 2.1), extra);
     const muteBtn = side('Mute', 'mute', 'mute');
     const remote = h('div.tv-remote',
-      h('div.tv-keys', side('Back', 'undo', 'back'), side('Home', 'home', 'home')),
       pad.el,
-      h('div.tv-keys', h('button.round.tv-key.tv-playpause', { 'aria-label': 'Play or pause', title: 'Play / pause', onclick: () => { haptic('light'); key('playpause'); } },
-        icon('play', 14, 2.4), icon('pause', 14, 2.4)), muteBtn));
+      h('div.tv-keys', side('Back', 'undo', 'back'), side('Home', 'home', 'home'),
+        h('button.round.tv-key.tv-playpause', { 'aria-label': 'Play or pause', title: 'Play / pause', onclick: () => { haptic('light'); key('playpause'); } },
+          icon('play', 14, 2.4), icon('pause', 14, 2.4)), muteBtn));
 
     const volume = createVolume({
       onStep: (dir) => key(dir > 0 ? 'volup' : 'voldown'),
@@ -662,7 +743,9 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
 
     const problemText = h('span');
     const problem = h('div.sheet-note.tv-problem', { hidden: true }, icon('offline', 18, 2), problemText);
-    const scroll = h('div.tv-scroll', problem, playing.el, now, h('div.tv-label', 'Apps'), apps, remote, volumeRow, h('div.tv-label', 'Search'), search.el);
+    // What's on, then the remote within a thumb's reach; the apps and search further down.
+    const scroll = h('div.tv-scroll.sheet-scroll', problem, playing.el, now, remote, volumeRow,
+      h('div.tv-label', 'Apps'), apps, h('div.tv-label', 'Search'), search.el);
 
     return {
       nodes: [sheetHead(name, sub, powerBtn), scroll],
@@ -690,7 +773,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
         const glow = on ? glowOf(app) : null;
         sub.replaceChildren(
           opening ? `Opening ${opening.app.name}…` : h('b', tv.ready ? tvStatus(id) : 'Connecting…'),
-          h('span.live', { style: { background: on ? glow : 'rgba(255,255,255,.25)', boxShadow: on ? `0 0 8px ${glow}` : 'none' } }));
+          h(`span.live${on ? '' : '.idle'}`, { style: on ? { background: glow, boxShadow: `0 0 8px ${glow}` } : {} }));
         problem.hidden = !(tv.ready && !available);
         problemText.textContent = !tv.state.available ? tv.state.error || 'The TV can’t be reached.'
           : `${tvName(id)} isn’t answering. Is it plugged in and on the Wi-Fi?`;
@@ -752,7 +835,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     tooltip.classList.toggle('on', on);
     tooltip.style.setProperty('--dot', color);
     tooltip.style.left = `${clamp(hit.x, 70, card.clientWidth - 70)}px`;
-    tooltip.style.top = `${Math.max(64, hit.y)}px`;
+    tooltip.style.top = `${Math.max(isPhone ? metrics.safeTop + 44 : 44, hit.y)}px`;
     tooltip.classList.add('show');
   }
 
@@ -791,18 +874,21 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     const anyOn = onCount > 0 || acsOn.length > 0;
 
     homeSub.replaceChildren(
-      h('span.live', { style: anyOn ? {} : { background: 'rgba(255,255,255,.25)', boxShadow: 'none' } }),
-      h('b', onCount ? `${onCount} of ${lights.length}` : 'No'), ' lights on',
-      acsOn.length ? ` · AC ${acsOn[0].target}°` : '');
+      h(`span.live${anyOn ? '' : '.idle'}`),
+      // One run of text: the row's gap is for the dot.
+      h('span', h('b', onCount ? `${onCount} of ${lights.length}` : 'No'), ' lights on',
+        acsOn.length ? ` · AC ${acsOn[0].target}°` : ''));
     power.classList.toggle('on', anyOn);
 
     for (const [id, b] of sceneButtons) b.classList.toggle('active', state.scene === id);
 
+    // Each room says how many of its lights are on (All: the whole home).
     for (const [id, { b, count }] of roomButtons) {
       b.classList.toggle('active', ui.room === id);
       const n = config.lights.filter((l) => (id === 'all' || l.room === id) && state.lights[l.id].on).length;
       count.textContent = n;
-      count.classList.toggle('zero', n === 0 || id === 'all');
+      count.classList.toggle('zero', n === 0);
+      b.setAttribute('aria-label', `${id === 'all' ? 'All rooms' : roomName.get(id)}, ${n} ${n === 1 ? 'light' : 'lights'} on`);
     }
 
     const scoped = config.lights.filter(inScope);
@@ -837,11 +923,22 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
 
   layoutTiles();
   update();
+  measure();
+  let offFrame = null;
 
   return {
     canvas,
     card,
-    attach(w) { world = w; card.classList.remove('booting'); },
+    attach(w) {
+      world = w;
+      card.classList.remove('booting');
+      offFrame = w.onFrame((now) => deck.tick(now));
+      w.setSheetProgress(deck.progress);
+    },
+    /** The card as a sheet: `deck.set('expanded' | 'rest')`, `deck.detent`, `deck.progress`. */
+    deck,
+    /** Where the card rests and stops pulled up: { rest, expanded, safeTop, height } (px). */
+    get metrics() { return { ...metrics }; },
     showTooltip,
     openSheet,
     closeSheet,
@@ -861,6 +958,8 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
       return true;
     },
     get sheetView() { return sheetView; },
+    /** The open sheet's device ({ kind, id }), or null on the home page. */
+    get sheetTarget() { return ui.sheet; },
     anchorMenu: clip,
     clip,
     /** Stops listening; the card is removed by whoever replaces it. */
@@ -868,6 +967,11 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
       window.removeEventListener('keydown', onKey);
       unsubscribe();
       unsubscribeTv();
+      offTheme();
+      offFrame?.();
+      layoutRO.disconnect();
+      deck.dispose();
+      clearTimeout(themeHint.timer);
       reorder.cancel();
       sheetView?.dispose?.();
       clearTimeout(toastEl.timer);

@@ -31,7 +31,8 @@ let retryTimer = null;
 let updates = { state: { status: 'idle' }, check: () => {} };
 
 // Fills the window with the card and gives it what a browser tab would not: an opaque
-// enough tint (a transparent window has no desktop behind it to blur) and a header to drag by.
+// enough tint in the panel's light or dark look (a transparent window has no desktop behind
+// it to blur) and a strip along the top to drag it by.
 const TILE_CSS = `
   html, body { background: transparent !important; }
   #app { padding: ${PAD}px !important; place-items: stretch !important; }
@@ -39,7 +40,7 @@ const TILE_CSS = `
     box-shadow: 0 10px 22px -8px rgba(0, 0, 0, 0.6), 0 2px 8px -2px rgba(0, 0, 0, 0.45) !important; }
   .notch { display: none !important; }
   html.glass .card-clip {
-    background: linear-gradient(180deg, rgba(16, 21, 38, 0.97), rgba(9, 12, 23, 0.97)) !important;
+    background: var(--widget-bg) !important;
     backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
   .top { -webkit-app-region: drag; }
   .top button, .top [role="button"], .top a, .top input, .top .ai-badge { -webkit-app-region: no-drag; }

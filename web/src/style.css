@@ -4,19 +4,144 @@
   initial-value: #17274f;
 }
 
+/* ---------- the two looks ---------- */
+/* Every colour that differs between the light and the dark look is a token here; the rules
+   below only use the tokens. The dark look is the default (the editor, AI Access and the
+   island are dark only); ui/theme.js sets data-theme on the panel's page. */
+
 :root {
   --bg: #0a0e1a;
   --text: #f3f5fa;
-  --muted: rgba(222, 230, 247, 0.58);
-  --faint: rgba(222, 230, 247, 0.34);
+  --muted: rgba(222, 230, 247, 0.6);
+  --faint: rgba(222, 230, 247, 0.36);
   --glass: rgba(255, 255, 255, 0.055);
   --glass-hi: rgba(255, 255, 255, 0.1);
   --line: rgba(255, 255, 255, 0.085);
+  --fill: rgba(255, 255, 255, 0.07);
+  --fill-hi: rgba(255, 255, 255, 0.15);
+  --well: rgba(0, 0, 0, 0.36);
+  --well-line: rgba(255, 255, 255, 0.05);
+  --tick: rgba(255, 255, 255, 0.13);
   --accent: #3d8bff;
+  --accent-hi: #4a8ef5;
+  --accent-soft: rgba(61, 139, 255, 0.18);
+  --accent-line: rgba(120, 175, 255, 0.36);
+  --accent-ink: #a9cbff;
   --warm: #ffb46b;
+  --warm-ink: #2a1a05;
+  --idle: rgba(255, 255, 255, 0.25);
+  --knob: #ffffff;
+  --shadow: rgba(0, 0, 0, 0.5);
+
+  /* The card, and what floats over it (tooltips, menus, toasts). */
+  --deck: #121828;
+  --deck-edge: rgba(255, 255, 255, 0.09);
+  --deck-shadow: 0 -14px 40px -16px rgba(0, 0, 0, 0.7);
+  --grabber: rgba(255, 255, 255, 0.24);
+  --float: rgba(16, 21, 36, 0.88);
+  --menu: rgba(15, 21, 38, 0.9);
+  --menu-on: rgba(70, 130, 255, 0.28);
+  --menu-on-ink: #ffffff;
+  --note: rgba(22, 28, 46, 0.95);
+  --err: rgba(60, 20, 22, 0.94);
+  --err-line: rgba(255, 120, 110, 0.5);
+  --err-ink: #ffd9d2;
+  --danger-ink: #ffb4a8;
+
+  /* A tile that is on: lit from its icon by its own colour --c. */
+  --on-base: rgba(255, 255, 255, 0.04);
+  --on-tint: 7%;
+  --on-glow: 8%;
+  --on-line: 24%;
+  --on-sub: #ffffff;
+  --on-bubble: #1a1d26;
+  --on-ink: #241503;
+  --lifted: rgba(28, 34, 52, 0.9);
+
+  /* The 3D stage behind the card, and the window around it. */
+  --tint-opacity: 0.8;
+  --scrim: rgba(10, 14, 26, 0.72);
+  --clip-line: rgba(255, 255, 255, 0.07);
+  --glass-clip: rgba(12, 16, 30, 0.58);
+  --glass-native: rgba(8, 11, 22, 0.42);
+  --halo: color-mix(in srgb, var(--accent) 55%, #fff); /* the swipe pad's light */
+  --widget-bg: linear-gradient(180deg, rgba(16, 21, 38, 0.97), rgba(9, 12, 23, 0.97));
+  --body-bg:
+    radial-gradient(90% 70% at 20% 0%, #5b6f8f 0%, transparent 60%),
+    radial-gradient(80% 80% at 90% 100%, #6e5a4a 0%, transparent 60%),
+    #2b3140;
+
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   color-scheme: dark;
+}
+
+/* Light: warm white, like paper in daylight; on tiles take a warm tint of their colour. */
+:root[data-theme='light'] {
+  --bg: #f1ece4;
+  --text: #1b2030;
+  --muted: rgba(27, 32, 48, 0.64);
+  --faint: rgba(27, 32, 48, 0.44);
+  --glass: rgba(27, 32, 48, 0.045);
+  --glass-hi: rgba(27, 32, 48, 0.085);
+  --line: rgba(27, 32, 48, 0.1);
+  --fill: rgba(27, 32, 48, 0.065);
+  --fill-hi: rgba(27, 32, 48, 0.12);
+  --well: rgba(27, 32, 48, 0.08);
+  --well-line: rgba(27, 32, 48, 0.07);
+  --tick: rgba(27, 32, 48, 0.16);
+  --accent: #2b78f0;
+  --accent-hi: #1f6be0;
+  --accent-soft: rgba(43, 120, 240, 0.11);
+  --accent-line: rgba(43, 120, 240, 0.38);
+  --accent-ink: #1e62cf;
+  --warm: #f59a3c;
+  --warm-ink: #ffffff;
+  --idle: rgba(27, 32, 48, 0.24);
+  --knob: #ffffff;
+  --shadow: rgba(70, 52, 30, 0.22);
+
+  --deck: #fbf9f6;
+  --deck-edge: rgba(255, 255, 255, 0.95);
+  --deck-shadow: 0 -10px 34px -14px rgba(80, 60, 30, 0.3), 0 0 0 0.5px rgba(27, 32, 48, 0.08);
+  --grabber: rgba(27, 32, 48, 0.2);
+  --float: rgba(255, 255, 255, 0.94);
+  --menu: rgba(255, 255, 255, 0.95);
+  --menu-on: rgba(43, 120, 240, 0.12);
+  --menu-on-ink: #1e62cf;
+  --note: rgba(255, 255, 255, 0.97);
+  --err: rgba(255, 241, 239, 0.98);
+  --err-line: rgba(220, 70, 55, 0.4);
+  --err-ink: #a3261a;
+  --danger-ink: #c2372a;
+
+  --on-base: #fffdf9;
+  --on-tint: 13%;
+  --on-glow: 16%;
+  --on-line: 46%;
+  --on-sub: #3a2410;
+  --on-bubble: #ffffff;
+  --on-ink: #3a2306;
+  --lifted: rgba(255, 253, 249, 0.94);
+
+  --tint-opacity: 0;
+  --scrim: rgba(241, 236, 228, 0.6);
+  --clip-line: rgba(27, 32, 48, 0.08);
+  --glass-clip: rgba(246, 242, 236, 0.66);
+  --glass-native: rgba(250, 247, 242, 0.5);
+  --halo: color-mix(in srgb, var(--accent) 85%, #fff);
+  --widget-bg: linear-gradient(180deg, rgba(250, 247, 242, 0.98), rgba(240, 235, 227, 0.98));
+  --body-bg:
+    radial-gradient(90% 70% at 20% 0%, #c9d4e6 0%, transparent 60%),
+    radial-gradient(80% 80% at 90% 100%, #e6d5c3 0%, transparent 60%),
+    #dcdfe6;
+  color-scheme: light;
+}
+
+/* Switching looks: every colour eases over (ui/theme.js adds this for the change only). */
+html.theming *, html.theming *::before, html.theming *::after {
+  transition: background-color 260ms ease, color 260ms ease, border-color 260ms ease, fill 260ms ease,
+    stroke 260ms ease, box-shadow 260ms ease, opacity 260ms ease !important;
 }
 
 * { box-sizing: border-box; }
@@ -33,12 +158,7 @@ html, body {
   cursor: default;
 }
 
-body {
-  background:
-    radial-gradient(90% 70% at 20% 0%, #5b6f8f 0%, transparent 60%),
-    radial-gradient(80% 80% at 90% 100%, #6e5a4a 0%, transparent 60%),
-    #2b3140;
-}
+body { background: var(--body-bg); }
 
 html.native body { background: transparent; }
 
@@ -55,10 +175,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 html.native #app { padding: 13px 24px 34px; place-items: stretch; }
 
-/* ---------- card ---------- */
+/* ---------- the window: the 3D view, with the card over it ---------- */
 
 .card {
-  --stage-h: min(408px, 52%);
   position: relative;
   width: 440px;
   max-width: 100%;
@@ -69,6 +188,10 @@ html.native #app { padding: 13px 24px 34px; place-items: stretch; }
     0 10px 24px -8px rgba(0, 0, 0, 0.5);
   transition: --mood 900ms ease, width 450ms var(--ease), height 450ms var(--ease), opacity 260ms ease;
   isolation: isolate;
+  /* Set by ui/panel.js from the window's size: where the card rests, and where it stops. */
+  --rest-top: 360px;
+  --exp-top: 96px;
+  --deck-side: 0px;
 }
 /* Two cards share the spot while a saved plan swaps in (main.js swapHome). */
 #app > .card { grid-area: 1 / 1; }
@@ -86,28 +209,22 @@ html.native .card { width: auto; height: auto; box-shadow:
   overflow: hidden;
   overflow: clip; /* unlike hidden, cannot be scrolled by focus or scrollIntoView */
   background: var(--bg);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.07) inset;
+  box-shadow: 0 0 0 1px var(--clip-line) inset;
 }
 
-/* Glass: the card lets the desktop through. In the Mac app a native Liquid Glass view
-   sits behind the transparent web view, so the card only adds a dark tint for contrast;
-   in a browser the card blurs what is behind it itself. */
+/* Glass: the window lets the desktop through. In the Mac app a native Liquid Glass view
+   sits behind the transparent web view, so the window only adds a tint for contrast; in a
+   browser it blurs what is behind it itself. */
 html.glass .card-clip {
-  background: rgba(10, 14, 26, 0.5);
+  background: var(--glass-clip);
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.1) inset,
-    0 1px 0 0 rgba(255, 255, 255, 0.14) inset;
+    0 0 0 1px var(--clip-line) inset,
+    0 1px 0 0 var(--deck-edge) inset;
 }
-html.glass:not(.native) .card-clip {
-  background: rgba(12, 16, 30, 0.58);
-  backdrop-filter: blur(40px) saturate(1.7);
-}
-html.glass.native .card-clip { background: rgba(8, 11, 22, 0.42); }
+html.glass:not(.native) .card-clip { backdrop-filter: blur(40px) saturate(1.7); }
+html.glass.native .card-clip { background: var(--glass-native); }
 html.glass.native .card { box-shadow: none; }
 html.glass .notch { display: none; }
-html.glass .stage::after {
-  background: linear-gradient(180deg, rgba(10, 14, 26, 0.5) 0%, rgba(10, 14, 26, 0.2) 55%, transparent 100%);
-}
 
 .notch {
   position: absolute;
@@ -119,7 +236,7 @@ html.glass .stage::after {
   background: color-mix(in srgb, var(--mood) 46%, var(--bg));
   border-radius: 5px 0 0 0;
   transform: rotate(45deg);
-  box-shadow: -1px -1px 0 rgba(255, 255, 255, 0.07);
+  box-shadow: -1px -1px 0 var(--clip-line);
   transition: --mood 900ms ease;
 }
 
@@ -131,15 +248,21 @@ html.glass .stage::after {
     radial-gradient(120% 34% at 50% 0%, var(--mood) 0%, transparent 100%),
     linear-gradient(180deg, color-mix(in srgb, var(--mood) 38%, transparent) 0%, transparent 46%);
   mix-blend-mode: screen;
-  opacity: 0.8;
+  opacity: var(--tint-opacity);
   z-index: 2;
 }
 
+/* The model is drawn above the card at rest, and a little below it for when the card is
+   pulled down past rest. Pulled up, the card covers the rest of it: the canvas itself never
+   changes size as the card moves (three/world.js moves the picture instead). */
 .stage {
   position: absolute;
   inset: 0 0 auto 0;
-  height: var(--stage-h);
+  height: calc(var(--rest-top) + 72px);
   z-index: 1;
+  /* Fades out behind the card, so the strips beside a phone's inset card have no edge. */
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 64px), transparent);
+  mask-image: linear-gradient(180deg, #000 calc(100% - 64px), transparent);
 }
 
 .stage canvas {
@@ -147,20 +270,20 @@ html.glass .stage::after {
   height: 100%;
   display: block;
   outline: none;
-  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 80%, transparent 100%);
-  mask-image: linear-gradient(180deg, #000 0%, #000 80%, transparent 100%);
   touch-action: none;
 }
 
-/* Keeps the header legible when the camera pushes the lit model up behind it. */
+/* Keeps a phone's status bar legible over the model. */
 .stage::after {
   content: '';
   position: absolute;
   inset: 0 0 auto 0;
-  height: 112px;
-  background: linear-gradient(180deg, rgba(10, 14, 26, 0.86) 0%, rgba(10, 14, 26, 0.5) 55%, transparent 100%);
+  height: 0;
+  background: linear-gradient(180deg, var(--scrim) 0%, transparent 100%);
   pointer-events: none;
 }
+
+.safe-probe { position: absolute; top: 0; width: 0; height: var(--safe-top, 0px); visibility: hidden; pointer-events: none; }
 
 .tooltip {
   position: absolute;
@@ -175,10 +298,10 @@ html.glass .stage::after {
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
-  background: rgba(16, 21, 36, 0.82);
+  background: var(--float);
   border: 1px solid var(--line);
   backdrop-filter: blur(14px) saturate(1.4);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 8px 22px var(--shadow);
   pointer-events: none;
   opacity: 0;
   transform: translate(-50%, -100%) translateY(4px) scale(0.94);
@@ -189,41 +312,93 @@ html.glass .stage::after {
 .tooltip.on .dot { background: var(--dot, var(--warm)); box-shadow: 0 0 10px var(--dot, var(--warm)); }
 .tooltip span { color: var(--muted); font-weight: 500; }
 
-/* ---------- header ---------- */
+/* The Windows widget's frameless window is dragged by a strip along its top. */
+.top { display: none; }
+html.electron .top { display: block; position: absolute; inset: 0 0 auto 0; height: 30px; z-index: 5; }
 
-.top {
+/* ---------- the card (a sheet: ui/deck.js) ---------- */
+
+.deck {
   position: absolute;
-  inset: 0 0 auto 0;
-  z-index: 5;
+  z-index: 4;
+  top: 0;
+  left: var(--deck-side);
+  right: var(--deck-side);
+  /* As tall as it is when pulled up; at rest the rest of it is below the window. */
+  height: calc(100% - var(--exp-top));
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 20px 20px 0 22px;
+  flex-direction: column;
+  border-radius: 28px 28px 0 0;
+  background: var(--deck);
+  box-shadow: var(--deck-shadow), 0 1px 0 0 var(--deck-edge) inset;
+  transform: translate3d(0, var(--rest-top), 0);
+  will-change: transform;
+  contain: layout style;
+  touch-action: pan-x;
+}
+/* Below its bottom edge, the card carries on for as far as it can be stretched up. */
+.deck::after {
+  content: '';
+  position: absolute;
+  inset: 100% 0 auto;
+  height: 200px;
+  background: inherit;
   pointer-events: none;
 }
-.top > * { pointer-events: auto; }
-.home { flex: 1; min-width: 0; display: flex; align-items: center; gap: 11px; pointer-events: none; }
-.home-badge {
-  width: 34px; height: 34px; border-radius: 11px;
-  display: grid; place-items: center;
-  background: var(--glass-hi);
-  border: 1px solid var(--line);
-  color: #cfe0ff;
+/* Glass windows: the card is a deeper pane of the same glass (nearly opaque: the model
+   moves behind it, and a blur redrawn every frame would cost more than it shows). */
+html.glass .deck { background: color-mix(in srgb, var(--deck) 95%, transparent); }
+
+.grabber {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  left: 50%;
+  width: 96px;
+  height: 20px;
+  margin-left: -48px;
+  display: grid;
+  place-items: center;
+  border-radius: 0 0 12px 12px;
 }
-.home-name { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; }
-.home-sub { margin-top: 1px; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.grabber span {
+  width: 36px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--grabber);
+  transition: background 200ms, transform 260ms var(--spring);
+}
+@media (hover: hover) { .grabber:hover span { background: var(--muted); } }
+.deck.dragging .grabber span { background: var(--muted); transform: scaleX(1.12); }
+.grabber:focus-visible { outline-offset: -4px; }
+
+.deck-pages { position: relative; flex: 1; min-height: 0; }
+
+/* The home's header, now the top of the card. */
+.deck-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 0 0 4px;
+  flex: none;
+}
+.home { flex: 1; min-width: 0; }
+.home-name { font-size: 17px; font-weight: 700; letter-spacing: -0.015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.home-sub { margin-top: 2px; font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .home-sub b { color: var(--text); font-weight: 600; }
-.live { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 8px #4ade80; }
+.live { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 8px #4ade80; flex: none; }
+.live.idle { background: var(--idle); box-shadow: none; }
 
 .round {
   width: 36px; height: 36px; border-radius: 50%;
   display: grid; place-items: center;
+  flex: none;
   background: var(--glass-hi);
   border: 1px solid var(--line);
   color: var(--muted);
   transition: transform 260ms var(--spring), background 200ms, color 200ms, box-shadow 300ms;
 }
-@media (hover: hover) { .round:hover { background: rgba(255, 255, 255, 0.16); color: var(--text); } }
+@media (hover: hover) { .round:hover { background: var(--fill-hi); color: var(--text); } }
 .round:active { transform: scale(0.9); }
 
 .power {
@@ -231,24 +406,51 @@ html.glass .stage::after {
   color: var(--muted);
 }
 .power.on {
-  background: #3a82f0;
+  background: var(--accent);
   border-color: rgba(255, 255, 255, 0.14);
   color: #fff;
+  box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--accent) 80%, transparent);
 }
-@media (hover: hover) { .power.on:hover { background: #4a8ef5; } }
+@media (hover: hover) { .power.on:hover { background: var(--accent-hi); } }
+.deck-head .power { width: 48px; height: 48px; margin-left: 2px; }
 
-.top .round { transition: transform 260ms var(--spring), background 200ms, color 200ms, box-shadow 300ms, opacity 220ms; }
-.card.detail .top .round { opacity: 0; transform: scale(0.8); pointer-events: none; }
+/* The look: Auto, Light or Dark. Light glows warm, like the sun it shows. */
+.round.theme[data-choice='light'] { color: #b86a12; background: rgba(255, 196, 120, 0.32); border-color: rgba(230, 150, 60, 0.32); }
+.round.theme[data-choice='dark'] { color: var(--accent-ink); }
+.theme-hint {
+  position: absolute;
+  z-index: 7;
+  left: 50%;
+  top: calc(var(--rest-top) - 46px);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px 7px 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 650;
+  white-space: nowrap;
+  background: var(--float);
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 26px -8px var(--shadow);
+  backdrop-filter: blur(16px) saturate(1.4);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-50%) translateY(6px) scale(0.94);
+  transition: opacity 180ms ease, transform 300ms var(--ease);
+}
+.theme-hint small { font-size: inherit; font-weight: 500; color: var(--muted); }
+.theme-hint.show { opacity: 1; transform: translateX(-50%); }
+.card:has(.deck.open) .theme-hint { top: calc(var(--exp-top) + 64px); }
 
-/* ---------- panel ---------- */
+/* ---------- the home page and the sheets (the card's two pages) ---------- */
 
 .panel, .sheet {
   position: absolute;
-  inset: calc(var(--stage-h) - 34px) 0 0 0;
-  z-index: 4;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  padding: 0 16px 16px;
+  padding: 0 14px;
   transition: opacity 280ms ease, transform 460ms var(--ease), visibility 0s;
 }
 
@@ -261,7 +463,7 @@ html.glass .stage::after {
 .panel.hidden { transform: translateY(14px) scale(0.985); }
 .sheet.hidden { transform: translateY(26px); }
 
-.scenes { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
+.scenes { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; margin-top: 16px; flex: none; }
 
 .scene {
   position: relative;
@@ -277,33 +479,33 @@ html.glass .stage::after {
   color: var(--muted);
   background: var(--glass);
   border: 1px solid var(--line);
-  backdrop-filter: blur(18px);
   transition: transform 300ms var(--spring), background 220ms, color 220ms, border-color 220ms, box-shadow 300ms;
 }
 @media (hover: hover) { .scene:hover { background: var(--glass-hi); color: var(--text); } }
 .scene:active { transform: scale(0.94); }
 .scene.active {
-  color: #fff;
-  background: rgba(61, 139, 255, 0.18);
-  border-color: rgba(120, 175, 255, 0.34);
+  color: var(--text);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
 }
-.scene.active .icon { color: #a9cbff; }
+.scene.active .icon { color: var(--accent-ink); }
 
 .rooms {
   display: flex;
   gap: 6px;
-  margin: 12px -16px 0;
-  padding: 0 16px;
+  margin: 12px -14px 0;
+  padding: 0 14px;
   overflow-x: auto;
   scrollbar-width: none;
   flex: none;
+  touch-action: pan-x;
 }
 .rooms::-webkit-scrollbar { display: none; }
 
 .room {
   flex: none;
-  height: 32px;
-  padding: 0 13px;
+  height: 34px;
+  padding: 0 7px 0 13px;
   border-radius: 999px;
   display: flex;
   align-items: center;
@@ -311,20 +513,22 @@ html.glass .stage::after {
   font-size: 12.5px;
   font-weight: 600;
   color: var(--muted);
-  border: 1px solid transparent;
+  border: 1px solid var(--line);
   transition: background 220ms, color 220ms, border-color 220ms, transform 260ms var(--spring);
 }
 @media (hover: hover) { .room:hover { color: var(--text); background: var(--glass); } }
 .room:active { transform: scale(0.95); }
-.room.active { color: var(--text); background: var(--glass-hi); border-color: var(--line); }
+.room.active { color: var(--bg); background: var(--text); border-color: transparent; }
+/* How many of the room's lights are on: warm when any are, quiet when none. */
 .room .count {
-  min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px;
+  min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px;
   display: grid; place-items: center;
-  font-size: 10.5px; font-weight: 700;
-  color: #2a1a05; background: var(--warm);
-  transition: transform 260ms var(--spring), opacity 200ms;
+  font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--warm-ink); background: var(--warm);
+  transition: background 220ms, color 220ms, transform 260ms var(--spring);
 }
-.room .count.zero { transform: scale(0); opacity: 0; min-width: 0; width: 0; padding: 0; margin-left: -7px; }
+.room .count.zero { color: var(--faint); background: var(--fill); }
+.room.active .count.zero { color: color-mix(in srgb, var(--bg) 70%, transparent); background: color-mix(in srgb, var(--bg) 16%, transparent); }
 
 .list-head {
   display: flex;
@@ -346,17 +550,30 @@ html.glass .stage::after {
 @media (hover: hover) { .pill:hover { background: var(--glass-hi); color: var(--text); } }
 .pill:active { transform: scale(0.93); }
 
-.devices {
+/* The tiles scroll inside the card. At rest every vertical swipe moves the card itself
+   (ui/deck.js); pulled up, the list scrolls (and pulled down at its top, the card follows). */
+.devices, .sheet-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  margin: 0 -16px -16px;
-  padding: 0 16px 16px;
   scrollbar-width: none;
+  overscroll-behavior: contain;
+  touch-action: pan-x;
+}
+.deck.open .devices, .deck.open .sheet-scroll { touch-action: pan-x pan-y; }
+.devices::-webkit-scrollbar, .sheet-scroll::-webkit-scrollbar { display: none; }
+.devices {
+  margin: 0 -14px;
+  padding: 0 14px 18px;
   -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 22px), transparent 100%);
   mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 22px), transparent 100%);
 }
-.devices::-webkit-scrollbar { display: none; }
+.sheet-scroll {
+  margin: 6px -20px 0;
+  padding: 8px 20px 22px;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 20px), transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 20px), transparent 100%);
+}
 
 .grid { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-top: 2px; }
 
@@ -405,9 +622,9 @@ html.glass .stage::after {
   /* Matte: one flat tint, no sheen or outer halo. The glow is light the lamp casts
      inside the tile, spreading from its icon, and it grows with the brightness. */
   background:
-    radial-gradient(150px 110px at 31px 50%, color-mix(in srgb, var(--c) calc(8% + var(--level, 1) * 16%), transparent), transparent 75%),
-    color-mix(in srgb, var(--c) 7%, rgba(255, 255, 255, 0.04));
-  border-color: color-mix(in srgb, var(--c) 24%, var(--line));
+    radial-gradient(150px 110px at 31px 50%, color-mix(in srgb, var(--c) calc(var(--on-glow) + var(--level, 1) * 16%), transparent), transparent 75%),
+    color-mix(in srgb, var(--c) var(--on-tint), var(--on-base));
+  border-color: color-mix(in srgb, var(--c) var(--on-line), var(--line));
 }
 
 .bubble {
@@ -415,19 +632,19 @@ html.glass .stage::after {
   width: 38px; height: 38px; border-radius: 13px;
   display: grid; place-items: center;
   color: var(--muted);
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--fill);
   transition: background 260ms, color 260ms, box-shadow 360ms, transform 320ms var(--spring);
 }
 .tile.on .bubble {
-  color: #241503;
-  background: color-mix(in srgb, var(--c) 88%, #1a1d26);
+  color: var(--on-ink);
+  background: color-mix(in srgb, var(--c) 88%, var(--on-bubble));
 }
 .tile.ac.on .bubble { color: #06162c; }
 
 .tile-text { flex: 1; min-width: 0; }
 .tile-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile-sub { margin-top: 2px; font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
-.tile.on .tile-sub { color: color-mix(in srgb, var(--c) 55%, #fff); }
+.tile.on .tile-sub { color: color-mix(in srgb, var(--c) 55%, var(--on-sub)); }
 
 .tile-more {
   flex: none;
@@ -439,7 +656,7 @@ html.glass .stage::after {
 }
 .tile-more:focus-visible { opacity: 1; }
 @media (hover: hover) { .tile:hover .tile-more { opacity: 1; } }
-@media (hover: hover) { .tile-more:hover { background: rgba(255, 255, 255, 0.12); color: var(--text); } }
+@media (hover: hover) { .tile-more:hover { background: var(--fill-hi); color: var(--text); } }
 
 .tile-level {
   position: absolute;
@@ -447,7 +664,7 @@ html.glass .stage::after {
   height: 3px;
   border-radius: 2px;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--fill);
   opacity: 0;
   transition: opacity 260ms, height 200ms;
 }
@@ -473,7 +690,7 @@ html.glass .stage::after {
   display: grid; place-items: center; color: var(--muted);
   transition: background 180ms, color 180ms, transform 240ms var(--spring);
 }
-@media (hover: hover) { .stepper button:hover { background: rgba(255, 255, 255, 0.12); color: var(--text); } }
+@media (hover: hover) { .stepper button:hover { background: var(--fill-hi); color: var(--text); } }
 .stepper button:active { transform: scale(0.86); }
 .stepper .value { min-width: 38px; text-align: center; font-size: 16px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .tile.ac:not(.on) .stepper .value { color: var(--faint); }
@@ -481,15 +698,15 @@ html.glass .stage::after {
   flex: none;
   width: 34px; height: 34px; border-radius: 50%;
   display: grid; place-items: center;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--fill);
   color: var(--muted);
   transition: background 220ms, color 220ms, transform 260ms var(--spring), box-shadow 300ms;
 }
-@media (hover: hover) { .mini-power:hover { background: rgba(255, 255, 255, 0.16); color: var(--text); } }
+@media (hover: hover) { .mini-power:hover { background: var(--fill-hi); color: var(--text); } }
 .mini-power:active { transform: scale(0.88); }
-.tile.ac.on .mini-power { background: color-mix(in srgb, var(--c) 88%, #1a1d26); color: #06162c; }
+.tile.ac.on .mini-power { background: color-mix(in srgb, var(--c) 88%, var(--on-bubble)); color: #06162c; }
 
-.tile:focus-visible { outline: none; border-color: rgba(120, 175, 255, 0.8); }
+.tile:focus-visible { outline: none; border-color: var(--accent-line); box-shadow: 0 0 0 1px var(--accent-line); }
 
 /* Moving a tile (ui/reorder.js): it lifts off the list and follows the finger; its room's
    group is softly lit, the rest of the list steps back. */
@@ -497,30 +714,30 @@ html.glass .stage::after {
   z-index: 5;
   scale: 1.04;
   cursor: grabbing;
-  background-color: rgba(28, 34, 52, 0.9);
-  border-color: rgba(255, 255, 255, 0.16);
-  box-shadow: 0 22px 44px -14px rgba(0, 0, 0, 0.7), 0 6px 16px -6px rgba(0, 0, 0, 0.45);
+  background-color: var(--lifted);
+  border-color: var(--line);
+  box-shadow: 0 22px 44px -14px var(--shadow), 0 6px 16px -6px var(--shadow);
   -webkit-backdrop-filter: blur(18px) saturate(1.3);
   backdrop-filter: blur(18px) saturate(1.3);
   transition: transform 320ms var(--spring), scale 240ms var(--ease), background-color 200ms, border-color 200ms, box-shadow 280ms var(--ease), opacity 200ms;
 }
-.tile.on.lifted { background-color: color-mix(in srgb, var(--c) 10%, rgba(28, 34, 52, 0.92)); }
+.tile.on.lifted { background-color: color-mix(in srgb, var(--c) 10%, var(--lifted)); }
 .tile.settling { z-index: 4; }
 .grid.reordering .tile:not(.lifted) { opacity: 0.8; }
 .grid.reordering .tile.elsewhere { opacity: 0.36; }
 .grid.reordering .group-label { opacity: 0.5; }
-.grid.reordering .group-label.lit { opacity: 1; color: rgba(170, 200, 255, 0.82); }
+.grid.reordering .group-label.lit { opacity: 1; color: var(--accent-ink); }
 .grid.reordering .grid-hint { opacity: 0.4; }
 .reorder-zone {
   position: absolute; z-index: -1;
   border-radius: 26px;
-  background: rgba(120, 165, 255, 0.045);
-  box-shadow: inset 0 0 0 1px rgba(140, 180, 255, 0.14);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
   pointer-events: none;
   opacity: 0;
   transition: opacity 220ms ease, left 220ms var(--ease), top 220ms var(--ease), width 220ms var(--ease), height 220ms var(--ease);
 }
-.reorder-zone.shown { opacity: 1; }
+.reorder-zone.shown { opacity: 0.45; }
 @media (prefers-reduced-motion: reduce) { .tile.lifted { scale: none; } }
 
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -528,9 +745,10 @@ html.glass .stage::after {
 .panel-toast {
   position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 30;
   padding: 11px 14px; border-radius: 16px;
-  font-size: 12.5px; font-weight: 600; line-height: 1.4; color: #ffd9d2;
-  background: rgba(60, 20, 22, 0.92); border: 1px solid rgba(255, 120, 110, 0.5);
+  font-size: 12.5px; font-weight: 600; line-height: 1.4; color: var(--err-ink);
+  background: var(--err); border: 1px solid var(--err-line);
   backdrop-filter: blur(18px);
+  box-shadow: 0 12px 30px -12px var(--shadow);
   opacity: 0; transform: translateY(12px); pointer-events: none;
   transition: opacity 220ms, transform 360ms var(--ease);
 }
@@ -549,7 +767,7 @@ html.glass .stage::after {
 
 /* An AI assistant has a link to this home. */
 .ai-badge {
-  position: relative; isolation: isolate;
+  position: relative; isolation: isolate; flex: none;
   display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 9px 0 7px; margin-right: 2px;
   border-radius: 999px; font-size: 11.5px; font-weight: 700; letter-spacing: 0.02em; color: #fff;
   background: linear-gradient(120deg, #7c5cff, #3d8bff);
@@ -564,21 +782,20 @@ html.glass .stage::after {
 }
 .ai-badge[hidden] { display: none; }
 @keyframes ai-glow { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
-.card.detail .top .ai-badge { opacity: 0; pointer-events: none; }
 
 [hidden] { display: none !important; }
 
 /* ---------- sheets ---------- */
 
-.sheet { padding: 0 20px 18px; }
+.sheet { padding: 0 20px; }
 
-.sheet-head { display: flex; align-items: center; gap: 10px; flex: none; }
+.sheet-head { display: flex; align-items: center; gap: 10px; flex: none; padding-top: 18px; }
 .sheet-title { flex: 1; min-width: 0; }
-.sheet-name { font-size: 15px; font-weight: 650; }
+.sheet-name { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sheet-sub { margin-top: 1px; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
 .sheet-sub b { color: var(--text); font-weight: 600; }
 
-.readout { display: flex; align-items: flex-end; gap: 12px; margin-top: 18px; flex: none; }
+.readout { display: flex; align-items: flex-end; gap: 12px; margin-top: 10px; flex: none; }
 .big {
   flex: 1;
   font-family: -apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif;
@@ -608,11 +825,11 @@ html.glass .stage::after {
 }
 @media (hover: hover) { .toggle-chip:hover { background: var(--glass-hi); } }
 .toggle-chip .icon { color: var(--muted); transition: color 220ms; }
-.toggle-chip.on .icon { color: #6ee7a0; }
-.switch { width: 38px; height: 23px; border-radius: 12px; background: rgba(255, 255, 255, 0.16); position: relative; transition: background 240ms; }
+.toggle-chip.on .icon { color: #34c773; }
+.switch { width: 38px; height: 23px; border-radius: 12px; background: var(--fill-hi); position: relative; transition: background 240ms; }
 .switch::after {
   content: ''; position: absolute; top: 2.5px; left: 2.5px; width: 18px; height: 18px; border-radius: 50%;
-  background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  background: var(--knob); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
   transition: transform 300ms var(--spring);
 }
 .on > .switch { background: #34c773; }
@@ -627,9 +844,9 @@ html.glass .stage::after {
   height: 46px;
   border-radius: 15px;
   background:
-    repeating-linear-gradient(90deg, transparent 0 calc(100% / 14 - 1px), rgba(255, 255, 255, 0.13) calc(100% / 14 - 1px) calc(100% / 14)) center / 100% 9px no-repeat,
-    rgba(0, 0, 0, 0.36);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+    repeating-linear-gradient(90deg, transparent 0 calc(100% / 14 - 1px), var(--tick) calc(100% / 14 - 1px) calc(100% / 14)) center / 100% 9px no-repeat,
+    var(--well);
+  box-shadow: 0 0 0 1px var(--well-line) inset;
   cursor: grab;
   touch-action: none;
 }
@@ -648,14 +865,14 @@ html.glass .stage::after {
 .slider-thumb {
   position: absolute; top: 0; left: calc(var(--p) * (100% - 46px));
   width: 46px; height: 46px; border-radius: 15px;
-  background: #fff;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4), 0 0 0 0 rgba(90, 160, 255, 0);
+  background: var(--knob);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.32), 0 0 0 0 rgba(90, 160, 255, 0);
   transition: transform 260ms var(--spring), box-shadow 260ms;
 }
 .slider-thumb::after {
   content: ''; position: absolute; inset: 15px 21px; border-radius: 2px; background: rgba(10, 14, 26, 0.18);
 }
-.slider.dragging .slider-thumb { transform: scale(1.06); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45), 0 0 0 3px rgba(90, 160, 255, 0.75); }
+.slider.dragging .slider-thumb { transform: scale(1.06); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.38), 0 0 0 3px rgba(90, 160, 255, 0.75); }
 .slider:not(.dragging) .slider-fill, .slider:not(.dragging) .slider-thumb { transition: width 320ms var(--ease), left 320ms var(--ease), transform 260ms var(--spring), box-shadow 260ms; }
 .slider-scale { display: flex; justify-content: space-between; margin: 7px 4px 0; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .slider.compact .slider-track, .slider.compact .slider-thumb { height: 38px; }
@@ -664,7 +881,7 @@ html.glass .stage::after {
 .field-label { margin: 14px 4px 0; flex: none; font-size: 11.5px; font-weight: 600; color: var(--muted); display: flex; justify-content: space-between; }
 .field-label + .slider-row { margin-top: 8px; }
 
-.options { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: auto; padding-top: 16px; flex: none; }
+.options { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding-top: 18px; flex: none; }
 .option {
   position: relative;
   height: 96px;
@@ -681,14 +898,14 @@ html.glass .stage::after {
 @media (hover: hover) { .option:hover { background: var(--glass-hi); } }
 .option:active { transform: scale(0.95); }
 .option.open, .option.active {
-  background: linear-gradient(180deg, rgba(88, 150, 255, 0.26), rgba(61, 139, 255, 0.1));
-  border-color: rgba(120, 175, 255, 0.5);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 24%, transparent), color-mix(in srgb, var(--accent) 8%, transparent));
+  border-color: var(--accent-line);
 }
-.option > .icon { color: #6fb0ff; }
+.option > .icon { color: var(--accent); }
 .option .corner { position: absolute; top: 11px; right: 10px; color: var(--muted); transition: transform 300ms var(--ease); }
 .option.open .corner { transform: rotate(180deg); }
-.option .corner.dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 255, 255, 0.22); top: 14px; right: 13px; transition: background 220ms, box-shadow 220ms; }
-.option.active .corner.dot { background: #6fb0ff; box-shadow: 0 0 10px #6fb0ff; }
+.option .corner.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); top: 14px; right: 13px; transition: background 220ms, box-shadow 220ms; }
+.option.active .corner.dot { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
 .option-label { margin-top: auto; font-size: 12px; color: var(--muted); }
 .option-value { margin-top: 2px; font-size: 13px; font-weight: 650; }
 
@@ -698,10 +915,10 @@ html.glass .stage::after {
   min-width: 150px;
   padding: 6px;
   border-radius: 18px;
-  background: rgba(15, 21, 38, 0.86);
+  background: var(--menu);
   border: 1px solid var(--line);
   backdrop-filter: blur(26px) saturate(1.5);
-  box-shadow: 0 24px 50px -10px rgba(0, 0, 0, 0.7);
+  box-shadow: 0 24px 50px -10px var(--shadow);
   transform-origin: var(--origin, bottom right);
   animation: menu-in 260ms var(--ease);
 }
@@ -714,22 +931,21 @@ html.glass .stage::after {
   font-size: 13px; font-weight: 500; color: var(--muted); text-align: left;
   transition: background 140ms, color 140ms;
 }
-@media (hover: hover) { .menu button:hover { background: rgba(255, 255, 255, 0.08); color: var(--text); } }
-.menu button.selected { background: rgba(70, 130, 255, 0.28); color: #fff; font-weight: 650; }
-.menu button.selected .icon { color: #8fbcff; }
+@media (hover: hover) { .menu button:hover { background: var(--fill); color: var(--text); } }
+.menu button.selected { background: var(--menu-on); color: var(--menu-on-ink); font-weight: 650; }
+.menu button.selected .icon { color: var(--accent-ink); }
 .menu hr { border: 0; height: 1px; margin: 5px 8px; background: var(--line); }
 
 .pad {
   position: relative;
-  flex: 1 1 84px;
-  min-height: 64px;
-  max-height: 120px;
+  flex: none;
+  height: 104px;
   margin-top: 8px;
   border-radius: 16px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.88) 100%),
     linear-gradient(90deg, #ff0000 0%, #ffff00 16.6%, #00ff00 33.3%, #00ffff 50%, #0000ff 66.6%, #ff00ff 83.3%, #ff0000 100%);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+  box-shadow: 0 0 0 1px var(--line) inset;
   cursor: crosshair;
   touch-action: none;
   outline: none;
@@ -752,25 +968,25 @@ html.glass .stage::after {
   flex: 1; height: 28px; border-radius: 10px;
   background: var(--sw);
   border: 2px solid transparent;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+  box-shadow: 0 0 0 1px var(--line) inset;
   transition: transform 260ms var(--spring), border-color 200ms, box-shadow 260ms;
 }
 @media (hover: hover) { .swatch:hover { transform: translateY(-2px); } }
-.swatch.selected { border-color: #fff; box-shadow: 0 6px 18px -4px var(--sw); }
+.swatch.selected { border-color: var(--text); box-shadow: 0 6px 18px -4px var(--sw); }
 
-.sheet-note { margin-top: auto; padding: 12px 14px; border-radius: 16px; background: var(--glass); border: 1px solid var(--line); font-size: 12px; line-height: 1.45; color: var(--muted); display: flex; gap: 10px; align-items: center; }
+.sheet-note { margin-top: 16px; padding: 12px 14px; border-radius: 16px; background: var(--glass); border: 1px solid var(--line); font-size: 12px; line-height: 1.45; color: var(--muted); display: flex; gap: 10px; align-items: center; }
 
 /* ---------- iPhone ---------- */
-/* The same panel fills the whole screen: no card, no notch, safe areas respected,
-   and controls sized for a thumb instead of a pointer. */
+/* The same panel fills the whole screen: the model under the status bar and the Dynamic
+   Island, the card inset from the screen's sides, and controls sized for a thumb. */
 
 html.ios, html.ios body { background: var(--bg); }
 html.ios * { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; }
 html.ios #app { padding: 0; place-items: stretch; }
 html.ios .card {
-  --stage-h: min(470px, 52%);
   --safe-top: var(--safe-top-preview, env(safe-area-inset-top, 0px));
   --safe-bottom: var(--safe-bottom-preview, env(safe-area-inset-bottom, 0px));
+  --deck-side: 10px;
   width: auto;
   height: auto;
   border-radius: 0;
@@ -778,28 +994,25 @@ html.ios .card {
 }
 html.ios .card-clip { border-radius: 0; box-shadow: none; }
 html.ios .notch { display: none; }
+html.ios .stage::after { height: calc(var(--safe-top) + 18px); }
 
-html.ios .top { padding: calc(var(--safe-top) + 6px) 18px 0 20px; }
-html.ios .stage::after { height: calc(var(--safe-top) + 96px); }
-html.ios .home-badge { width: 38px; height: 38px; border-radius: 12px; }
-html.ios .home-name { font-size: 18px; }
+html.ios .deck-head { padding-top: 22px; gap: 8px; }
+html.ios .home-name { font-size: 19px; }
 html.ios .home-sub { font-size: 13px; }
 html.ios .round { width: 42px; height: 42px; }
 html.ios .power { width: 50px; height: 50px; }
+html.ios .deck-head .round { width: 40px; height: 40px; }
+html.ios .deck-head .power { width: 50px; height: 50px; }
 
-html.ios .panel { padding: 0 16px; }
-html.ios .sheet { padding: 0 20px calc(var(--safe-bottom) + 14px); }
+html.ios .panel { padding: 0 14px; }
+html.ios .sheet { padding: 0 18px; }
 html.ios .scene { height: 68px; border-radius: 20px; font-size: 12.5px; }
-html.ios .room { height: 38px; padding: 0 15px; font-size: 14px; }
+html.ios .room { height: 38px; padding: 0 8px 0 15px; font-size: 14px; }
+html.ios .room .count { min-width: 22px; height: 22px; border-radius: 11px; font-size: 12px; }
 html.ios .list-head { font-size: 13px; margin: 12px 4px 10px; }
 html.ios .pill { height: 32px; padding: 0 14px; font-size: 13px; }
-html.ios .devices {
-  margin: 0 -16px;
-  padding: 0 16px calc(var(--safe-bottom) + 18px);
-  overscroll-behavior: contain;
-  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 30px), transparent 100%);
-  mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 30px), transparent 100%);
-}
+html.ios .devices { padding-bottom: calc(var(--safe-bottom) + 18px); }
+html.ios .sheet-scroll { margin: 6px -18px 0; padding: 8px 18px calc(var(--safe-bottom) + 22px); }
 html.ios .grid { gap: 10px; }
 html.ios .group-label { font-size: 11.5px; margin-top: 10px; }
 html.ios .tile { height: 76px; border-radius: 22px; padding: 0 13px; }
@@ -813,7 +1026,7 @@ html.ios .stepper button { width: 36px; height: 38px; border-radius: 12px; }
 html.ios .stepper .value { font-size: 18px; min-width: 40px; }
 html.ios .mini-power { width: 40px; height: 40px; }
 
-html.ios .sheet-name { font-size: 18px; }
+html.ios .sheet-name { font-size: 19px; }
 html.ios .sheet-sub { font-size: 13px; }
 html.ios .big { font-size: 84px; }
 html.ios .big small { font-size: 22px; }
@@ -832,13 +1045,13 @@ html.ios .option { height: 108px; border-radius: 22px; padding: 14px 12px; }
 html.ios .option-label { font-size: 13px; }
 html.ios .option-value { font-size: 14.5px; }
 html.ios .toggle-chip { height: 48px; font-size: 14px; }
-html.ios .pad { max-height: 150px; border-radius: 18px; }
+html.ios .pad { height: 132px; border-radius: 18px; }
 html.ios .swatch { height: 36px; border-radius: 12px; }
 html.ios .swatches { margin-top: 12px; }
 html.ios .sheet-note { font-size: 13px; }
 html.ios .menu { min-width: 190px; border-radius: 20px; }
 html.ios .menu button { height: 46px; font-size: 15px; border-radius: 14px; }
-html.ios .menu button:active { background: rgba(255, 255, 255, 0.1); color: var(--text); }
+html.ios .menu button:active { background: var(--fill); color: var(--text); }
 html.ios .panel-toast { bottom: calc(var(--safe-bottom) + 14px); font-size: 13.5px; }
 html.ios .tooltip { display: none; }
 html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; width: auto; }
@@ -858,28 +1071,47 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
   -webkit-user-select: text;
 }
 .fatal h1 { margin: 0 0 8px; font-size: 16px; color: var(--text); }
-.fatal code { display: block; margin-top: 12px; padding: 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.06); color: #ffb4a8; white-space: pre-wrap; font: 12px ui-monospace, 'SF Mono', monospace; }
+.fatal code { display: block; margin-top: 12px; padding: 12px; border-radius: 12px; background: var(--fill); color: var(--danger-ink); white-space: pre-wrap; font: 12px ui-monospace, 'SF Mono', monospace; }
 
 /* ---------- editing the home in place (edit/editor.js covers the card) ---------- */
 
 /* A desktop browser window: the card grows into an editing table. */
 .card.grow { width: min(1280px, calc(100vw - 36px)); height: min(880px, calc(100vh - 36px)); }
-.top, .tint, .stage::after { transition: opacity 260ms ease; }
-.card.editing .top, .card.editing .panel, .card.editing .sheet, .card.editing .tint,
+.tint, .stage::after { transition: opacity 260ms ease; }
+.deck { transition: opacity 260ms ease; }
+.card.editing .deck, .card.editing .tint, .card.editing .theme-hint,
 .card.editing .tooltip, .card.editing .panel-toast, .card.editing .stage::after {
   opacity: 0;
   pointer-events: none;
   transition: opacity 200ms ease;
 }
-/* Gone once faded: a hidden header is still a window-drag region in the Windows widget. */
-.card.editing.faded .top { display: none; }
-.card.editing .stage { height: 100%; }
-.card.editing .stage canvas { -webkit-mask-image: none; mask-image: none; }
+/* Gone once faded: a hidden strip is still a window-drag region in the Windows widget. */
+.card.editing.faded .top, .card.editing.faded .deck { display: none; }
+.card.editing .stage { height: 100%; -webkit-mask-image: none; mask-image: none; }
 .card.covered .stage canvas { opacity: 0; transition: opacity 240ms ease; }
 .stage { transition: height 450ms var(--ease); }
 
 .card.booting .stage canvas { opacity: 0; }
 .stage canvas { transition: opacity 500ms ease; }
+
+/* The editor and its sheets keep the dark look in both (they have their own palette). */
+.ed {
+  --text: #f3f5fa;
+  --muted: rgba(222, 230, 247, 0.6);
+  --faint: rgba(222, 230, 247, 0.36);
+  --glass: rgba(255, 255, 255, 0.055);
+  --glass-hi: rgba(255, 255, 255, 0.1);
+  --line: rgba(255, 255, 255, 0.085);
+  --fill: rgba(255, 255, 255, 0.07);
+  --fill-hi: rgba(255, 255, 255, 0.15);
+  --menu: rgba(15, 21, 38, 0.9);
+  --menu-on: rgba(70, 130, 255, 0.28);
+  --menu-on-ink: #ffffff;
+  --accent-ink: #a9cbff;
+  --shadow: rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
+  color: var(--text);
+}
 
 @media (prefers-reduced-motion: reduce) {
   /* The island has its own calm version (island.css): snapping it open looks broken. */
@@ -891,31 +1123,18 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
 /* ---------- the TV: its tile, and its sheet (the launcher and remote) ---------- */
 
 .tile.tv { grid-column: 1 / -1; cursor: pointer; }
-.tile.tv .bubble.logo { overflow: hidden; background: #000; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1); }
+.tile.tv .bubble.logo { overflow: hidden; background: #000; box-shadow: 0 0 0 1px var(--line); }
 .tile.tv .bubble.logo .tv-logo { width: 100%; height: 100%; display: block; }
-.tile.tv.on .mini-power { background: color-mix(in srgb, var(--c) 80%, #1a1d26); color: #fff; }
+.tile.tv.on .mini-power { background: color-mix(in srgb, var(--c) 86%, #1a1d26); color: #fff; }
 .mini-power:disabled { opacity: 0.4; cursor: default; }
 .round.power:disabled { opacity: 0.45; cursor: default; }
 
-.panel-toast.note { color: var(--text); background: rgba(22, 28, 46, 0.94); border-color: var(--line); }
+.panel-toast.note { color: var(--text); background: var(--note); border-color: var(--line); }
 
-.sheet.tv { padding-bottom: 0; }
-.tv-scroll {
-  flex: 1;
-  min-height: 0;
-  margin: 6px -20px 0;
-  padding: 8px 20px 22px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: none;
-  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 20px), transparent 100%);
-  mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 20px), transparent 100%);
-}
-.tv-scroll::-webkit-scrollbar { display: none; }
 .tv-scroll > :first-child { margin-top: 0; }
 
 .tv-problem { margin: 4px 0 6px; }
-.tv-problem .icon { color: #ffb4a8; }
+.tv-problem .icon { color: var(--danger-ink); }
 
 .tv-label {
   margin: 16px 4px 8px;
@@ -930,7 +1149,7 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
   background: var(--glass); border: 1px solid var(--line);
   animation: tile-in 420ms var(--ease) both;
 }
-.tv-now-logo { width: 34px; height: 34px; border-radius: 10px; overflow: hidden; flex: none; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1); }
+.tv-now-logo { width: 34px; height: 34px; border-radius: 10px; overflow: hidden; flex: none; box-shadow: 0 0 0 1px var(--line); }
 .tv-now-logo .tv-logo { width: 100%; height: 100%; display: block; }
 .tv-now-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .tv-now-text span { font-size: 11px; color: var(--muted); }
@@ -938,10 +1157,10 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
 .tv-now-home {
   width: 32px; height: 32px; border-radius: 50%; flex: none;
   display: grid; place-items: center; color: var(--muted);
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--fill);
   transition: background 180ms, color 180ms, transform 240ms var(--spring);
 }
-@media (hover: hover) { .tv-now-home:hover { background: rgba(255, 255, 255, 0.14); color: var(--text); } }
+@media (hover: hover) { .tv-now-home:hover { background: var(--fill-hi); color: var(--text); } }
 .tv-now-home:active { transform: scale(0.88); }
 
 /* Now playing: artwork, title, a slider through it, back / play-pause / ahead */
@@ -965,7 +1184,7 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
   position: absolute; inset: 0; border-radius: inherit; overflow: hidden;
   display: grid; place-items: center;
   background: radial-gradient(130% 120% at 30% 15%, color-mix(in srgb, var(--glow) 42%, #10131c), #07090f 78%);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09) inset, 0 8px 18px -10px rgba(0, 0, 0, 0.8);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09) inset, 0 8px 18px -10px var(--shadow);
 }
 .tv-np-logo { width: 30px; height: 30px; border-radius: 9px; overflow: hidden; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14), 0 6px 14px -6px rgba(0, 0, 0, 0.8); }
 .tv-np-logo .tv-logo, .tv-np-badge .tv-logo { width: 100%; height: 100%; display: block; }
@@ -973,7 +1192,7 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
 .tv-np-media.pictured .tv-np-art img { opacity: 1; }
 .tv-np-badge {
   position: absolute; right: -5px; bottom: -5px; width: 20px; height: 20px; border-radius: 6px; overflow: hidden;
-  box-shadow: 0 0 0 2px #121726, 0 2px 6px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 0 2px var(--deck), 0 2px 6px var(--shadow);
   opacity: 0; transform: scale(0.6); transition: opacity 200ms, transform 300ms var(--spring);
 }
 .tv-np-media.pictured .tv-np-badge { opacity: 1; transform: none; }
@@ -994,15 +1213,15 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
 .tv-scrub-track {
   position: absolute; left: 0; right: 0; top: 50%;
   height: 4px; margin-top: -2px; border-radius: 3px; overflow: hidden;
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--fill-hi);
   transition: height 180ms var(--ease), margin-top 180ms var(--ease);
 }
 .tv-np.seekable .tv-scrub:hover .tv-scrub-track, .tv-np.scrubbing .tv-scrub-track { height: 6px; margin-top: -3px; }
-.tv-scrub-fill { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); background: rgba(255, 255, 255, 0.9); will-change: transform; }
+.tv-scrub-fill { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); background: var(--text); opacity: 0.9; will-change: transform; }
 .tv-scrub-thumb { position: absolute; top: 50%; left: -8px; width: 16px; height: 16px; margin-top: -8px; pointer-events: none; will-change: transform; }
 .tv-scrub-thumb::after {
   content: ''; position: absolute; inset: 0; border-radius: 50%;
-  background: #fff; box-shadow: 0 1px 5px rgba(0, 0, 0, 0.45);
+  background: var(--knob); box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4), 0 0 0 0.5px var(--line);
   transform: scale(0.62);
   transition: transform 220ms var(--spring);
 }
@@ -1013,8 +1232,8 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
 .tv-scrub-bubble span {
   display: block; padding: 4px 8px; border-radius: 9px;
   font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap;
-  background: rgba(16, 20, 32, 0.94); border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 8px 18px -8px rgba(0, 0, 0, 0.7);
+  background: var(--float); border: 1px solid var(--line);
+  box-shadow: 0 8px 18px -8px var(--shadow);
   transform: translateX(-50%) translateY(5px) scale(0.9); opacity: 0;
   transition: opacity 160ms, transform 240ms var(--spring);
 }
@@ -1033,20 +1252,20 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
   display: grid; place-items: center; color: var(--text);
   transition: background 180ms, transform 240ms var(--spring), opacity 200ms;
 }
-@media (hover: hover) { .tv-np-skip:hover { background: rgba(255, 255, 255, 0.1); } }
+@media (hover: hover) { .tv-np-skip:hover { background: var(--fill); } }
 .tv-np-skip:active { transform: scale(0.86); }
 .tv-np-skip:disabled { opacity: 0.3; cursor: default; transform: none; background: none; }
 .tv-np-play {
   width: 46px; height: 46px; border-radius: 50%;
   display: grid; place-items: center;
-  color: #0b0f1c; background: #f3f5fa;
-  box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.7);
+  color: var(--deck); background: var(--text);
+  box-shadow: 0 8px 20px -8px var(--shadow);
   transition: transform 260ms var(--spring), background 180ms;
 }
 .tv-np-play .icon { grid-area: 1 / 1; fill: currentColor; transition: opacity 160ms, transform 260ms var(--spring); }
 .tv-np-play .icon:first-child { margin-left: 2px; }
 .tv-np-play.playing .icon:first-child, .tv-np-play:not(.playing) .icon:last-child { opacity: 0; transform: scale(0.6); }
-@media (hover: hover) { .tv-np-play:hover { background: #fff; } }
+@media (hover: hover) { .tv-np-play:hover { background: color-mix(in srgb, var(--text) 88%, var(--accent)); } }
 .tv-np-play:active { transform: scale(0.9); }
 
 /* Apps: a row that scrolls sideways, a grid where the sheet is wide */
@@ -1068,7 +1287,7 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
 }
 .tv-app-icon {
   position: relative; width: 58px; height: 58px; border-radius: 17px; overflow: hidden;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 6px 14px -8px rgba(0, 0, 0, 0.7);
+  box-shadow: 0 0 0 1px var(--line), 0 6px 14px -8px var(--shadow);
   transition: transform 300ms var(--spring), box-shadow 260ms;
 }
 .tv-app-icon .tv-logo { width: 100%; height: 100%; display: block; }
@@ -1080,78 +1299,99 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
   background: #4ade80; box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.55), 0 0 8px #4ade80;
   opacity: 0; transform: scale(0.4); transition: opacity 200ms, transform 300ms var(--spring);
 }
-.tv-app.current .tv-app-icon { box-shadow: 0 0 0 2px #0b0f1c, 0 0 0 4px rgba(255, 255, 255, 0.92); }
+.tv-app.current .tv-app-icon { box-shadow: 0 0 0 2px var(--deck), 0 0 0 4px var(--text); }
 .tv-app.current .tv-app-dot { opacity: 1; transform: none; }
 .tv-app.current .tv-app-name { color: var(--text); font-weight: 650; }
 .tv-app.opening .tv-app-icon { animation: tv-opening 900ms ease-in-out infinite; }
 @keyframes tv-opening { 50% { transform: scale(0.93); opacity: 0.7; } }
 
-/* The remote: Back and Home, the pad, Play/Pause and Mute */
-.tv-remote {
-  display: grid;
-  grid-template-columns: auto minmax(168px, 224px) auto;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  margin-top: 18px;
-  transition: opacity 260ms;
-}
-.tv-remote.asleep .tv-pad, .tv-remote.unreachable .tv-key { opacity: 0.55; }
-.tv-keys { display: flex; flex-direction: column; gap: 16px; }
-.tv-key { width: 46px; height: 46px; }
-.tv-key.active { background: rgba(255, 105, 95, 0.2); border-color: rgba(255, 130, 120, 0.4); color: #ff9a90; }
+/* The remote: the swipe pad, and under it Back, Home, Play/Pause and Mute */
+.tv-remote { margin-top: 14px; transition: opacity 260ms; }
+.tv-remote.asleep .tv-swipe, .tv-remote.unreachable .tv-key { opacity: 0.55; }
+.tv-keys { display: flex; justify-content: space-between; gap: 10px; margin-top: 12px; padding: 0 6px; }
+.tv-key { width: 50px; height: 50px; color: var(--text); }
+.tv-key.active { background: rgba(255, 105, 95, 0.2); border-color: rgba(255, 130, 120, 0.4); color: #ff6d61; }
 .tv-playpause { display: flex; align-items: center; justify-content: center; gap: 0; }
 .tv-playpause .icon:first-child { margin-right: -2px; }
 
-.tv-pad {
+/* A touch surface: swipe to move, tap to select (tv/remote.js). A tap spreads a ring from
+   the finger; each step of a swipe glows toward its edge; a faint light follows the finger. */
+.tv-swipe {
   position: relative;
   width: 100%;
-  aspect-ratio: 1;
-  border-radius: 50%;
+  aspect-ratio: 4 / 3;
+  min-height: 168px;
+  max-height: 340px;
+  border-radius: 26px;
+  overflow: hidden;
+  isolation: isolate;
   background:
-    radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.025) 72%),
-    rgba(0, 0, 0, 0.22);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.09) inset,
-    0 1px 0 0 rgba(255, 255, 255, 0.1) inset,
-    0 18px 34px -18px rgba(0, 0, 0, 0.8);
+    radial-gradient(120% 90% at 50% 0%, var(--glass-hi), transparent 70%),
+    var(--glass);
+  box-shadow: 0 0 0 1px var(--line) inset, 0 1px 0 0 var(--deck-edge) inset;
   touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
   cursor: pointer;
   outline: none;
-  transition: opacity 260ms, box-shadow 200ms;
+  transition: opacity 260ms, box-shadow 200ms, background-color 200ms;
 }
-.tv-pad:focus-visible { box-shadow: 0 0 0 2px var(--accent), 0 18px 34px -18px rgba(0, 0, 0, 0.8); }
-.tv-press {
-  position: absolute; inset: 0; border-radius: 50%;
-  background: conic-gradient(from -45deg, rgba(150, 190, 255, 0.24) 0deg 90deg, transparent 90deg);
-  -webkit-mask-image: radial-gradient(circle, transparent 29%, #000 30%);
-  mask-image: radial-gradient(circle, transparent 29%, #000 30%);
+.tv-swipe:focus-visible { box-shadow: 0 0 0 2px var(--accent) inset; }
+.tv-swipe.touching { background-color: var(--glass-hi); }
+.tv-swipe-hint {
+  position: absolute;
+  inset: auto 0 18px;
+  text-align: center;
+  font-size: 12.5px;
+  font-weight: 550;
+  letter-spacing: 0.01em;
+  color: var(--faint);
+  pointer-events: none;
+  transition: opacity 600ms ease;
+}
+.tv-swipe.used .tv-swipe-hint { opacity: 0; }
+.tv-swipe-ring, .tv-swipe-glow, .tv-swipe-step, .tv-swipe-finger {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.tv-swipe-ring {
+  width: 120px;
+  height: 120px;
+  border: 2px solid var(--halo);
+  box-shadow: 0 0 18px -2px var(--halo), inset 0 0 14px -4px var(--halo);
   opacity: 0;
-  transition: opacity 220ms;
-  pointer-events: none;
 }
-.tv-pad[data-press=up] .tv-press, .tv-pad[data-press=right] .tv-press,
-.tv-pad[data-press=down] .tv-press, .tv-pad[data-press=left] .tv-press { opacity: 1; transition: opacity 60ms; }
-.tv-pad[data-press=right] .tv-press { transform: rotate(90deg); }
-.tv-pad[data-press=down] .tv-press { transform: rotate(180deg); }
-.tv-pad[data-press=left] .tv-press { transform: rotate(270deg); }
-.tv-arrow { position: absolute; color: var(--muted); pointer-events: none; transition: color 120ms, transform 160ms var(--spring); }
-.tv-arrow.up { top: 9%; left: 50%; transform: translateX(-50%); }
-.tv-arrow.down { bottom: 9%; left: 50%; transform: translateX(-50%); }
-.tv-arrow.left { left: 9%; top: 50%; transform: translateY(-50%); }
-.tv-arrow.right { right: 9%; top: 50%; transform: translateY(-50%); }
-.tv-pad[data-press=up] .tv-arrow.up, .tv-pad[data-press=down] .tv-arrow.down,
-.tv-pad[data-press=left] .tv-arrow.left, .tv-pad[data-press=right] .tv-arrow.right { color: #fff; }
-.tv-ok {
-  position: absolute; inset: 29%; border-radius: 50%;
-  display: grid; place-items: center;
-  font-size: 14px; font-weight: 700; letter-spacing: 0.06em; color: var(--text);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.08));
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset, 0 8px 18px -8px rgba(0, 0, 0, 0.7);
-  pointer-events: none;
-  transition: transform 200ms var(--spring), background 120ms;
+.tv-swipe-glow {
+  width: 150px;
+  height: 150px;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--halo) 55%, transparent), transparent);
+  opacity: 0;
 }
-.tv-pad[data-press=ok] .tv-ok { transform: scale(0.92); background: rgba(150, 190, 255, 0.3); transition: transform 80ms, background 60ms; }
+.tv-swipe-step {
+  width: 110px;
+  height: 110px;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--halo) 60%, transparent), transparent);
+}
+.tv-swipe-finger {
+  width: 88px;
+  height: 88px;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--halo) 26%, transparent), transparent);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.tv-swipe.touching .tv-swipe-finger { opacity: 1; transition-duration: 80ms; }
+.tv-swipe-edge { position: absolute; pointer-events: none; opacity: 0; will-change: opacity; }
+.tv-swipe-edge.up, .tv-swipe-edge.down { left: 8%; right: 8%; height: 46px; }
+.tv-swipe-edge.left, .tv-swipe-edge.right { top: 8%; bottom: 8%; width: 46px; }
+.tv-swipe-edge.up { top: 0; background: radial-gradient(50% 100% at 50% 0%, color-mix(in srgb, var(--halo) 70%, transparent), transparent); }
+.tv-swipe-edge.down { bottom: 0; background: radial-gradient(50% 100% at 50% 100%, color-mix(in srgb, var(--halo) 70%, transparent), transparent); }
+.tv-swipe-edge.left { left: 0; background: radial-gradient(100% 50% at 0% 50%, color-mix(in srgb, var(--halo) 70%, transparent), transparent); }
+.tv-swipe-edge.right { right: 0; background: radial-gradient(100% 50% at 100% 50%, color-mix(in srgb, var(--halo) 70%, transparent), transparent); }
 
 /* Volume */
 .tv-volume-row { margin-top: 18px; }
@@ -1161,22 +1401,22 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
   position: relative; flex: 1; min-width: 0; height: 44px; border-radius: 15px;
   display: flex; align-items: center; gap: 8px; padding: 0 14px;
   overflow: hidden;
-  background: rgba(0, 0, 0, 0.36);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+  background: var(--well);
+  box-shadow: 0 0 0 1px var(--well-line) inset;
   cursor: ew-resize; touch-action: none; outline: none;
 }
 .tv-track:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
 .tv-fill {
   position: absolute; inset: 0 auto 0 0; width: calc(var(--p, 0) * 100%);
-  background: linear-gradient(90deg, rgba(90, 150, 255, 0.34), rgba(150, 195, 255, 0.58));
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 34%, transparent), color-mix(in srgb, var(--accent) 60%, transparent));
   transition: width 260ms var(--ease);
 }
 .tv-track.dragging .tv-fill { transition: none; }
 .tv-speaker, .tv-level { position: relative; }
 .tv-speaker { color: var(--text); }
 .tv-level { margin-left: auto; font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
-.tv-track.muted .tv-fill { background: rgba(255, 255, 255, 0.1); }
-.tv-track.muted .tv-speaker { color: #ff9a90; }
+.tv-track.muted .tv-fill { background: var(--fill); }
+.tv-track.muted .tv-speaker { color: #ff6d61; }
 .tv-track.muted .tv-level { color: var(--muted); }
 
 /* Search */
@@ -1188,7 +1428,7 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
   transition: border-color 200ms, background 200ms;
   cursor: text;
 }
-.tv-search:focus-within { border-color: rgba(120, 175, 255, 0.55); background: var(--glass-hi); }
+.tv-search:focus-within { border-color: var(--accent-line); background: var(--glass-hi); }
 .tv-search-input {
   flex: 1; min-width: 0; height: 100%;
   font: inherit; font-size: 14px; color: var(--text);
@@ -1200,12 +1440,12 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
 .tv-search-input::-webkit-search-cancel-button { display: none; }
 .tv-search-clear {
   width: 24px; height: 24px; border-radius: 50%; flex: none;
-  display: grid; place-items: center; color: var(--text); background: rgba(255, 255, 255, 0.14);
+  display: grid; place-items: center; color: var(--text); background: var(--fill-hi);
 }
 .tv-results { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .tv-results:empty { display: none; }
 .tv-results-state { display: flex; align-items: center; gap: 8px; padding: 8px 6px; font-size: 12.5px; color: var(--muted); }
-.tv-results-state.error { color: #ffb4a8; }
+.tv-results-state.error { color: var(--danger-ink); }
 .tv-spin { display: inline-grid; animation: tv-spin 0.9s linear infinite; }
 @keyframes tv-spin { to { transform: rotate(360deg); } }
 .tv-result {
@@ -1222,7 +1462,7 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
   position: relative; flex: none; width: 40px; height: 58px; border-radius: 8px; overflow: hidden;
   display: grid; place-items: center;
   background: linear-gradient(160deg, color-mix(in srgb, var(--tint) 70%, #10131c), color-mix(in srgb, var(--tint) 22%, #0a0e1a));
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+  box-shadow: 0 0 0 1px var(--line) inset;
 }
 .tv-poster-letter { font-size: 19px; font-weight: 750; color: rgba(255, 255, 255, 0.85); }
 .tv-poster img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 260ms; }
@@ -1235,7 +1475,7 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
 .tv-result-apps { display: flex; gap: 6px; flex: none; }
 .tv-offer {
   width: 32px; height: 32px; border-radius: 10px; overflow: hidden;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 1px var(--line);
   transition: transform 260ms var(--spring);
 }
 .tv-offer .tv-logo { width: 100%; height: 100%; display: block; }
@@ -1246,7 +1486,7 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
   display: flex; align-items: center; gap: 10px;
   min-height: 44px; padding: 7px 12px 7px 9px; border-radius: 14px;
   text-align: left; font-size: 13px; color: var(--text);
-  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border: 1px dashed var(--fill-hi);
   transition: background 180ms, transform 260ms var(--spring);
 }
 @media (hover: hover) { .tv-extra-row:hover { background: var(--glass); } }
@@ -1256,7 +1496,7 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
 .tv-extra-row small { display: block; font-size: 11px; color: var(--muted); }
 .tv-extra-icon {
   width: 28px; height: 28px; border-radius: 9px; flex: none;
-  display: grid; place-items: center; color: #a9cbff; background: rgba(61, 139, 255, 0.16);
+  display: grid; place-items: center; color: var(--accent-ink); background: var(--accent-soft);
 }
 
 html.ios .tv-app { width: 68px; }
@@ -1276,10 +1516,9 @@ html.ios .tv-np-skip .icon { width: 27px; height: 27px; }
 html.ios .tv-np-play { width: 54px; height: 54px; }
 html.ios .tv-np-controls { gap: 30px; }
 html.ios .tv-now-text span { font-size: 12px; }
-html.ios .tv-remote { grid-template-columns: auto minmax(180px, 240px) auto; }
-html.ios .tv-key { width: 52px; height: 52px; }
-html.ios .tv-keys { gap: 20px; }
-html.ios .tv-ok { font-size: 16px; }
+html.ios .tv-key { width: 54px; height: 54px; }
+html.ios .tv-swipe { border-radius: 28px; min-height: 240px; }
+html.ios .tv-swipe-hint { font-size: 13.5px; }
 html.ios .tv-step { width: 46px; height: 46px; }
 html.ios .tv-track { height: 50px; border-radius: 17px; }
 html.ios .tv-level { font-size: 14px; }
@@ -1289,5 +1528,3 @@ html.ios .tv-result-title { font-size: 15px; }
 html.ios .tv-result-sub, html.ios .tv-result-note { font-size: 12.5px; }
 html.ios .tv-offer { width: 36px; height: 36px; border-radius: 11px; }
 html.ios .tv-extra-row { min-height: 50px; font-size: 14px; }
-html.ios .tv-scroll { padding-bottom: calc(var(--safe-bottom) + 22px); }
-html.ios .sheet.tv { padding-bottom: 0; }
