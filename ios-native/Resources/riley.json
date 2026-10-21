@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "name": "Riley's Studio",
+  "wallHeight": 2.42,
+  "interiorWallHeight": 1.25,
+  "camera": { "azimuth": 22, "elevation": 52 },
+  "outdoorTemp": 22,
+
+  "rooms": [
+    { "id": "kitchen",  "name": "Kitchen",  "rect": [3.5, 0, 3.65, 2.2],   "floor": "tile" },
+    { "id": "studio",   "name": "Studio",   "rect": [0, 2.2, 7.15, 5.5],   "floor": "oak" },
+    { "id": "bathroom", "name": "Bathroom", "poly": [[0, 2.2], [2.25, 2.2], [2.25, 3.65], [1.55, 4.25], [0, 4.25]], "floor": "tile" },
+    { "id": "shower",   "name": "Shower",   "rect": [0, 3.15, 0.75, 1.1],  "floor": "tile" },
+    { "id": "closet",   "name": "Closet",   "rect": [0, 4.25, 0.65, 3.45], "floor": "oak" }
+  ],
+
+  "openings": [
+    { "type": "open",   "from": [3.5, 2.2],   "to": [7.15, 2.2] },
+    { "type": "window", "from": [4.6, 0],     "to": [5.8, 0],    "sill": 1.0, "head": 2.1 },
+    { "type": "window", "from": [3.5, 0.4],   "to": [3.5, 1.2],  "sill": 1.0, "head": 2.1 },
+    { "type": "window", "from": [0.85, 2.2],  "to": [1.45, 2.2], "sill": 1.2, "head": 1.9 },
+    { "type": "door",   "from": [1.61, 4.2],  "to": [2.19, 3.7], "hinge": "from", "swing": "studio" },
+    { "type": "open",   "from": [0.75, 3.25], "to": [0.75, 4.15], "curtain": true },
+    { "type": "open",   "from": [0.65, 4.3],  "to": [0.65, 5.85] },
+    { "type": "open",   "from": [0.65, 6.2],  "to": [0.65, 7.35] },
+    { "type": "door",   "from": [0.85, 7.7],  "to": [1.65, 7.7], "hinge": "from", "swing": "studio" }
+  ],
+
+  "furniture": [
+    { "type": "counter",     "pos": [4.94, 0.41], "width": 2.68, "sink": "double", "sinkAt": 0.26 },
+    { "type": "counter",     "pos": [3.91, 1.34], "rot": 90, "width": 1.22, "sink": "single", "sinkAt": 0.3 },
+    { "type": "stove",       "pos": [6.67, 0.43] },
+    { "type": "microwave",   "pos": [3.88, 1.66], "rot": 90 },
+    { "type": "fridge",      "pos": [2.9, 2.66], "rot": 90 },
+    { "type": "tvCabinet",   "pos": [2.82, 3.5], "rot": 22, "width": 0.92 },
+    { "type": "bed",         "pos": [4.12, 6.5], "rot": 180, "width": 1.65, "color": "#8a9bb8" },
+    { "type": "beanBag",     "pos": [4.12, 4.9], "size": [1.55, 0.9] },
+    { "type": "nightstand",  "pos": [2.95, 7.38] },
+    { "type": "armchair",    "pos": [6.15, 4.28], "rot": -90, "color": "#c9b07e" },
+    { "type": "desk",        "pos": [6.72, 2.85], "rot": -90, "width": 1.1 },
+    { "type": "bookshelf",   "pos": [6.89, 1.85], "rot": -90, "width": 0.7, "height": 1.3 },
+    { "type": "bookshelf",   "pos": [6.89, 4.93], "rot": -90, "width": 0.55, "height": 1.3 },
+    { "type": "dresser",     "pos": [1.11, 4.53], "width": 0.82, "height": 1.2 },
+    { "type": "waterHeater", "pos": [0.35, 4.55], "diameter": 0.48 },
+    { "type": "chair",       "pos": [0.33, 5.12], "rot": 90 },
+    { "type": "chair",       "pos": [0.33, 5.58], "rot": 90 },
+    { "type": "closetRod",   "pos": [0.35, 5.08], "rot": 90, "width": 1.55, "y": 1.9, "clothes": false },
+    { "type": "closetRod",   "pos": [0.35, 6.94], "rot": 90, "width": 1.47, "y": 1.75 },
+    { "type": "storageBins", "pos": [0.35, 6.65], "rot": 90, "width": 0.7 },
+    { "type": "shower",      "pos": [0.4, 3.7], "size": [0.6, 1.0] },
+    { "type": "toilet",      "pos": [0.44, 2.6], "rot": 90 },
+    { "type": "vanity",      "pos": [1.96, 2.6], "rot": -90, "width": 0.6 }
+  ],
+
+  "lights": [
+    { "id": "kitchen.edison", "name": "Edison Bulb", "room": "kitchen", "type": "ceiling", "pos": [5.33, 1.1],
+      "capabilities": ["brightness", "temp"], "link": { "service": "wiz", "id": "d8a0113a23e6" } },
+    { "id": "kitchen.counter", "name": "Counter Light", "room": "kitchen", "type": "strip", "pos": [5.33, 0.7],
+      "y": 0.12, "rot": 0, "length": 3.4, "capabilities": ["brightness", "color"], "color": "#b45cff",
+      "link": { "service": "wiz", "id": "444f8ec6fad8" } },
+    { "id": "studio.window", "name": "Window Light", "room": "studio", "type": "table", "pos": [2.95, 7.38],
+      "capabilities": ["brightness", "temp", "color"], "link": { "service": "wiz", "id": "444f8e0068c8" } },
+    { "id": "studio.door", "name": "Door Light", "room": "studio", "type": "ceiling", "pos": [1.3, 6.9],
+      "capabilities": ["brightness"] },
+    { "id": "bathroom.ceiling", "name": "Bathroom Light", "room": "bathroom", "type": "ceiling", "pos": [1.25, 2.95],
+      "capabilities": ["brightness"] }
+  ],
+
+  "acs": [
+    { "id": "studio.ac", "name": "Bedroom AC", "room": "studio", "wall": "east", "pos": [7.15, 3.6], "y": 2.15,
+      "unit": "F", "link": { "service": "mrcool", "id": "485519fb47c7" } }
+  ],
+
+  "scenes": [
+    { "id": "bright", "name": "Bright", "icon": "sun", "lights": { "*": { "on": true, "brightness": 1, "temp": 4200 } } },
+    { "id": "cozy", "name": "Cozy", "icon": "sofa", "lights": { "*": { "on": true, "brightness": 0.45, "temp": 2700 } } },
+    { "id": "night", "name": "Night", "icon": "moon", "lights": { "*": { "on": true, "brightness": 0.1, "temp": 2200 } } },
+    { "id": "off", "name": "All off", "icon": "power", "lights": { "*": { "on": false } } }
+  ]
+}
