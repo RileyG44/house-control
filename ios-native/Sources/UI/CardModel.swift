@@ -11,16 +11,39 @@ enum CardMetrics {
     /// The card's top at rest and pulled up, in screen points.
     static var restTop: CGFloat { (min(470, screenHeight * 0.52) - 34).rounded() }
     static var expandedTop: CGFloat { min(restTop, safeTop + 92) }
-    /// A detent's height is the sheet's height above the bottom safe area.
-    static func height(top: CGFloat) -> CGFloat { screenHeight - safeBottom - top }
+    /// A detent's height is the sheet's height above the bottom safe area, plus what the system
+    /// takes off a sheet floating at a partial height (iOS 26 insets it, more the lower it is).
+    /// Measured where the sheet really settles and kept, so the card stops where it should.
+    static func detentHeight(top: CGFloat, fix: CGFloat) -> CGFloat { screenHeight - safeBottom - top + fix }
+    nonisolated(unsafe) static var restFix: CGFloat = UserDefaults.standard.object(forKey: "card.restFix") as? CGFloat ?? 10
+    nonisolated(unsafe) static var expandedFix: CGFloat = UserDefaults.standard.object(forKey: "card.expandedFix") as? CGFloat ?? 22
+
+    nonisolated(unsafe) private static var calibrated: Set<Bool> = []
+
+    /// The sheet settled at `top` for a detent that should put it at `target` (once per detent and
+    /// launch, and only for a small difference, so a finger resting on the card doesn't count).
+    static func calibrate(expanded: Bool, top: CGFloat) {
+        let target = expanded ? expandedTop : restTop
+        let err = top - target
+        guard !calibrated.contains(expanded), abs(err) < 40 else { return }
+        calibrated.insert(expanded)
+        guard abs(err) > 1.5 else { return }
+        if expanded {
+            expandedFix = min(80, max(-40, expandedFix + err / 0.96))
+            UserDefaults.standard.set(expandedFix, forKey: "card.expandedFix")
+        } else {
+            restFix = min(80, max(-40, restFix + err / 0.96))
+            UserDefaults.standard.set(restFix, forKey: "card.restFix")
+        }
+    }
 }
 
 struct RestDetent: CustomPresentationDetent {
-    static func height(in context: Context) -> CGFloat? { CardMetrics.height(top: CardMetrics.restTop) }
+    static func height(in context: Context) -> CGFloat? { CardMetrics.detentHeight(top: CardMetrics.restTop, fix: CardMetrics.restFix) }
 }
 
 struct ExpandedDetent: CustomPresentationDetent {
-    static func height(in context: Context) -> CGFloat? { CardMetrics.height(top: CardMetrics.expandedTop) }
+    static func height(in context: Context) -> CGFloat? { CardMetrics.detentHeight(top: CardMetrics.expandedTop, fix: CardMetrics.expandedFix) }
 }
 
 extension PresentationDetent {
@@ -49,6 +72,7 @@ final class CardModel {
     }
     /// Where the card was on the home page, for when a device's page closes.
     private var homeDetent: PresentationDetent = .rest
+    @ObservationIgnored private var settle: Task<Void, Never>?
     /// Rooms being put in order (the list becomes one row per room).
     var arrangingRooms = false
 
@@ -57,6 +81,12 @@ final class CardModel {
 
     func sheetMoved(top: CGFloat) {
         self.top = top
+        settle?.cancel()
+        settle = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard let self, !Task.isCancelled else { return }
+            CardMetrics.calibrate(expanded: self.detent == .expanded, top: self.top)
+        }
         let rest = CardMetrics.restTop, exp = CardMetrics.expandedTop
         let p = rest > exp ? (rest - top) / (rest - exp) : 0
         let clamped = min(1.08, max(-0.1, p))
