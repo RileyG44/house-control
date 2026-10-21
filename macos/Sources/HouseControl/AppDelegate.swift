@@ -432,6 +432,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             default: pattern = .alignment
             }
             NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .now)
+        case "theme":
+            if host === panel.host {
+                panel.setTheme(choice: message["theme"] as? String ?? "auto", look: message["look"] as? String ?? "dark")
+            }
         case "quit": NSApp.terminate(nil)
         case "setOpenAtLogin": setOpenAtLogin(message["on"] as? Bool ?? false)
 

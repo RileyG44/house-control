@@ -16,6 +16,7 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     let host: WebHost
     private let window: FloatingPanel
+    private var glass: NSView?
     private var outsideClickMonitor: Any?
     private(set) var isVisible = false
     private var lastHide = Date.distantPast
@@ -39,19 +40,21 @@ final class PanelController: NSObject, NSWindowDelegate {
         window.hidesOnDeactivate = false
         window.animationBehavior = .none
         window.delegate = self
-        window.contentView = Self.onGlass(host.webView, size: size)
+        let (content, glass) = Self.onGlass(host.webView, size: size)
+        window.contentView = content
+        self.glass = glass
         window.alphaValue = 0
     }
 
     /// The web view over a glass sheet that sits exactly behind the card (`.card` in
     /// style.css, radius 34), inside the window's transparent margin.
-    private static func onGlass(_ webView: NSView, size: NSSize) -> NSView {
+    private static func onGlass(_ webView: NSView, size: NSSize) -> (NSView, NSView) {
         let root = NSView(frame: NSRect(origin: .zero, size: size))
         let glass: NSView
         if #available(macOS 26.0, *) {
             let view = NSGlassEffectView()
             view.cornerRadius = 34
-            view.tintColor = NSColor(calibratedRed: 0.03, green: 0.05, blue: 0.1, alpha: 0.3)
+            view.tintColor = tint(light: false)
             glass = view
         } else {
             let view = NSVisualEffectView()
@@ -69,7 +72,26 @@ final class PanelController: NSObject, NSWindowDelegate {
         webView.autoresizingMask = [.width, .height]
         root.addSubview(glass)
         root.addSubview(webView)
-        return root
+        return (root, glass)
+    }
+
+    private static func tint(light: Bool) -> NSColor {
+        light ? NSColor(calibratedRed: 0.98, green: 0.96, blue: 0.93, alpha: 0.35)
+              : NSColor(calibratedRed: 0.03, green: 0.05, blue: 0.1, alpha: 0.3)
+    }
+
+    /// The panel's look (`theme` from ui/theme.js): `choice` is "auto", "light" or "dark",
+    /// `look` what the page shows. The window takes the choice, so the page's Auto follows
+    /// the system; the glass takes a tint that suits the look.
+    func setTheme(choice: String, look: String) {
+        switch choice {
+        case "light": window.appearance = NSAppearance(named: .aqua)
+        case "dark": window.appearance = NSAppearance(named: .darkAqua)
+        default: window.appearance = nil
+        }
+        if #available(macOS 26.0, *), let glass = glass as? NSGlassEffectView {
+            glass.tintColor = Self.tint(light: look == "light")
+        }
     }
 
     func toggle(below button: NSStatusBarButton) {
