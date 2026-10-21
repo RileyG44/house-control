@@ -53,10 +53,6 @@ final class HomeScene {
     var size = CGSize(width: 430, height: 932)
     var topInset: CGFloat = 63
     var bottomInset: CGFloat = 500
-    /// Where the card's top is right now (it moves with the drag and its spring). In front of the
-    /// TV the camera keeps the TV and its wall framed in the space above it, so pulled up, the
-    /// strip under the Dynamic Island is a smaller view of the same wall, not a cut-out.
-    var cardTop: CGFloat?
     /// 0 … 1: how far the camera is into the TV's close-up (eased with the fly-in).
     private(set) var tvWeight: Float = 0
 
@@ -271,9 +267,6 @@ final class HomeScene {
         let t = min(tan(55 * Float.pi / 180), max(tan(10 * Float.pi / 180),
                     max(bw * H / (2 * Self.tvDist * W), bh * H / (2 * Self.tvDist * usableH))))
         goal.fov = 2 * atan(t) * 180 / .pi
-        // The same view from further back when the card leaves less room (no zoom, no cut-out).
-        let liveH = max(30, H - Float(topInset + closeBottomInset))
-        goal.dist = max(Self.tvDist, max(bw * H / (2 * t * W), bh * H / (2 * t * liveH)))
         let side = SIMD3(n.z, 0, -n.x)
         corners = [(-1, -1), (1, -1), (1, 1), (-1, 1)].map { (sx: Float, sy: Float) in c + side * (sx * bw / 2) + SIMD3(0, sy * bh / 2, 0) }
     }
@@ -327,11 +320,8 @@ final class HomeScene {
     /// Where the camera looks and stands. The model is lowered into the part of the screen the card
     /// leaves: for the home by tilting the camera a little, in front of the TV by moving the camera
     /// down instead (a lens shift), so the camera stays level and the screen is seen face on.
-    private var closeBottomInset: CGFloat { cardTop.map { size.height - $0 + 10 } ?? bottomInset }
-
     private func eyeAndAim(_ r: Rig, up: SIMD3<Float>, fwd: SIMD3<Float>, tv: Float) -> (aim: SIMD3<Float>, eye: SIMD3<Float>) {
-        let bottom = bottomInset + (closeBottomInset - bottomInset) * CGFloat(tv)
-        let dyPx = Float((topInset - bottom) / 2)
+        let dyPx = Float((topInset - bottomInset) / 2)
         let shift = dyPx / Float(size.height / 2) * tan(r.fov * .pi / 360) * r.dist
         let level = SIMD3<Float>(0, shift * tv, 0)
         return (r.target + up * shift * (1 - tv) + level, r.target - fwd * r.dist + level)
