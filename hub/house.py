@@ -840,8 +840,9 @@ async def scan() -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    # The AiDot library logs device login payloads, including LAN passwords.
-    logging.getLogger("aidot").setLevel(logging.WARNING)
+    # The AiDot library logs every device message (login payloads with LAN passwords included)
+    # as a *warning*, so only its errors are let through.
+    logging.getLogger("aidot").setLevel(logging.ERROR)
     arg = sys.argv[1] if len(sys.argv) > 1 else "run"
     if arg == "install":
         install()
