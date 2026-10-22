@@ -31,7 +31,7 @@ from test_tv import TV_ID, run  # noqa: E402
 FIX = json.loads((HERE / "justwatch_catalog.json").read_text())
 NETFLIX_TV = "intent://www.netflix.com/title/80057281#Intent;scheme=https;package=com.netflix.ninja;end"
 EMPTY = {"data": {"popularTitles": {"edges": []}}}
-PICTURE = b"\xff\xd8\xff\xe0" + b"j" * 996
+PICTURE = b"\xff\xd8\xff\xe0" + b"j" * 994 + b"\xff\xd9"
 # The launcher's Continue: an episode of a Netflix show, with its picture.
 WATCHING = {"id": "0a1b2c3d4e5f6071", "pkg": "com.netflix.ninja", "app": "Netflix", "title": "Chapter Seven: The Bathtub",
             "subtitle": "Stranger Things · S1 E7", "progress": 0.42, "remainingMin": 31, "art": "art/h/0a1b2c3d4e5f6071"}
@@ -82,8 +82,18 @@ async def fake_justwatch(monkeypatch, broken: set | None = None):
 
     async def picture(request):
         pictures.append(request.path)
-        if request.match_info["name"].startswith("not-an-image"):
+        name = request.match_info["name"]
+        if name.startswith("not-an-image"):
             return web.Response(text="<html>", content_type="text/html")
+        if name.startswith("slow") or name.startswith("cut"):
+            # A slow link: the picture comes in pieces; "cut" stops before the end.
+            r = web.StreamResponse(headers={"Content-Type": "image/jpeg"})
+            await r.prepare(request)
+            for i in range(0, len(PICTURE) if name.startswith("slow") else 600, 200):
+                await r.write(PICTURE[i:i + 200])
+                await asyncio.sleep(0.01)
+            await r.write_eof()
+            return r
         return web.Response(body=PICTURE, content_type="image/jpeg")
 
     app = web.Application()
@@ -301,6 +311,30 @@ def test_pictures_are_kept_on_disk_and_bounded(tmp_path, monkeypatch):
                 assert await cat.picture(*bad) is None, bad
         await server.close()
     run(go())
+
+
+def test_pictures_that_arrive_in_pieces_are_kept_whole(tmp_path, monkeypatch):
+    async def go():
+        server, asked, pictures = await fake_justwatch(monkeypatch)
+        async with aiohttp.ClientSession() as http:
+            cat = catalog.Catalog(tmp_path, apps=lambda: ["Netflix"])
+            cat.http = http
+            assert await cat.picture("poster", "1", "slow-link") == (PICTURE, "image/jpeg")
+            # Cut off before the end: not shown, not kept, asked for again next time.
+            assert await cat.picture("poster", "2", "cut-off") is None
+            assert not (tmp_path / "catalog-art" / "poster-2.jpg").exists()
+            assert await cat.picture("poster", "2", "cut-off") is None and len(pictures) == 3
+        await server.close()
+    run(go())
+
+
+def test_cut_off_pictures_from_an_older_hub_are_dropped(tmp_path):
+    art = tmp_path / "catalog-art"
+    art.mkdir()
+    (art / "poster-1.jpg").write_bytes(PICTURE)
+    (art / "poster-2.jpg").write_bytes(PICTURE[:300])
+    catalog.Catalog(tmp_path, apps=lambda: ["Netflix"])
+    assert sorted(f.name for f in art.iterdir()) == ["poster-1.jpg"]
 
 
 # ---------- the hub's routes ----------

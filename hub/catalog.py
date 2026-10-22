@@ -130,6 +130,11 @@ def new_query(days: int) -> str:
     return f"query New($country: Country!, $language: Language!, $filter: TitleFilter, $first: Int!, {dates}) {{\n{asked}\n}}"
 
 
+
+def _whole_jpeg(body: bytes | bytearray) -> bool:
+    """A JPEG that ends where JPEGs end (pictures that aren't JPEG pass)."""
+    return not body.startswith(b"\xff\xd8") or body.rstrip(b"\0").endswith(b"\xff\xd9")
+
 class CatalogError(Exception):
     """JustWatch didn't answer, or answered with errors and nothing else."""
 
@@ -338,6 +343,7 @@ class Catalog:
         self._dirty = False
         self._art_bytes: int | None = None
         self._load()
+        self.drop_cut_pictures()
 
     # ---------- the file ----------
 
@@ -653,15 +659,36 @@ class Catalog:
         async with self.http.get(url, headers=HEADERS, timeout=aiohttp.ClientTimeout(total=15)) as r:
             if r.status != 200 or not r.headers.get("Content-Type", "").startswith("image/"):
                 return None
-            body = await r.content.read(ART_ONE + 1)
-        if not body or len(body) > ART_ONE:
+            # content.read(n) returns what has arrived so far, not n bytes: on a slow link that is
+            # the first few KB, and a cut-off JPEG draws as a strip of picture over black.
+            body = bytearray()
+            async for chunk in r.content.iter_chunked(64 * 1024):
+                body += chunk
+                if len(body) > ART_ONE:
+                    return None
+            expected = r.content_length
+        if not body or (expected is not None and len(body) != expected) or not _whole_jpeg(body):
             return None
+        body = bytes(body)
         self.art.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
         tmp.write_bytes(body)
         tmp.replace(path)
         self._kept(len(body))
         return body
+
+    def drop_cut_pictures(self) -> int:
+        """Removes pictures an older hub cached cut off (see _fetch_picture); they are fetched again."""
+        gone = 0
+        for f in self.art.glob("*.jpg"):
+            with contextlib.suppress(OSError):
+                if not _whole_jpeg(f.read_bytes()):
+                    f.unlink()
+                    gone += 1
+        if gone:
+            self._art_bytes = None
+            log.info("Dropped %d cut-off pictures", gone)
+        return gone
 
     def _kept(self, added: int) -> None:
         """Counts a new picture; past ART_LIMIT, the least recently used go until 80% is left."""
