@@ -95,8 +95,15 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
   }
   // Every TV piece shows the real TV it is linked to (tv/client.js), or stays dark.
   const tvs = furniture.userData.tvs.map((piece) => new TvUnit(piece, { anisotropy: renderer.capabilities.getMaxAnisotropy() }));
+  const speakers = new Map(furniture.userData.speakers.map((hit) => [hit.userData.id, {
+    anchor(out) { return hit.getWorldPosition(out); },
+    set hoverGoal(value) {
+      hit.parent.scale.setScalar(1 + value * 0.12);
+      shadowFrames = Math.max(shadowFrames, 2);
+    },
+  }]));
   const hitTargets = [...[...lights.values()].map((u) => u.hit), ...[...acs.values()].map((u) => u.hit),
-    ...tvs.map((u) => u.hit), ...house.floors];
+    ...tvs.map((u) => u.hit), ...furniture.userData.speakers, ...house.floors];
 
   // Night-time ambience: enough to read the model with every lamp off (or daylight, `setTheme`).
   const hemi = new THREE.HemisphereLight(0x8ea6ff, 0x0b0e17, 0.42);
@@ -425,18 +432,22 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     const hits = raycaster.intersectObjects(hitTargets, false).filter((h) => h.object.userData.kind !== 'tv' || h.object.userData.id);
     if (!hits.length) return null;
     // Devices win over the floor they stand on.
-    const device = hits.find((h) => h.object.userData.kind !== 'room');
+    // The small speaker can sit inside a table lamp's generous interaction box.
+    const device = hits.find((h) => h.object.userData.kind === 'speaker')
+      || hits.find((h) => h.object.userData.kind !== 'room');
     return (device || hits[0]).object.userData;
   }
 
   function unitOf(t) {
     if (t?.kind === 'tv') return tvOf(t.id);
+    if (t?.kind === 'speaker') return speakers.get(t.id);
     return t?.kind === 'light' ? lights.get(t.id) : t?.kind === 'ac' ? acs.get(t.id) : null;
   }
 
   function screenAnchor(t) {
     const unit = unitOf(t);
     if (!unit) return null;
+    camera.updateMatrixWorld();
     unit.anchor(v).project(camera);
     return { x: (v.x * 0.5 + 0.5) * width, y: (-v.y * 0.5 + 0.5) * height };
   }
@@ -662,6 +673,8 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     lights,
     acs,
     tvs,
+    /** A device's tooltip anchor, in canvas CSS pixels. */
+    screenAnchor,
 
     /** Pixels at the top and bottom of the canvas the model keeps clear of, at rest. */
     setInsets(top, bottom) { topInset = top; bottomInset = bottom; resize(); },

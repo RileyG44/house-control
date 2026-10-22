@@ -3,6 +3,19 @@
 What changed in each release of House Control. The Mac app is on
 [Releases](https://github.com/0xProbabillity/house-control/releases); the iPhone app is on TestFlight.
 
+## Unreleased — 2026-10-22
+
+- Match the iPhone and desktop controls to Living Room: Urbanist type, teal glass, circular
+  icons, pill controls and softer card corners in light and dark appearances.
+- Animate the native iPhone AC’s airflow, following fan speed and swing and staying above the floor.
+- Tapping AC or TV opens its controls; explicit power buttons switch them. Slide the TV tile
+  sideways to change volume without opening its remote.
+- Hold and drag presets to reorder them; edit or delete any preset, including the built-in ones.
+  Presets can open a TV app alongside their lights and temperature settings, including on the TV launcher.
+- Add a speaker to the furniture library and the studio’s door-side bedside table. Selecting
+  it opens Spotify playback, seek and volume controls, with Spotify Connect playlist and output selection
+  or a bridge to the signed-in Mac app. See [Spotify setup](docs/spotify.md).
+
 ## Unreleased
 
 ### Floor plans

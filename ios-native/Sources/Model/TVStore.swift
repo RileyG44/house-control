@@ -26,6 +26,8 @@ final class TVStore {
     /// Device id -> what was asked for and not yet reported.
     private var held: [String: Held] = [:]
     @ObservationIgnored private var queues: [String: Queue] = [:]
+    @ObservationIgnored private var volumePending: [String: Int] = [:]
+    @ObservationIgnored private var volumeTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored var onError: ((String) -> Void)?
 
     /// The launcher that answers on this Wi-Fi, while it does.
@@ -99,6 +101,19 @@ final class TVStore {
     }()
 
     init(hub: HubClient) { self.hub = hub }
+
+    /// Sliding keeps only the latest level while a previous level is travelling to the TV.
+    func setVolume(_ id: String, level: Int) {
+        volumePending[id] = min(device(id)?.volumeMax ?? 100, max(0, level))
+        guard volumeTasks[id] == nil else { return }
+        volumeTasks[id] = Task {
+            while let next = volumePending.removeValue(forKey: id) {
+                _ = await act(id, ["action": .string("volume"), "level": .number(Double(next))])
+                try? await Task.sleep(for: .milliseconds(120))
+            }
+            volumeTasks[id] = nil
+        }
+    }
 
     /// The TV as last reported: the hub's, with the launcher's view of its own TV on top while
     /// the direct route is up.

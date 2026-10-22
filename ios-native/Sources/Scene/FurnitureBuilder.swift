@@ -83,6 +83,7 @@ enum FurnitureBuilder {
     static func footprint(_ item: Furniture) -> (Float, Float) {
         let w = item.props["width"]?.double.map(Float.init)
         switch item.type {
+        case "speaker": return (0.18, 0.18)
         case "tv": return (w ?? 1.7, 0.4)
         case "tvCabinet": return ((w ?? 0.95) + 0.02, 0.54)
         default: return (w ?? 0.6, 0.6)
@@ -93,6 +94,10 @@ enum FurnitureBuilder {
     private static func piece(_ it: Furniture, _ b: MeshBuilder) -> (y: Float, z: Float, w: Float, h: Float)? {
         func n(_ k: String, _ d: Double) -> Float { Float(it.num(k, d)) }
         switch it.type {
+        case "speaker":
+            b.cyl(0.075, 0.085, 0.115, .c("#303a3b", rough: 1), seg: 32, at: SIMD3(0, 0.008, 0))
+            b.cyl(0.072, 0.072, 0.008, .c("#192526", rough: 0.6), seg: 32, at: SIMD3(0, 0.123, 0))
+            b.cyl(0.084, 0.084, 0.005, .c("#65d6c5", rough: 0.4), seg: 32, at: SIMD3(0, 0.004, 0))
         case "rug":
             let (sw, sd) = it.size.map { (Float($0.0), Float($0.1)) } ?? (2, 1.4)
             let color = it.str("color", "#3b4a66")

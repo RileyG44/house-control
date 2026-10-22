@@ -3,6 +3,8 @@ node_modules/
 .venv/
 __pycache__/
 web/dist/
+web/test-results/
+web/playwright-report/
 build/
 macos/.build/
 *.dSYM/

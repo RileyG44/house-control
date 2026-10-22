@@ -212,7 +212,7 @@ export const OPENING_TYPES = [
 export const openingName = (t) => OPENING_TYPES.find((x) => x.type === (t || 'door'))?.name || 'Door';
 
 export const FURNITURE_NAMES = {
-  sofa: 'Sofa', armchair: 'Armchair', beanBag: 'Bean bag', coffeeTable: 'Coffee table', tv: 'TV', tvCabinet: 'TV cabinet', sideboard: 'Sideboard',
+  sofa: 'Sofa', armchair: 'Armchair', beanBag: 'Bean bag', coffeeTable: 'Coffee table', tv: 'TV', tvCabinet: 'TV cabinet', speaker: 'Speaker', sideboard: 'Sideboard',
   diningSet: 'Dining table', chair: 'Chair', island: 'Kitchen island', kitchen: 'Kitchen counter', counter: 'Counter', stove: 'Stove',
   fridge: 'Fridge', microwave: 'Microwave', bed: 'Bed', nightstand: 'Nightstand', dresser: 'Dresser', wardrobe: 'Wardrobe',
   closetRod: 'Closet rod', storageBins: 'Storage bins', plant: 'Plant', vanity: 'Vanity', bathtub: 'Bathtub', shower: 'Shower',
@@ -222,7 +222,7 @@ export const FURNITURE_NAMES = {
 export const FURNITURE_ORDER = Object.keys(FURNITURE_NAMES).filter((t) => FURNITURE_TYPES.includes(t));
 // The Add catalog's groups, so the kitchen and bathroom pieces sit together.
 export const FURNITURE_GROUPS = [
-  { name: 'Living', types: ['sofa', 'armchair', 'beanBag', 'coffeeTable', 'tv', 'tvCabinet', 'sideboard', 'bookshelf', 'plant', 'rug'] },
+  { name: 'Living', types: ['sofa', 'armchair', 'beanBag', 'coffeeTable', 'tv', 'tvCabinet', 'speaker', 'sideboard', 'bookshelf', 'plant', 'rug'] },
   { name: 'Kitchen and dining', types: ['kitchen', 'counter', 'stove', 'fridge', 'microwave', 'island', 'diningSet', 'chair'] },
   { name: 'Bedroom and storage', types: ['bed', 'nightstand', 'dresser', 'wardrobe', 'closetRod', 'storageBins', 'desk'] },
   { name: 'Bathroom and utility', types: ['vanity', 'toilet', 'bathtub', 'shower', 'waterHeater'] },

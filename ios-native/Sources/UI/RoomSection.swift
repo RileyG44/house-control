@@ -143,6 +143,8 @@ struct RoomSection: View {
             if let cfg = store.acConfig(tile.deviceID) { ACTile(cfg: cfg) { card.open(.ac(cfg.id)) } }
         case .tv:
             TVTile(tile: tile) { card.open(.tv(tile.deviceID)) }
+        case .speaker:
+            SpeakerTile() { card.open(.speaker(tile.deviceID)) }
         }
     }
 
@@ -205,6 +207,7 @@ struct RoomSection: View {
             case .light: card.open(.light(tile.deviceID))
             case .ac: card.open(.ac(tile.deviceID))
             case .tv: card.open(.tv(tile.deviceID))
+            case .speaker: card.open(.speaker(tile.deviceID))
             }
         }
     }

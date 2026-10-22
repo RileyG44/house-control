@@ -68,11 +68,20 @@ public struct LocalHubClient: Sendable {
     }
 
     /// Whether the panel may reach `path` on the hub through the app (`hubRequest`): only
-    /// the TV's routes (hub/tv.py) and the weather at the house (hub/weather.py). The rest
+    /// the TV, Spotify and weather routes. The rest
     /// of the hub has its own native calls.
     public static func allows(path: String) -> Bool {
         let path = path.hasPrefix("/") ? String(path.dropFirst()) : path
-        if path == "api/weather" { return true }
+        if path == "api/weather" || path == "api/spotify" { return true }
+        if path == "api/spotify/playlists" { return true }
+        if path.hasPrefix("api/spotify/playlists?") {
+            guard !path.contains("#"), !path.contains("\\"),
+                  let parts = URLComponents(string: path), let query = parts.queryItems,
+                  query.count == 1, query[0].name == "offset", let value = query[0].value,
+                  !value.isEmpty, value.allSatisfy({ $0.isASCII && $0.isNumber }),
+                  let offset = Int(value), (0...100000).contains(offset) else { return false }
+            return true
+        }
         guard path == "api/tv" || path.hasPrefix("api/tv/") || path.hasPrefix("api/tv?") else { return false }
         return !path.contains("..") && !path.contains("#") && !path.contains("\\")
     }

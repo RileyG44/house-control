@@ -91,6 +91,10 @@ final class HomeScene {
         let b = MeshBuilder()
         HouseBuilder.build(plan, camDir: camDir, into: b)
         let screens = FurnitureBuilder.build(plan.furniture, into: b)
+        for item in plan.furniture where item.type == "speaker" {
+            root.addChild(hitEntity("pick:speaker:\(item.device ?? "spotify")", size: SIMD3(0.28, 0.26, 0.28),
+                                    at: SIMD3(Float(item.pos.x), Float(item.y ?? 0) + 0.1, Float(item.pos.y))))
+        }
         for e in b.entities() {
             e.components.set(ImageBasedLightReceiverComponent(imageBasedLight: ibl))
             root.addChild(e)

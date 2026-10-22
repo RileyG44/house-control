@@ -41,6 +41,7 @@
     { "type": "tvCabinet",   "pos": [2.82, 3.5], "rot": 22, "width": 0.92 },
     { "type": "bed",         "pos": [4.12, 6.5], "rot": 180, "width": 1.65, "color": "#8a9bb8" },
     { "type": "beanBag",     "pos": [4.12, 4.9], "size": [1.55, 0.9] },
+    { "type": "speaker", "name": "Studio speaker", "device": "spotify", "pos": [2.81, 7.4], "y": 0.5 },
     { "type": "nightstand",  "pos": [2.95, 7.38] },
     { "type": "armchair",    "pos": [6.15, 4.28], "rot": -90, "color": "#c9b07e" },
     { "type": "desk",        "pos": [6.72, 2.85], "rot": -90, "width": 1.1 },

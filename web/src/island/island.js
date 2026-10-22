@@ -170,7 +170,16 @@ export async function bootIsland(root) {
       onPick(target) {
         if (!target) return;
         if (target.kind === 'light') store.toggleLight(target.id);
-        else if (target.kind === 'ac') store.setAC(target.id, { on: !state.acs[target.id].on });
+        else if (['ac', 'tv', 'speaker'].includes(target.kind)) {
+          const device = target.kind === 'speaker' ? `speaker:${target.id}` : target.id;
+          if (isNative) post('openDevice', { device });
+          else {
+            const url = new URL(location.href);
+            url.searchParams.delete('mode'); url.searchParams.delete('expanded');
+            url.searchParams.set('device', device);
+            location.assign(url);
+          }
+        }
         else if (target.kind === 'room') {
           focused = focused === target.id ? null : target.id;
           world.focus(focused ? { kind: 'room', id: focused } : null);
