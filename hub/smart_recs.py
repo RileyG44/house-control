@@ -122,7 +122,7 @@ What the TV played in the last {DAYS} days, most recent first (day · app · tit
 Suggest {WANT} films or series that:
 - are available to stream on one of those services in the US right now, included in the subscription (not rent or buy);
 - are none of the titles above, nor any show whose episodes appear above (they have seen or started those);
-- fit their taste as the list shows it, with some variety in genre and service;
+- fit their taste as the list shows it, with some variety in genre and service. YouTube videos say what interests them (subjects, channels, tone): turn those into films and series on the services, documentaries and docuseries included where they fit. Ignore test clips and demo reels;
 - lean towards recent and well regarded titles (at most a third from before 2016).
 
 Answer with JSON only, matching the schema: {{"picks": [{{"title", "year", "kind": "movie" or "show", "app_hint": the service you expect it on, exactly as named above, or null}}]}}.

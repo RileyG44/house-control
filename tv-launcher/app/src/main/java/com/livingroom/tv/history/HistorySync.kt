@@ -43,6 +43,19 @@ class HistorySync(context: Context, private val prefs: Prefs) {
         }
     }
 
+    /**
+     * Once per install: everything the TV recorded before the hub kept a watch log, so the
+     * nightly picks start from the real history rather than from nothing.
+     */
+    fun backfill(entries: List<WatchEntry>, label: (String) -> String?) {
+        val done = File(file.parentFile, "history-backfilled")
+        if (done.exists()) return
+        entries.forEach { note(it, label(it.pkg)) }
+        done.writeText(System.currentTimeMillis().toString())
+        Log.i(TAG, "Queued ${entries.size} earlier titles for the hub")
+        kick.trySend(Unit)
+    }
+
     /** The catalog title OK opened in [pkg] (its JustWatch [id]). */
     fun opened(pkg: String, id: String, title: String) {
         lastOpened = Opened(pkg, id, title, System.currentTimeMillis())

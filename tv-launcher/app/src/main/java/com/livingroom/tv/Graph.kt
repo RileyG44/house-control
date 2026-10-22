@@ -86,6 +86,7 @@ object Graph {
             history.load()
             wallpaper.load()
             apps.refresh()
+            historySync.backfill(history.entries.value) { apps.label(it) }
         }
         apps.watchPackageChanges()
         hub.start(app, scope)
