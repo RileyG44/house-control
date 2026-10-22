@@ -496,6 +496,8 @@ def test_pair_tv_command(tmp_path, monkeypatch):
         assert saved == {"url": f"http://127.0.0.1:{lr.port}", "token": TOKEN, "device": "5e1f00aa77bb", "name": "Living Room",
                          "id": "5e1f00aa77bb"}
         assert launchers.from_conf(tmp_path).install_id == "5e1f00aa77bb"
+        # The launcher is told where this hub is, for the streaming catalog.
+        assert [list(b) for b in fake.settings] == [["hub"]] and fake.settings[0]["hub"].startswith("http://")
         await lr.close()
     run(go())
 

@@ -4,6 +4,8 @@ HTTP API on the Chromecast itself, port 8686.
   GET  /api/state?since=rev     the whole state; waits (up to 25 s) until it changes after `rev`
   POST /api/cmd                 {"type": key|media|seek|volume|mute|launch|open|text|submit|wake|sleep|…}
   GET  /art/now, /banner/{pkg}  what is playing, an app's banner
+  GET  /art/h/{id}              the picture of a title in Continue
+  POST /api/settings            {"hub": url, …}: where the launcher finds this hub (for the streaming catalog)
   POST /pair/start, /pair/finish   the TV shows a 4-digit code, and the code is traded for the token
 
 Every /api call carries the token in the X-LR-Key header. The hub pairs once
@@ -28,6 +30,7 @@ import aiohttp
 PORT = 8686
 LONG_POLL = 25.0     # how long the launcher holds a /api/state?since= before it answers anyway
 _PKG = re.compile(r"^[A-Za-z][\w.]{0,199}$")
+_HISTORY_ID = re.compile(r"^[0-9a-f]{1,32}$")
 
 
 class LauncherError(Exception):
@@ -105,12 +108,15 @@ class Launcher:
         return isinstance(data, dict) and data.get("ok") is True
 
     async def picture(self, http: aiohttp.ClientSession, kind: str, pkg: str | None = None) -> tuple[bytes, str] | None:
-        """What is playing (`now`) or an app's banner (`banner`), as (bytes, content type), or
-        None when the TV has no such picture."""
+        """What is playing (`now`), an app's banner (`banner`, `pkg` the app) or a title in
+        Continue (`history`, `pkg` its id), as (bytes, content type), or None when the TV has no
+        such picture."""
         if kind == "now":
             path = "/art/now"
         elif kind == "banner" and pkg and _PKG.match(pkg):
             path = f"/banner/{pkg}"
+        elif kind == "history" and pkg and _HISTORY_ID.match(pkg):
+            path = f"/art/h/{pkg}"
         else:
             return None
         try:
@@ -121,6 +127,21 @@ class Launcher:
                 return await r.read(), r.headers.get("Content-Type", "image/jpeg")
         except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
             return None
+
+    async def settings(self, http: aiohttp.ClientSession, body: dict) -> bool:
+        """Changes the launcher's settings (/api/settings: `hub`, `name`, `profile`, …). True when
+        it took them."""
+        try:
+            async with http.post(f"{self.url}/api/settings", json=body, headers=self._headers(),
+                                 timeout=aiohttp.ClientTimeout(total=8, connect=3)) as r:
+                if r.status == 401:
+                    raise NotPaired("The TV doesn't know this hub's token")
+                if r.status != 200:
+                    raise LauncherError(f"HTTP {r.status}")
+                data = await r.json(content_type=None)
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, OSError) as e:
+            raise LauncherError(str(e) or type(e).__name__) from e
+        return isinstance(data, dict) and data.get("ok") is True
 
 
 # ---------- pairing ----------
@@ -198,11 +219,12 @@ def from_conf(conf: Path) -> Launcher | None:
 
 async def pair(http: aiohttp.ClientSession, conf: Path, url: str, ask: Callable[[str], Awaitable[str]],
                say: Callable[[str], None] = print, known: Callable[[str], Awaitable[tuple[str, str] | None]] | None = None,
-               tries: int = 3) -> dict | None:
+               tries: int = 3, hub_url: str | None = None) -> dict | None:
     """Pairs this hub with the launcher at `url`: the TV shows a code, `ask` gets it from the
     person, and the token is saved in tv.json. `known(host)` may name the TV the way tv-remote
-    does ((id, name)), so the panels see the same TV whichever way the hub reaches it. Returns
-    the saved entry, or None."""
+    does ((id, name)), so the panels see the same TV whichever way the hub reaches it. With
+    `hub_url` (this hub's own address), the launcher is told where the hub is, so it can read
+    the streaming catalog from it. Returns the saved entry, or None."""
     try:
         who = await hello(http, url)
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, OSError, LauncherError) as e:
@@ -235,4 +257,11 @@ async def pair(http: aiohttp.ClientSession, conf: Path, url: str, ask: Callable[
              **({"id": install_id} if install_id else {})}
     path = save(conf, entry)
     say(f"Paired with {entry['name']}. Saved in {path}.")
+    if hub_url:
+        try:
+            told = await Launcher(url, got["token"]).settings(http, {"hub": hub_url})
+        except LauncherError:
+            told = False
+        if not told:
+            say(f"The TV didn't take this hub's address ({hub_url}); its streaming rows stay empty until it does.")
     return entry

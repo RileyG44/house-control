@@ -1,0 +1,873 @@
+{
+ "_note": "Trimmed JustWatch answers in the shape of catalog.py's queries (written from the queries, not captured). The fake in test_catalog.py picks one by what is asked.",
+ "packages": {
+  "data": {
+   "packages": [
+    {
+     "shortName": "nfx",
+     "technicalName": "netflix",
+     "clearName": "Netflix"
+    },
+    {
+     "shortName": "nfa",
+     "technicalName": "netflixbasicwithads",
+     "clearName": "Netflix basic with Ads"
+    },
+    {
+     "shortName": "hlu",
+     "technicalName": "hulu",
+     "clearName": "Hulu"
+    },
+    {
+     "shortName": "dnp",
+     "technicalName": "disneyplus",
+     "clearName": "Disney Plus"
+    },
+    {
+     "shortName": "atp",
+     "technicalName": "appletvplus",
+     "clearName": "Apple TV Plus"
+    },
+    {
+     "shortName": "itu",
+     "technicalName": "itunes",
+     "clearName": "Apple TV"
+    },
+    {
+     "shortName": "yot",
+     "technicalName": "youtube",
+     "clearName": "YouTube"
+    }
+   ]
+  }
+ },
+ "popular": {
+  "nfx": {
+   "data": {
+    "popularTitles": {
+     "edges": [
+      {
+       "node": {
+        "id": "ts20503",
+        "objectType": "SHOW",
+        "content": {
+         "title": "Stranger Things",
+         "originalReleaseYear": 2016,
+         "shortDescription": "When a young boy vanishes, a small town uncovers a mystery.",
+         "posterUrl": "/poster/323146457/{profile}/stranger-things.{format}",
+         "runtime": 51,
+         "ageCertification": "TV-14",
+         "backdrops": [
+          {
+           "backdropUrl": "/backdrop/177512134/{profile}/stranger-things.{format}"
+          }
+         ],
+         "scoring": {
+          "imdbScore": 8.7
+         },
+         "genres": [
+          {
+           "translation": "Drama"
+          },
+          {
+           "translation": "Fantasy"
+          },
+          {
+           "translation": "Horror"
+          },
+          {
+           "translation": "Mystery"
+          }
+         ]
+        },
+        "offers": [
+         {
+          "monetizationType": "FLATRATE",
+          "standardWebURL": "https://www.netflix.com/title/80057281",
+          "tvLink": "intent://www.netflix.com/title/80057281#Intent;scheme=https;package=com.netflix.ninja;end",
+          "package": {
+           "clearName": "Netflix",
+           "technicalName": "netflix",
+           "shortName": "nfx"
+          }
+         },
+         {
+          "monetizationType": "ADS",
+          "standardWebURL": "https://www.netflix.com/title/80057281",
+          "tvLink": null,
+          "package": {
+           "clearName": "Netflix basic with Ads",
+           "technicalName": "netflixbasicwithads",
+           "shortName": "nfa"
+          }
+         },
+         {
+          "monetizationType": "FLATRATE",
+          "standardWebURL": "https://www.disneyplus.com/series/x/1",
+          "tvLink": null,
+          "package": {
+           "clearName": "Disney Plus",
+           "technicalName": "disneyplus",
+           "shortName": "dnp"
+          }
+         },
+         {
+          "monetizationType": "BUY",
+          "standardWebURL": "https://tv.apple.com/us/show/stranger-things/umc.1",
+          "tvLink": null,
+          "package": {
+           "clearName": "Apple TV",
+           "technicalName": "itunes",
+           "shortName": "itu"
+          }
+         }
+        ]
+       }
+      },
+      {
+       "node": {
+        "id": "tm1065711",
+        "objectType": "MOVIE",
+        "content": {
+         "title": "Glass Onion",
+         "originalReleaseYear": 2022,
+         "shortDescription": "Benoit Blanc travels to Greece.",
+         "posterUrl": "/poster/301234567/{profile}/glass-onion.{format}",
+         "runtime": 139,
+         "ageCertification": "PG-13",
+         "backdrops": [],
+         "scoring": {
+          "imdbScore": 7.1
+         },
+         "genres": [
+          {
+           "translation": "Comedy"
+          }
+         ]
+        },
+        "offers": [
+         {
+          "monetizationType": "FLATRATE",
+          "standardWebURL": "https://www.netflix.com/title/81458416",
+          "tvLink": null,
+          "package": {
+           "clearName": "Netflix",
+           "technicalName": "netflix",
+           "shortName": "nfx"
+          }
+         }
+        ]
+       }
+      },
+      {
+       "node": {
+        "id": "tm999",
+        "objectType": "MOVIE",
+        "content": {
+         "title": "Only To Rent",
+         "originalReleaseYear": 2024,
+         "shortDescription": "x",
+         "posterUrl": "/poster/1/{profile}/only-to-rent.{format}",
+         "runtime": null,
+         "ageCertification": null,
+         "backdrops": [],
+         "scoring": {
+          "imdbScore": null
+         },
+         "genres": []
+        },
+        "offers": [
+         {
+          "monetizationType": "RENT",
+          "standardWebURL": "https://tv.apple.com/us/movie/x/umc.2",
+          "tvLink": null,
+          "package": {
+           "clearName": "Apple TV",
+           "technicalName": "itunes",
+           "shortName": "itu"
+          }
+         }
+        ]
+       }
+      },
+      {
+       "node": {
+        "id": "tm998",
+        "objectType": "MOVIE",
+        "content": {
+         "title": "A Foreign Link",
+         "originalReleaseYear": 2024,
+         "shortDescription": "x",
+         "posterUrl": "/poster/2/{profile}/foreign.{format}",
+         "runtime": null,
+         "ageCertification": null,
+         "backdrops": [],
+         "scoring": {
+          "imdbScore": null
+         },
+         "genres": []
+        },
+        "offers": [
+         {
+          "monetizationType": "FLATRATE",
+          "standardWebURL": "https://evil.example/title/1",
+          "tvLink": null,
+          "package": {
+           "clearName": "Netflix",
+           "technicalName": "netflix",
+           "shortName": "nfx"
+          }
+         }
+        ]
+       }
+      },
+      {
+       "node": {
+        "id": "tm997",
+        "objectType": "MOVIE",
+        "content": {
+         "title": ""
+        },
+        "offers": []
+       }
+      },
+      {
+       "node": {
+        "id": "tm1065711",
+        "objectType": "MOVIE",
+        "content": {
+         "title": "Glass Onion",
+         "originalReleaseYear": 2022,
+         "shortDescription": "Benoit Blanc travels to Greece.",
+         "posterUrl": "/poster/301234567/{profile}/glass-onion.{format}",
+         "runtime": 139,
+         "ageCertification": "PG-13",
+         "backdrops": [],
+         "scoring": {
+          "imdbScore": 7.1
+         },
+         "genres": [
+          {
+           "translation": "Comedy"
+          }
+         ]
+        },
+        "offers": [
+         {
+          "monetizationType": "FLATRATE",
+          "standardWebURL": "https://www.netflix.com/title/81458416",
+          "tvLink": null,
+          "package": {
+           "clearName": "Netflix",
+           "technicalName": "netflix",
+           "shortName": "nfx"
+          }
+         }
+        ]
+       }
+      }
+     ]
+    }
+   }
+  },
+  "hlu": {
+   "data": {
+    "popularTitles": {
+     "edges": [
+      {
+       "node": {
+        "id": "ts300000",
+        "objectType": "SHOW",
+        "content": {
+         "title": "The Bear",
+         "originalReleaseYear": 2022,
+         "shortDescription": "A young chef returns to Chicago.",
+         "posterUrl": "/poster/305563428/{profile}/the-bear.{format}",
+         "runtime": 30,
+         "ageCertification": "TV-MA",
+         "backdrops": [
+          {
+           "backdropUrl": "/backdrop/305563429/{profile}/the-bear.{format}"
+          }
+         ],
+         "scoring": {
+          "imdbScore": 8.5
+         },
+         "genres": [
+          {
+           "translation": "Comedy"
+          },
+          {
+           "translation": "Drama"
+          }
+         ]
+        },
+        "offers": [
+         {
+          "monetizationType": "FLATRATE",
+          "standardWebURL": "https://www.hulu.com/series/the-bear-05eb6a8e",
+          "tvLink": null,
+          "package": {
+           "clearName": "Hulu",
+           "technicalName": "hulu",
+           "shortName": "hlu"
+          }
+         }
+        ]
+       }
+      }
+     ]
+    }
+   }
+  }
+ },
+ "trending": {
+  "nfx": {
+   "data": {
+    "popularTitles": {
+     "edges": [
+      {
+       "node": {
+        "id": "ts305",
+        "objectType": "SHOW",
+        "content": {
+         "title": "Wednesday",
+         "originalReleaseYear": 2022,
+         "shortDescription": "Wednesday Addams at Nevermore.",
+         "posterUrl": "/poster/302000001/{profile}/wednesday.{format}",
+         "runtime": 50,
+         "ageCertification": "TV-14",
+         "backdrops": [
+          {
+           "backdropUrl": "/backdrop/302000002/{profile}/wednesday.{format}"
+          }
+         ],
+         "scoring": {
+          "imdbScore": 8.1
+         },
+         "genres": []
+        },
+        "offers": [
+         {
+          "monetizationType": "FLATRATE",
+          "standardWebURL": "https://www.netflix.com/title/81231974",
+          "tvLink": "intent://www.netflix.com/title/81231974#Intent;scheme=https;package=com.netflix.ninja;end",
+          "package": {
+           "clearName": "Netflix",
+           "technicalName": "netflix",
+           "shortName": "nfx"
+          }
+         }
+        ]
+       }
+      },
+      {
+       "node": {
+        "id": "ts20503",
+        "objectType": "SHOW",
+        "content": {
+         "title": "Stranger Things",
+         "originalReleaseYear": 2016,
+         "shortDescription": "When a young boy vanishes, a small town uncovers a mystery.",
+         "posterUrl": "/poster/323146457/{profile}/stranger-things.{format}",
+         "runtime": 51,
+         "ageCertification": "TV-14",
+         "backdrops": [
+          {
+           "backdropUrl": "/backdrop/177512134/{profile}/stranger-things.{format}"
+          }
+         ],
+         "scoring": {
+          "imdbScore": 8.7
+         },
+         "genres": [
+          {
+           "translation": "Drama"
+          },
+          {
+           "translation": "Fantasy"
+          },
+          {
+           "translation": "Horror"
+          },
+          {
+           "translation": "Mystery"
+          }
+         ]
+        },
+        "offers": [
+         {
+          "monetizationType": "FLATRATE",
+          "standardWebURL": "https://www.netflix.com/title/80057281",
+          "tvLink": "intent://www.netflix.com/title/80057281#Intent;scheme=https;package=com.netflix.ninja;end",
+          "package": {
+           "clearName": "Netflix",
+           "technicalName": "netflix",
+           "shortName": "nfx"
+          }
+         },
+         {
+          "monetizationType": "ADS",
+          "standardWebURL": "https://www.netflix.com/title/80057281",
+          "tvLink": null,
+          "package": {
+           "clearName": "Netflix basic with Ads",
+           "technicalName": "netflixbasicwithads",
+           "shortName": "nfa"
+          }
+         },
+         {
+          "monetizationType": "FLATRATE",
+          "standardWebURL": "https://www.disneyplus.com/series/x/1",
+          "tvLink": null,
+          "package": {
+           "clearName": "Disney Plus",
+           "technicalName": "disneyplus",
+           "shortName": "dnp"
+          }
+         },
+         {
+          "monetizationType": "BUY",
+          "standardWebURL": "https://tv.apple.com/us/show/stranger-things/umc.1",
+          "tvLink": null,
+          "package": {
+           "clearName": "Apple TV",
+           "technicalName": "itunes",
+           "shortName": "itu"
+          }
+         }
+        ]
+       }
+      }
+     ]
+    }
+   }
+  },
+  "hlu": {
+   "errors": [
+    {
+     "message": "Something broke"
+    }
+   ],
+   "data": null
+  }
+ },
+ "new": {
+  "nfx": {
+   "d0": {
+    "edges": [
+     {
+      "node": {
+       "__typename": "Season",
+       "id": "tse777",
+       "objectType": "SHOW_SEASON",
+       "offers": [
+        {
+         "monetizationType": "FLATRATE",
+         "standardWebURL": "https://www.netflix.com/title/81040344",
+         "tvLink": "intent://www.netflix.com/title/81040344#Intent;scheme=https;package=com.netflix.ninja;end",
+         "package": {
+          "clearName": "Netflix",
+          "technicalName": "netflix",
+          "shortName": "nfx"
+         }
+        }
+       ],
+       "show": {
+        "id": "ts271048",
+        "objectType": "SHOW",
+        "content": {
+         "title": "Squid Game",
+         "originalReleaseYear": 2021,
+         "shortDescription": "Hundreds of players compete.",
+         "posterUrl": "/poster/310000001/{profile}/squid-game.{format}",
+         "runtime": 55,
+         "ageCertification": "TV-MA",
+         "backdrops": [
+          {
+           "backdropUrl": "/backdrop/310000002/{profile}/squid-game.{format}"
+          }
+         ],
+         "scoring": {
+          "imdbScore": 8.0
+         },
+         "genres": []
+        }
+       }
+      }
+     }
+    ]
+   },
+   "d1": {
+    "edges": [
+     {
+      "node": {
+       "__typename": "Movie",
+       "id": "tm1065711",
+       "objectType": "MOVIE",
+       "content": {
+        "title": "Glass Onion",
+        "originalReleaseYear": 2022,
+        "shortDescription": "Benoit Blanc travels to Greece.",
+        "posterUrl": "/poster/301234567/{profile}/glass-onion.{format}",
+        "runtime": 139,
+        "ageCertification": "PG-13",
+        "backdrops": [],
+        "scoring": {
+         "imdbScore": 7.1
+        },
+        "genres": [
+         {
+          "translation": "Comedy"
+         }
+        ]
+       },
+       "offers": [
+        {
+         "monetizationType": "FLATRATE",
+         "standardWebURL": "https://www.netflix.com/title/81458416",
+         "tvLink": null,
+         "package": {
+          "clearName": "Netflix",
+          "technicalName": "netflix",
+          "shortName": "nfx"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "node": {
+       "__typename": "Season",
+       "id": "tse777",
+       "objectType": "SHOW_SEASON",
+       "offers": [
+        {
+         "monetizationType": "FLATRATE",
+         "standardWebURL": "https://www.netflix.com/title/81040344",
+         "tvLink": "intent://www.netflix.com/title/81040344#Intent;scheme=https;package=com.netflix.ninja;end",
+         "package": {
+          "clearName": "Netflix",
+          "technicalName": "netflix",
+          "shortName": "nfx"
+         }
+        }
+       ],
+       "show": {
+        "id": "ts271048",
+        "objectType": "SHOW",
+        "content": {
+         "title": "Squid Game",
+         "originalReleaseYear": 2021,
+         "shortDescription": "Hundreds of players compete.",
+         "posterUrl": "/poster/310000001/{profile}/squid-game.{format}",
+         "runtime": 55,
+         "ageCertification": "TV-MA",
+         "backdrops": [
+          {
+           "backdropUrl": "/backdrop/310000002/{profile}/squid-game.{format}"
+          }
+         ],
+         "scoring": {
+          "imdbScore": 8.0
+         },
+         "genres": []
+        }
+       }
+      }
+     }
+    ]
+   }
+  },
+  "hlu": {}
+ },
+ "seed": {
+  "data": {
+   "popularTitles": {
+    "edges": [
+     {
+      "node": {
+       "id": "ts20503",
+       "objectType": "SHOW",
+       "content": {
+        "title": "Stranger Things"
+       }
+      }
+     }
+    ]
+   }
+  }
+ },
+ "similar": {
+  "data": {
+   "node": {
+    "similarTitlesV2": {
+     "edges": [
+      {
+       "node": {
+        "id": "ts72073",
+        "objectType": "SHOW",
+        "content": {
+         "title": "Dark",
+         "originalReleaseYear": 2017,
+         "shortDescription": "A missing child in a German town.",
+         "posterUrl": "/poster/320000001/{profile}/dark.{format}",
+         "runtime": 60,
+         "ageCertification": "TV-MA",
+         "backdrops": [],
+         "scoring": {
+          "imdbScore": 8.7
+         },
+         "genres": []
+        },
+        "offers": [
+         {
+          "monetizationType": "FLATRATE",
+          "standardWebURL": "https://www.netflix.com/title/80100172",
+          "tvLink": null,
+          "package": {
+           "clearName": "Netflix",
+           "technicalName": "netflix",
+           "shortName": "nfx"
+          }
+         }
+        ]
+       }
+      },
+      {
+       "node": {
+        "id": "ts300000",
+        "objectType": "SHOW",
+        "content": {
+         "title": "The Bear",
+         "originalReleaseYear": 2022,
+         "shortDescription": "A young chef returns to Chicago.",
+         "posterUrl": "/poster/305563428/{profile}/the-bear.{format}",
+         "runtime": 30,
+         "ageCertification": "TV-MA",
+         "backdrops": [
+          {
+           "backdropUrl": "/backdrop/305563429/{profile}/the-bear.{format}"
+          }
+         ],
+         "scoring": {
+          "imdbScore": 8.5
+         },
+         "genres": [
+          {
+           "translation": "Comedy"
+          },
+          {
+           "translation": "Drama"
+          }
+         ]
+        },
+        "offers": [
+         {
+          "monetizationType": "FLATRATE",
+          "standardWebURL": "https://www.hulu.com/series/the-bear-05eb6a8e",
+          "tvLink": null,
+          "package": {
+           "clearName": "Hulu",
+           "technicalName": "hulu",
+           "shortName": "hlu"
+          }
+         }
+        ]
+       }
+      },
+      {
+       "node": {
+        "id": "ts300001",
+        "objectType": "SHOW",
+        "content": {
+         "title": "Severance",
+         "originalReleaseYear": 2022,
+         "shortDescription": "Work and life, split.",
+         "posterUrl": "/poster/320000002/{profile}/severance.{format}",
+         "runtime": 55,
+         "ageCertification": "TV-MA",
+         "backdrops": [],
+         "scoring": {
+          "imdbScore": 8.7
+         },
+         "genres": []
+        },
+        "offers": [
+         {
+          "monetizationType": "FLATRATE",
+          "standardWebURL": "https://tv.apple.com/us/show/severance/umc.3",
+          "tvLink": null,
+          "package": {
+           "clearName": "Apple TV Plus",
+           "technicalName": "appletvplus",
+           "shortName": "atp"
+          }
+         }
+        ]
+       }
+      },
+      {
+       "node": {
+        "id": "ts20503",
+        "objectType": "SHOW",
+        "content": {
+         "title": "Stranger Things",
+         "originalReleaseYear": 2016,
+         "shortDescription": "When a young boy vanishes, a small town uncovers a mystery.",
+         "posterUrl": "/poster/323146457/{profile}/stranger-things.{format}",
+         "runtime": 51,
+         "ageCertification": "TV-14",
+         "backdrops": [
+          {
+           "backdropUrl": "/backdrop/177512134/{profile}/stranger-things.{format}"
+          }
+         ],
+         "scoring": {
+          "imdbScore": 8.7
+         },
+         "genres": [
+          {
+           "translation": "Drama"
+          },
+          {
+           "translation": "Fantasy"
+          },
+          {
+           "translation": "Horror"
+          },
+          {
+           "translation": "Mystery"
+          }
+         ]
+        },
+        "offers": [
+         {
+          "monetizationType": "FLATRATE",
+          "standardWebURL": "https://www.netflix.com/title/80057281",
+          "tvLink": "intent://www.netflix.com/title/80057281#Intent;scheme=https;package=com.netflix.ninja;end",
+          "package": {
+           "clearName": "Netflix",
+           "technicalName": "netflix",
+           "shortName": "nfx"
+          }
+         },
+         {
+          "monetizationType": "ADS",
+          "standardWebURL": "https://www.netflix.com/title/80057281",
+          "tvLink": null,
+          "package": {
+           "clearName": "Netflix basic with Ads",
+           "technicalName": "netflixbasicwithads",
+           "shortName": "nfa"
+          }
+         },
+         {
+          "monetizationType": "FLATRATE",
+          "standardWebURL": "https://www.disneyplus.com/series/x/1",
+          "tvLink": null,
+          "package": {
+           "clearName": "Disney Plus",
+           "technicalName": "disneyplus",
+           "shortName": "dnp"
+          }
+         },
+         {
+          "monetizationType": "BUY",
+          "standardWebURL": "https://tv.apple.com/us/show/stranger-things/umc.1",
+          "tvLink": null,
+          "package": {
+           "clearName": "Apple TV",
+           "technicalName": "itunes",
+           "shortName": "itu"
+          }
+         }
+        ]
+       }
+      }
+     ]
+    }
+   }
+  }
+ },
+ "title": {
+  "data": {
+   "node": {
+    "id": "ts20503",
+    "objectType": "SHOW",
+    "content": {
+     "title": "Stranger Things",
+     "originalReleaseYear": 2016,
+     "shortDescription": "When a young boy vanishes, a small town uncovers a mystery.",
+     "posterUrl": "/poster/323146457/{profile}/stranger-things.{format}",
+     "runtime": 51,
+     "ageCertification": "TV-14",
+     "backdrops": [
+      {
+       "backdropUrl": "/backdrop/177512134/{profile}/stranger-things.{format}"
+      }
+     ],
+     "scoring": {
+      "imdbScore": 8.7
+     },
+     "genres": [
+      {
+       "translation": "Drama"
+      },
+      {
+       "translation": "Fantasy"
+      },
+      {
+       "translation": "Horror"
+      },
+      {
+       "translation": "Mystery"
+      }
+     ]
+    },
+    "offers": [
+     {
+      "monetizationType": "FLATRATE",
+      "standardWebURL": "https://www.netflix.com/title/80057281",
+      "tvLink": "intent://www.netflix.com/title/80057281#Intent;scheme=https;package=com.netflix.ninja;end",
+      "package": {
+       "clearName": "Netflix",
+       "technicalName": "netflix",
+       "shortName": "nfx"
+      }
+     },
+     {
+      "monetizationType": "ADS",
+      "standardWebURL": "https://www.netflix.com/title/80057281",
+      "tvLink": null,
+      "package": {
+       "clearName": "Netflix basic with Ads",
+       "technicalName": "netflixbasicwithads",
+       "shortName": "nfa"
+      }
+     },
+     {
+      "monetizationType": "FLATRATE",
+      "standardWebURL": "https://www.disneyplus.com/series/x/1",
+      "tvLink": null,
+      "package": {
+       "clearName": "Disney Plus",
+       "technicalName": "disneyplus",
+       "shortName": "dnp"
+      }
+     },
+     {
+      "monetizationType": "BUY",
+      "standardWebURL": "https://tv.apple.com/us/show/stranger-things/umc.1",
+      "tvLink": null,
+      "package": {
+       "clearName": "Apple TV",
+       "technicalName": "itunes",
+       "shortName": "itu"
+      }
+     }
+    ]
+   }
+  }
+ }
+}

@@ -26,6 +26,8 @@ panel's remote keys on, only the ones listed here. App links from the streaming 
 comes from the launcher's media sessions; when it sees none (an app that only reports over
 Cast), from the TV over Cast (nowplaying.py), and seeking goes the same way it came. The
 launcher's pictures go to the panels through the hub (/api/tv/art/now), so its token stays here.
+The rows of titles per app (/api/tv/catalog) are catalog.py's; they take the TV's apps and its
+Continue from the launcher's last state here (`lr_state`).
 
 With a launcher, its TV also says where the launcher is (`direct`: {"url", "id"}), whichever way
 the hub reaches it right now: the iPhone app pairs with it on its own and drives it straight
@@ -136,7 +138,9 @@ LAUNCHER_NO = {
     "forward": "Nothing on the TV is playing", "text": "Nothing on the TV takes text right now",
     "search": "Nothing on the TV takes text right now", "volume": "The TV's volume only goes up and down from here",
     "open": "The TV couldn't open that app", "play-title": "That app on the TV can't open this title",
+    "resume": "The TV couldn't pick that up again",
 }
+_HISTORY_ID = re.compile(r"^[0-9a-f]{1,32}$")
 
 INCLUDED = {"FLATRATE": "subscription", "FREE": "free", "ADS": "free with ads"}
 PAID = {"RENT": "rent", "BUY": "buy"}
@@ -417,6 +421,7 @@ class TvRemote:
         # Which way the TV is read and driven now: "launcher" while it answers, else "tvremote".
         self.route = "launcher" if launcher else "tvremote"
         self.lr_rev = -1                 # the launcher's state revision the panels have seen
+        self.lr_state: dict | None = None    # the launcher's last /api/state as it sent it (its apps, Continue)
         self._lr_retry_at = 0.0          # when a launcher that stopped answering is tried again
         self._following = False          # a long poll of the launcher is up to date
         self._wants_cast = False         # something plays that only Cast tells about: read often, not long-poll
@@ -499,6 +504,7 @@ class TvRemote:
         if self.route != "launcher":
             log.info("The TV's launcher answers again at %s", self.launcher.url)
         self.route = "launcher"
+        self.lr_state = st
         if self.launcher.install_id is None and not self._asked_id:
             self._asked_id = True
             asyncio.ensure_future(self._learn_id())
@@ -867,6 +873,8 @@ class TvRemote:
         action = body["action"]
         if action in ("seek", "skip"):
             return await self._seek(tv_id, dev, body)
+        if action == "resume":
+            return await self._resume(tv_id, body)
         # "play" is also the remote's play key: with an app it is a search result to play.
         titled = action == "open" or (action == "play" and "app" in body)
         # `out` is the action as tv-remote takes it, `commands` as the launcher does (None: only tv-remote can).
@@ -912,6 +920,28 @@ class TvRemote:
             self.kick()
         else:
             log.warning("TV %s %s: %s", tv_id, action, result.get("error"))
+        return result, status
+
+    async def _resume(self, tv_id: str, body: dict) -> tuple[dict, int]:
+        """`{"action": "resume", "id": …}`: a title in the launcher's Continue, picked up again in
+        its app. Without the launcher, tv-remote opens that app."""
+        hid = body.get("id")
+        if not isinstance(hid, str) or not _HISTORY_ID.match(hid):
+            return {"error": "Say which title to pick up again"}, 400
+        entry = next((e for e in (self.lr_state or {}).get("continue") or []
+                      if isinstance(e, dict) and e.get("id") == hid), None)
+        pkg = entry.get("pkg") if entry and isinstance(entry.get("pkg"), str) else None
+        if not pkg:
+            return {"error": "That isn't in the TV's Continue any more"}, 404
+        await self._awake(tv_id)
+        name = BY_PACKAGE.get(pkg)
+        out = {"action": "launch", "url": APP_LINKS.get(name, pkg) if name else pkg}
+        result, status = await self._deliver(tv_id, "resume", out, [{"type": "resume", "id": hid}])
+        if status == 200:
+            log.info("TV %s resume %s (%s)", tv_id, hid, self.route)
+            self.kick()
+        else:
+            log.warning("TV %s resume: %s", tv_id, result.get("error"))
         return result, status
 
     async def _seek(self, tv_id: str, dev: dict, body: dict) -> tuple[dict, int]:

@@ -32,6 +32,7 @@ import aiohttp
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+import catalog as catalogs  # noqa: E402
 import plan as plans  # noqa: E402
 from aidot_lan import AidotError, AidotLanClient  # noqa: E402
 import launcher as launchers  # noqa: E402
@@ -105,6 +106,9 @@ class Hub:
         # plays comes from the launcher, else from the TV over Cast, or adb when that is paired with it.
         self.tv = TvRemote(tv_url(conf, local_ip), self._publish, watched=lambda: bool(self.listeners), adb=Adb.find(),
                            launcher=launcher_for(conf))
+        # Rows of titles for each streaming app the TV has (catalog.py), from JustWatch.
+        self.streaming = catalogs.Catalog(conf, apps=lambda: catalogs.installed_apps(self.tv),
+                                        recent=lambda: catalogs.continuing(self.tv))
         self._tasks: list[asyncio.Task] = []
         self._ac_due = 0.0
         # Another hub that keeps the same plan (the home server and a backup): see _sync_peer.
@@ -136,6 +140,7 @@ class Hub:
     async def start(self) -> None:
         self.http = aiohttp.ClientSession()
         self.tv.http = self.http
+        self.streaming.http = self.http
         self.weather.http = self.http
         self.mrcool = MrcoolClient(self.conf / "mrcool.json", self.http)
         self.aidot = AidotLanClient(self.conf / "aidot.json", self.http)
@@ -727,6 +732,38 @@ def make_app(hub: Hub) -> web.Application:
         result, status = await hub.tv.search(request.query.get("q", ""))
         return web.json_response(result, status=status)
 
+    async def tv_history_picture(request):
+        # A title in the launcher's Continue, for the "For you" row.
+        got = await hub.tv.picture("history", request.match_info["hid"])
+        if got is None:
+            return web.Response(status=404, text="No picture")
+        body, kind = got
+        return web.Response(body=body, content_type=kind.split(";")[0].strip() or "image/jpeg",
+                            headers={"Cache-Control": "max-age=300"})
+
+    # ---------- the streaming catalog (catalog.py) ----------
+
+    async def tv_catalog(request):
+        return web.json_response(catalogs.for_client(await hub.streaming.overview(), client_origin(request)),
+                                 headers={"Cache-Control": "no-store"})
+
+    async def tv_catalog_more(request):
+        result, status = await hub.streaming.more(request.match_info["app"], request.query.get("row", "popular"),
+                                                request.query.get("page", "0"))
+        return web.json_response(catalogs.for_client(result, client_origin(request)), status=status,
+                                 headers={"Cache-Control": "no-store"})
+
+    async def tv_title(request):
+        result, status = await hub.streaming.title(request.match_info["jw"])
+        return web.json_response(catalogs.for_client(result, client_origin(request)), status=status)
+
+    async def tv_catalog_picture(request):
+        m = request.match_info
+        got = await hub.streaming.picture(m["kind"], m["num"], m["slug"])
+        if got is None:
+            return web.Response(status=404, text="No picture")
+        return web.Response(body=got[0], content_type=got[1], headers={"Cache-Control": "max-age=604800"})
+
     async def weather(_):
         return web.json_response(hub.weather.current(), headers={"Cache-Control": "no-store"})
 
@@ -804,6 +841,11 @@ def make_app(hub: Hub) -> web.Application:
     app.router.add_get("/api/tv/search", tv_search)
     app.router.add_get("/api/tv/art/now", tv_picture)
     app.router.add_get("/api/tv/banner/{pkg}", tv_picture)
+    app.router.add_get("/api/tv/art/h/{hid}", tv_history_picture)
+    app.router.add_get("/api/tv/catalog", tv_catalog)
+    app.router.add_get("/api/tv/catalog/{app}", tv_catalog_more)
+    app.router.add_get("/api/tv/title/{jw}", tv_title)
+    app.router.add_get("/api/tv/img/{kind}/{num}/{slug}", tv_catalog_picture)
     app.router.add_post("/api/tv/{id}", tv_action)
     app.router.add_get("/api/plan", plan)
     app.router.add_get("/api/weather", weather)
@@ -913,7 +955,9 @@ async def pair_tv(where: str | None) -> bool:
             return (str(match[0]["id"]), match[0].get("name") or match[0].get("label") or "TV") if match else None
 
         print(f"Pairing with the TV at {url}…")
-        entry = await launchers.pair(http, CONF, url, ask=lambda prompt: asyncio.to_thread(input, prompt), known=known)
+        # The launcher reads the streaming catalog from this hub, at its house Wi-Fi address.
+        entry = await launchers.pair(http, CONF, url, ask=lambda prompt: asyncio.to_thread(input, prompt), known=known,
+                                     hub_url=f"http://{local_ip()}:{PORT}")
         if entry:
             print("Restart the hub so it drives the TV through the launcher.")
         return entry is not None

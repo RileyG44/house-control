@@ -3,7 +3,8 @@
 (the code is 4821).
 
 It answers the routes the hub uses, the way tv-launcher's CompanionServer does: the long-polled
-/api/state, /api/cmd (with what each command does to the state), the pictures, and pairing.
+/api/state, /api/cmd (with what each command does to the state), /api/settings, the pictures
+(a Continue title's too), and pairing.
 Every /api call needs the token in X-LR-Key.
 """
 from __future__ import annotations
@@ -52,6 +53,7 @@ class FakeLauncher:
         self.pairing: str | None = None
         self.changed = asyncio.Event()
         self.polls = 0
+        self.settings: list[dict] = []   # every /api/settings body
 
     def update(self, **tv) -> None:
         """Changes the TV (keys of state["tv"], or `now=`), the way the launcher bumps its rev."""
@@ -100,6 +102,12 @@ class FakeLauncher:
                 t["volume"] = max(0, min(t["volume"] + int(cmd.get("delta", 0)), t["volumeMax"]))
         elif kind == "mute":
             t["muted"] = not t["muted"]
+        elif kind == "resume":
+            entry = next((e for e in self.state.get("continue") or [] if e.get("id") == cmd.get("id")), None)
+            if not entry:
+                return False
+            t["foreground"] = {"pkg": entry["pkg"], "label": APPS.get(entry["pkg"], "")}
+            t["screen"] = "app"
         elif kind in ("wake", "sleep", "power"):
             t["awake"] = kind == "wake" or (kind == "power" and not t["awake"])
         elif kind == "launch":
@@ -151,6 +159,18 @@ class FakeLauncher:
             self.sent.append(body)
             return web.json_response({"ok": self.run(body)})
 
+        async def settings(request):
+            if not paired(request):
+                return web.json_response({"error": "pair"}, status=401)
+            self.settings.append(await request.json())
+            self.bump()
+            return web.json_response({"ok": True})
+
+        async def art_history(request):
+            hid = request.match_info["id"]
+            known = any(e.get("id") == hid and str(e.get("art", "")).startswith("art/h/") for e in self.state.get("continue") or [])
+            return web.Response(body=ART, content_type="image/jpeg") if known else web.Response(status=404)
+
         async def art_now(_):
             return web.Response(body=ART, content_type="image/jpeg") if self.state.get("now") else web.Response(status=404)
 
@@ -180,7 +200,9 @@ class FakeLauncher:
         app = web.Application()
         app.router.add_get("/api/state", state)
         app.router.add_post("/api/cmd", cmd)
+        app.router.add_post("/api/settings", settings)
         app.router.add_get("/art/now", art_now)
+        app.router.add_get("/art/h/{id}", art_history)
         app.router.add_get("/banner/{pkg}", banner)
         app.router.add_get("/pair/hello", hello)
         app.router.add_post("/pair/start", start)
