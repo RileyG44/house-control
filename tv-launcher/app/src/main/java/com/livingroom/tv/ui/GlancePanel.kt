@@ -2,14 +2,15 @@ package com.livingroom.tv.ui
 
 import android.text.format.DateFormat
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -22,37 +23,20 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
-import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import com.livingroom.tv.Graph
-import com.livingroom.tv.glance.Weather
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-
-/** Text over a photo needs a little lift to stay readable on bright skies. */
-private val Lift = Shadow(Color.Black.copy(alpha = .55f), Offset(0f, 1.5f), 10f)
-
-@Composable
-private fun GlanceText(
-    text: String,
-    size: TextUnit,
-    color: Color = Palette.Text,
-    weight: FontWeight = FontWeight.Normal,
-    modifier: Modifier = Modifier,
-) {
-    Text(text, modifier = modifier, color = color, style = TextStyle(fontSize = size, fontWeight = weight, shadow = Lift))
-}
 
 /** Ticks on the minute so the clock and greeting never lag. */
 @Composable
@@ -66,11 +50,13 @@ private fun rememberNow(): Date {
     return now
 }
 
-/** "Good evening, Riley". Top left, above whatever is focused. */
+/** "Good evening, Riley", the time in thin numerals, and the date. Top left of Home. */
 @Composable
-fun Greeting(modifier: Modifier = Modifier) {
+fun HelloBlock(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
     val now = rememberNow()
     val name by Graph.hub.ownerName.collectAsState()
+    val is24 = remember { DateFormat.is24HourFormat(context) }
     val hour = remember(now) { Calendar.getInstance().apply { time = now }.get(Calendar.HOUR_OF_DAY) }
     val part = when (hour) {
         in 5..11 -> "Good morning"
@@ -78,74 +64,77 @@ fun Greeting(modifier: Modifier = Modifier) {
         in 17..22 -> "Good evening"
         else -> "Good night"
     }
-    GlanceText(
-        listOfNotNull(part, name).joinToString(", "),
-        size = 15.sp,
-        weight = FontWeight.SemiBold,
-        color = Palette.Text.copy(alpha = .92f),
-        modifier = modifier,
-    )
-}
-
-/** Time, date, and today's weather at home. Top right, under the buttons. */
-@Composable
-fun GlancePanel(modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val now = rememberNow()
-    val weather by Graph.weather.weather.collectAsState()
-    val is24 = remember { DateFormat.is24HourFormat(context) }
     val time = remember(now) { SimpleDateFormat(if (is24) "H:mm" else "h:mm", Locale.getDefault()).format(now) }
     val ampm = remember(now) { if (is24) "" else SimpleDateFormat("a", Locale.getDefault()).format(now) }
     val date = remember(now) { SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(now) }
-
-    Column(modifier, horizontalAlignment = Alignment.End) {
-        Row(verticalAlignment = Alignment.Bottom) {
-            GlanceText(time, 46.sp, weight = FontWeight.Light)
+    Column(modifier) {
+        Text(listOfNotNull(part, name).joinToString(", "), fontSize = 18.sp, fontWeight = FontWeight.Light, color = Color.White.copy(alpha = .72f))
+        Row(verticalAlignment = Alignment.Top) {
+            Text(time, fontSize = 116.sp, lineHeight = 112.sp, fontWeight = FontWeight.ExtraLight, letterSpacing = (-4).sp, color = Color.White)
             if (ampm.isNotEmpty()) {
-                Spacer(Modifier.width(5.dp))
-                GlanceText(ampm, 15.sp, color = Palette.Text.copy(alpha = .8f), modifier = Modifier.padding(bottom = 9.dp))
+                Text(ampm, fontSize = 17.sp, fontWeight = FontWeight.Light, color = Color.White.copy(alpha = .6f), modifier = Modifier.padding(start = 6.dp, top = 22.dp))
             }
         }
-        GlanceText(date, 13.sp, color = Palette.Text.copy(alpha = .85f), weight = FontWeight.Medium)
-        weather?.let { w ->
-            Spacer(Modifier.height(16.dp))
-            WeatherSummary(w)
-            Spacer(Modifier.height(10.dp))
-            WeatherDetails(w, is24)
+        Text(date, fontSize = 14.sp, fontWeight = FontWeight.Light, color = Color.White.copy(alpha = .58f))
+    }
+}
+
+/** Today at home: the temperature in thin numerals, the sky, high and low, and the day's curve. */
+@Composable
+fun WeatherCard(modifier: Modifier = Modifier) {
+    val weather by Graph.weather.weather.collectAsState()
+    val now = rememberNow()
+    val shape = RoundedCornerShape(CardRadius)
+    Box(modifier.glass(shape)) {
+        val w = weather
+        Column(Modifier.padding(start = 18.dp, top = 16.dp, end = 16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(w?.place ?: "Weather", fontSize = 11.sp, color = Color.White.copy(alpha = .55f), maxLines = 1, modifier = Modifier.weight(1f))
+                if (w != null) WeatherIcon(w.code, w.isDay, Modifier.size(20.dp))
+            }
+            if (w == null) {
+                Spacer(Modifier.height(30.dp))
+                Text("–", fontSize = 60.sp, fontWeight = FontWeight.ExtraLight, color = Color.White.copy(alpha = .5f))
+                return@Column
+            }
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.Top) {
+                Text("${w.temp}", fontSize = 64.sp, lineHeight = 64.sp, fontWeight = FontWeight.ExtraLight, letterSpacing = (-2).sp, color = Color.White)
+                Text("°" + if (w.imperial) "F" else "C", fontSize = 13.sp, color = Color.White.copy(alpha = .6f), modifier = Modifier.padding(top = 8.dp, start = 2.dp))
+            }
+            Text(w.condition, fontSize = 12.sp, color = Color.White)
+            Text("High ${w.high}° · Low ${w.low}°", fontSize = 10.sp, color = Color.White.copy(alpha = .5f))
+        }
+        weather?.hourly?.takeIf { it.size >= 12 }?.let { temps ->
+            val hour = remember(now) { Calendar.getInstance().apply { time = now }.let { it.get(Calendar.HOUR_OF_DAY) + it.get(Calendar.MINUTE) / 60f } }
+            Sparkline(temps, hour, Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(36.dp).padding(start = 18.dp, end = 18.dp, bottom = 10.dp))
         }
     }
 }
 
+/** A thin line through the day's temperatures, a solid dot at now and a ring at the high. */
 @Composable
-private fun WeatherSummary(w: Weather) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        WeatherIcon(w.code, w.isDay, Modifier.size(34.dp))
-        Spacer(Modifier.width(10.dp))
-        GlanceText("${w.temp}°", 34.sp, weight = FontWeight.Light)
-        Spacer(Modifier.width(12.dp))
-        Column {
-            GlanceText(w.condition, 13.sp, weight = FontWeight.SemiBold)
-            GlanceText("H ${w.high}°   L ${w.low}°", 12.sp, color = Palette.Text.copy(alpha = .78f))
+private fun Sparkline(temps: List<Float>, hour: Float, modifier: Modifier) {
+    Canvas(modifier) {
+        val lo = temps.min()
+        val hi = temps.max()
+        val span = (hi - lo).coerceAtLeast(1f)
+        fun at(i: Float, t: Float) = Offset(size.width * i / (temps.size - 1), size.height - 3.dp.toPx() - (t - lo) / span * (size.height - 8.dp.toPx()))
+        val path = Path()
+        temps.forEachIndexed { i, t ->
+            val p = at(i.toFloat(), t)
+            if (i == 0) path.moveTo(p.x, p.y) else {
+                val q = at(i - 1f, temps[i - 1])
+                val mx = (q.x + p.x) / 2
+                path.cubicTo(mx, q.y, mx, p.y, p.x, p.y)
+            }
         }
-    }
-}
-
-@Composable
-private fun WeatherDetails(w: Weather, is24: Boolean) {
-    val clock = remember(is24) { SimpleDateFormat(if (is24) "H:mm" else "h:mm a", Locale.getDefault()) }
-    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Detail("Wind", "${w.wind} ${w.windUnit} now · up to ${w.windMax} ${w.windUnit} today")
-        Detail("Rain", "${w.rainChance}% chance today")
-        Detail("Sun", "↑ ${clock.format(Date(w.sunrise))}   ↓ ${clock.format(Date(w.sunset))}")
-    }
-}
-
-@Composable
-private fun Detail(label: String, value: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        GlanceText(label, 11.sp, color = Palette.Text.copy(alpha = .55f), weight = FontWeight.SemiBold)
-        Spacer(Modifier.width(8.dp))
-        GlanceText(value, 11.5.sp, color = Palette.Text.copy(alpha = .88f))
+        drawPath(path, Color.White.copy(alpha = .45f), style = Stroke(1.2.dp.toPx(), cap = StrokeCap.Round))
+        val hiAt = temps.indexOf(hi)
+        drawCircle(Color.White, 2.6.dp.toPx(), at(hiAt.toFloat(), hi), style = Stroke(1.2.dp.toPx()))
+        val i = hour.coerceIn(0f, temps.size - 1f)
+        val t = temps[i.toInt()] + (temps[minOf(i.toInt() + 1, temps.size - 1)] - temps[i.toInt()]) * (i - i.toInt())
+        drawCircle(Color.White, 3.6.dp.toPx(), at(i, t))
     }
 }
 

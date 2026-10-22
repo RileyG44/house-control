@@ -10,7 +10,7 @@ on the TV remote page), not yet built in Xcode or tried on the phone. Per-client
 
 ## What the launcher already is
 
-- A Kotlin, Compose for TV Home screen for the Chromecast with Google TV 4K (Android 14, 32-bit ARM only, 2 GB RAM, about 750 MB free storage). It has a Continue row built from apps' media sessions, Apps in Riley's order, All apps, weather and wallpaper.
+- A Kotlin, Compose for TV Home screen for the Chromecast with Google TV 4K (Android 14, 32-bit ARM only, 2 GB RAM, about 750 MB free storage). Its Home (redesigned October 2026, see tv-launcher/README.md) has a greeting and clock, weather, a 3D studio tile that opens a full controller for the lights and AC, a Fresh today row (what is being watched, then the day's picks), Apps in Riley's order, All apps, and each app's catalog rows.
 - An accessibility service for arrows, OK, Back, typing and sleep. Notification-listener access gives it Now Playing (title, art, position, seek) for any app that publishes a media session.
 - Its own HTTP server on port 8686 (NanoHTTPD, advertised over Bonjour):
   - `GET /api/state?since=rev` is a long poll (up to 25 s). It returns the whole state: awake, home or app on screen, foreground app, now playing, installed apps, Continue, text-field focus and its Tailscale address.

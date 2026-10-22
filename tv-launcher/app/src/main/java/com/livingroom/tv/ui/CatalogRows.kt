@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,7 +32,6 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -59,26 +60,25 @@ import com.livingroom.tv.catalog.CatalogTile
 import com.livingroom.tv.companion.Commands
 import kotlinx.coroutines.delay
 
-/** One row of posters on Home: "For you", or one app's Popular, Trending or New. */
+/** One row of posters below the apps: one app's Popular, Trending or New. */
 data class Shelf(val key: String, val title: String, val tiles: List<CatalogTile>)
 
-/** Width the posters are decoded at: 84 dp at density 2, and a little over. */
-private const val POSTER_PX = 180
-/** The hero's backdrop, under the scrims. */
-private const val BACKDROP_PX = 1280
-private val PosterShape = RoundedCornerShape(7.dp)
+/** Width the posters are decoded at: 107 dp at density 2, and a little over. */
+private const val POSTER_PX = 230
+val PosterShape = RoundedCornerShape(18.dp)
+val PosterWidth = 107.dp
+val PosterHeight = 160.dp
 
-/**
- * The catalog's rows for Home, without the hidden titles: "For you" first (without its Continue
- * titles, which have their own row here), then each app's rows in the hub's order.
- */
+/** Today's picks for the Fresh row, without the hidden ones and the hub's own Continue copies. */
+fun freshPicks(catalog: Catalog?, hidden: Set<String>): List<CatalogTile> =
+    catalog?.forYou.orEmpty().filter { it.kind != "continue" && it.id !in hidden }
+
+/** Each app's rows (Popular, Trending, New), in the hub's order, without the hidden titles. */
 fun shelvesOf(catalog: Catalog?, hidden: Set<String>): List<Shelf> {
     if (catalog == null) return emptyList()
-    val forYou = catalog.forYou.filter { it.kind != "continue" && it.id !in hidden }
-    val rows = catalog.apps.flatMap { app ->
+    return catalog.apps.flatMap { app ->
         app.rows.map { r -> Shelf("${app.id}:${r.key}", r.title, r.items.filter { it.id !in hidden }) }
-    }
-    return (listOf(Shelf("for-you", "For you", forYou)) + rows).filter { it.tiles.isNotEmpty() }
+    }.filter { it.tiles.isNotEmpty() }
 }
 
 /** A catalog picture from the hub (through [com.livingroom.tv.catalog.ArtCache]), or null while it loads. */
@@ -90,7 +90,6 @@ fun catalogArt(url: String?, maxWidth: Int, waitMs: Long = 0): ImageBitmap? {
             return@produceState
         }
         if (value == null) {
-            // A backdrop waits a moment, so scrolling along a row doesn't fetch every one.
             if (waitMs > 0) delay(waitMs)
             value = Graph.art.load(url, maxWidth)
         }
@@ -107,15 +106,11 @@ fun ShelfRow(
 ) {
     val context = LocalContext.current
     Column {
-        Spacer(Modifier.height(6.dp))
-        Text(
-            shelf.title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Palette.Secondary,
-            modifier = Modifier.padding(start = 50.dp),
-        )
+        Text(shelf.title, fontSize = 13.sp, color = Color.White.copy(alpha = .8f), modifier = Modifier.padding(start = 48.dp, top = 4.dp))
         LazyRow(
             modifier = Modifier.fillMaxWidth().focusRestorer(),
-            contentPadding = PaddingValues(horizontal = 48.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(11.dp),
+            contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(13.dp),
         ) {
             itemsIndexed(shelf.tiles, key = { _, t -> t.id }) { i, t ->
                 PosterTile(
@@ -130,8 +125,16 @@ fun ShelfRow(
     }
 }
 
+/** "Netflix · Series · 2026": under a focused poster, instead of any blurb. */
+fun captionOf(tile: CatalogTile): String = listOfNotNull(
+    Graph.apps.label(tile.pkg) ?: tile.app,
+    when (tile.kind) { "movie" -> "Film"; "show" -> "Series"; else -> null },
+    tile.year?.toString(),
+).joinToString(" · ")
+
+/** A poster; focused, it grows a little and its title shows underneath. */
 @Composable
-private fun PosterTile(
+fun PosterTile(
     tile: CatalogTile,
     modifier: Modifier,
     onFocus: (FocusRequester) -> Unit,
@@ -142,87 +145,46 @@ private fun PosterTile(
     var focused by remember { mutableStateOf(false) }
     val art = catalogArt(tile.poster, POSTER_PX)
     val app = Graph.apps.find(tile.pkg)
-    Surface(
-        onClick = onClick,
-        onLongClick = onLongClick,
-        modifier = modifier.size(84.dp, 126.dp).focusRequester(requester).onFocusChanged {
-            focused = it.isFocused
-            if (it.isFocused) onFocus(requester)
-        },
-        shape = ClickableSurfaceDefaults.shape(PosterShape),
-        colors = ClickableSurfaceDefaults.colors(containerColor = Palette.Card, focusedContainerColor = Palette.Card),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
-        border = ClickableSurfaceDefaults.border(
-            border = Border(BorderStroke(0.5.dp, Color.White.copy(alpha = .08f)), shape = PosterShape),
-            focusedBorder = Border(BorderStroke(2.dp, Color.White), shape = PosterShape),
-        ),
-    ) {
-        if (art != null) {
-            Image(art, tile.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        } else {
-            // No poster (yet): the app's colour and the title.
-            Box(
-                Modifier.fillMaxSize().background(Color(app?.color ?: 0xFF2A3A4A.toInt()).copy(alpha = .35f)).padding(8.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    tile.title, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
-                    textAlign = TextAlign.Center, maxLines = 4, overflow = TextOverflow.Ellipsis,
-                )
+    Column(Modifier.width(PosterWidth), horizontalAlignment = Alignment.CenterHorizontally) {
+        Surface(
+            onClick = onClick,
+            onLongClick = onLongClick,
+            modifier = modifier.size(PosterWidth, PosterHeight).focusRequester(requester).onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) onFocus(requester)
+            },
+            shape = ClickableSurfaceDefaults.shape(PosterShape),
+            colors = ClickableSurfaceDefaults.colors(containerColor = Color.White.copy(alpha = .08f), focusedContainerColor = Color.White.copy(alpha = .08f)),
+            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.12f),
+            border = ClickableSurfaceDefaults.border(
+                border = Border(BorderStroke(1.dp, Color.White.copy(alpha = .10f)), shape = PosterShape),
+                focusedBorder = Border(BorderStroke(2.dp, Color.White), shape = PosterShape),
+            ),
+        ) {
+            if (art != null) {
+                Image(art, tile.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            } else {
+                // No poster yet (the Dell's Wi-Fi can be slow): a quiet tinted card with the title, on purpose.
+                Box(
+                    Modifier.fillMaxSize().background(
+                        Brush.linearGradient(listOf(Color(app?.color ?: 0xFF51604F.toInt()).copy(alpha = .45f), Color(0xFF1B231F).copy(alpha = .6f)))
+                    ).padding(12.dp),
+                    contentAlignment = Alignment.BottomStart,
+                ) {
+                    Text(tile.title, fontSize = 12.sp, fontWeight = FontWeight.Light, color = Color.White.copy(alpha = .85f), maxLines = 4, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
-        if (!focused) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .14f)))
-    }
-}
-
-/** The top half for a focused catalog title: its app and row, title, year and the rest, and its blurb. */
-@Composable
-fun TileHero(tile: CatalogTile, row: String) {
-    val app = Graph.apps.label(tile.pkg) ?: tile.app.orEmpty()
-    Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(app, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Palette.Text.copy(alpha = .9f))
-            if (row.isNotEmpty()) Text("  ·  $row", fontSize = 12.sp, color = Palette.Secondary)
+        // The caption keeps its height, so the row never jumps; it is only drawn under the focused poster.
+        Column(
+            Modifier.padding(top = 18.dp).height(34.dp).wrapContentWidth(unbounded = true),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            if (focused) {
+                Text(tile.title, fontSize = 13.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 260.dp))
+                Text(captionOf(tile), fontSize = 10.sp, color = Color.White.copy(alpha = .55f), maxLines = 1)
+            }
         }
-        Spacer(Modifier.height(12.dp))
-        Text(
-            tile.title,
-            fontSize = if (tile.title.length > 26) 32.sp else 46.sp,
-            lineHeight = if (tile.title.length > 26) 36.sp else 48.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = (-0.4).sp,
-            color = Color.White,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        val facts = tile.facts
-        if (facts.isNotEmpty()) {
-            Spacer(Modifier.height(10.dp))
-            Text(facts, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Palette.Text.copy(alpha = .78f), maxLines = 1)
-        }
-        tile.blurb?.let {
-            Spacer(Modifier.height(10.dp))
-            Text(it, fontSize = 13.sp, lineHeight = 18.sp, color = Palette.Text.copy(alpha = .82f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
-        Spacer(Modifier.height(12.dp))
-        Text("OK opens it in $app  ·  Hold OK for more", fontSize = 10.5.sp, color = Palette.Secondary)
-    }
-}
-
-/** Full-bleed backdrop of the focused catalog title, or its app's glow while there is none. */
-@Composable
-fun TileBackdrop(url: String?, glow: @Composable () -> Unit) {
-    val art = catalogArt(url, BACKDROP_PX, waitMs = 160)
-    if (art != null) {
-        Image(
-            bitmap = art,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            alignment = BiasAlignment(0.6f, -0.3f),
-            modifier = Modifier.fillMaxSize(),
-        )
-    } else {
-        glow()
     }
 }
 

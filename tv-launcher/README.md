@@ -5,10 +5,20 @@ the TV through. No root, no Mac at runtime, no app store. Copied from
 `RileyG44/custom-tv-interface` (`tv/`, commit efe09a6), where the research and design work
 stays. The plan for it in this repo is [`docs/tv-launcher.md`](../docs/tv-launcher.md).
 
-- **Home screen:** the top half describes the focused item. Below it are a **Continue** row (what
-  this TV actually played, recorded from each app's Now Playing info), your **Apps** in your order
-  with their real banners, and **All apps** (hold OK to pin or unpin). The top-right row holds
-  Search, pairing and Settings.
+- **Home screen** (after Ron Design Lab's look: frosted glass over an out-of-focus teal and olive
+  field, Urbanist in light weights, thin numerals): the greeting, a large clock and the date; a
+  weather card with the day's temperature curve; and a tile of the 3D studio with each light
+  glowing as it really is and the AC's setting. Below them, **Fresh today**: what this TV is in
+  the middle of (its three most recent, from apps' Now Playing info), then the day's picks from
+  the hub. Under that, peeking up from the bottom edge, your **Apps** with their real banners,
+  then All apps, Search, pairing and Settings; further down, each app's Popular, Trending and New
+  rows. Nothing explains why a title is there.
+- **The studio:** OK on the studio tile opens it full screen: the 3D studio with every light and
+  the AC marked, the plan's scenes, the AC (OK on or off, ◀ ▶ temperature, mode and fan) and each
+  light (OK on or off, ◀ ▶ brightness). It goes through House Control's hub (`/api/plan`,
+  `/api/events` while Home is on screen, `/api/call`), exactly as the web panel does. The picture
+  is `res/drawable-nodpi/studio_render.webp`, made from the hub's own 3D view by
+  `tools/studio-render.py`; run it again when the studio's furniture changes.
 - **API on port 8686** (advertised over Bonjour as `_livingroom._tcp`): the hub
   (`hub/launcher.py`) and, later, the iPhone app talk to it. Playback always happens on the TV, in
   each provider's own app.
@@ -39,7 +49,7 @@ Wireless debugging), and `adb devices` must list it.
 tv-launcher/tools/tv-install.sh               # build, install, grant Now Playing + remote input over ADB
 tv-launcher/tools/tv-install.sh --no-build    # install the APK that is already built
 tv-launcher/tools/tv-uninstall.sh             # remove it and put the TV's settings back
-tv-launcher/tools/tv-wallpaper.sh photo.jpg   # Home wallpaper (JPEG, PNG or HEIC); --clear removes it
+tv-launcher/tools/tv-wallpaper.sh photo.jpg   # stores a wallpaper (JPEG, PNG or HEIC); the redesigned Home shows its own field instead
 ```
 
 `tv-install.sh` grants two things over ADB: notification-listener access (Now Playing, play,

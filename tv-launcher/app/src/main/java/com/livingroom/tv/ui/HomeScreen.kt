@@ -10,6 +10,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -25,19 +28,24 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
@@ -79,34 +87,39 @@ import com.livingroom.tv.companion.FocusInfo
 import com.livingroom.tv.history.HistoryStore
 import com.livingroom.tv.history.WatchEntry
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 sealed interface Focus {
     data class Title(val entry: WatchEntry) : Focus
     data class App(val app: TvApp) : Focus
-    /** A title in one of the streaming catalog's rows ([row] is the row's name). */
+    /** A title in the Fresh row or one of the catalog's rows ([row] is the row's name). */
     data class Tile(val tile: CatalogTile, val row: String) : Focus
     data object Other : Focus
 }
 
-private enum class Overlay { AllApps, Pair }
+private enum class Overlay { AllApps, Pair, Studio }
 
-private val CardShape = RoundedCornerShape(8.dp)
-private val TileShape = RoundedCornerShape(7.dp)
+private val CardShape = RoundedCornerShape(CardRadius)
+private val TileShape = RoundedCornerShape(16.dp)
 
 @Composable
 fun HomeRoot() {
     val pinned by Graph.apps.pinned.collectAsState()
     val allApps by Graph.apps.all.collectAsState()
     val entries by Graph.history.entries.collectAsState()
-    val continueItems = remember(entries) { HistoryStore.continueList(entries) }
+    // What's being watched leads Fresh today: the three most recent, past the first few minutes.
+    val continueItems = remember(entries) { HistoryStore.continueList(entries).filter { it.progress < 0f || it.progress >= .03f }.take(3) }
     var overlay by remember { mutableStateOf<Overlay?>(null) }
     var focus by remember { mutableStateOf<Focus>(Focus.Other) }
     val catalog by Graph.catalog.catalog.collectAsState()
     val hiddenTitles by Graph.catalog.hidden.collectAsState()
+    val fresh = remember(catalog, hiddenTitles) { freshPicks(catalog, hiddenTitles) }
     val shelves = remember(catalog, hiddenTitles) { shelvesOf(catalog, hiddenTitles) }
     // Hold OK on a poster: its menu, and the poster to come back to when it closes.
     var menuFor by remember { mutableStateOf<CatalogTile?>(null) }
     var lastPoster by remember { mutableStateOf<FocusRequester?>(null) }
+    val studio = remember { FocusRequester() }
+    var backToStudio by remember { mutableStateOf(false) }
 
     // Keep the focused title's progress live as history updates.
     val liveFocus = (focus as? Focus.Title)?.let { f ->
@@ -114,22 +127,28 @@ fun HomeRoot() {
     } ?: focus
 
     LaunchedEffect(liveFocus) { Graph.hub.focus.value = liveFocus.toInfo() }
-    BackHandler(enabled = overlay != null) { overlay = null }
+    BackHandler(enabled = overlay != null && overlay != Overlay.Studio) { overlay = null }
     LaunchedEffect(menuFor) {
         if (menuFor == null) lastPoster?.let { delay(80); runCatching { it.requestFocus() } }
     }
+    LaunchedEffect(overlay, backToStudio) {
+        if (overlay == null && backToStudio) {
+            delay(80)
+            runCatching { studio.requestFocus() }
+            backToStudio = false
+        }
+    }
 
-    val wallpaper by Graph.wallpaper.image.collectAsState()
     Box(Modifier.fillMaxSize().background(Palette.Bg)) {
-        // A chosen wallpaper is the backdrop; without one, the focused title's art is.
-        if (wallpaper != null) Wallpaper(wallpaper!!) else Backdrop(liveFocus)
+        Field()
         when (overlay) {
             null -> HomeContent(
                 continueItems = continueItems,
+                fresh = fresh,
                 pinned = pinned,
-                entries = entries,
                 shelves = shelves,
-                focus = liveFocus,
+                studio = studio,
+                focusFirst = !backToStudio,
                 onFocus = { focus = it },
                 onPoster = { lastPoster = it },
                 onMenu = { menuFor = it },
@@ -137,21 +156,36 @@ fun HomeRoot() {
             )
             Overlay.AllApps -> AllAppsOverlay(allApps)
             Overlay.Pair -> PairOverlay(onClose = { overlay = null })
+            Overlay.Studio -> StudioController(onClose = { overlay = null; backToStudio = true })
         }
         menuFor?.let { TileMenu(it, onClose = { menuFor = null }) }
     }
 }
 
-/** How tall the rows under the hero are: Continue and Apps fit, the catalog rows scroll up into it. */
-private val RowsHeight = 292.dp
+/** Scrolls only as far as needed to show what has focus (no pivot), so the top stays put. */
+@OptIn(ExperimentalFoundationApi::class)
+private object JustEnough : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val end = offset + size
+        return when {
+            offset >= 0 && end <= containerSize -> 0f
+            offset < 0 && end > containerSize -> 0f
+            kotlin.math.abs(offset) < kotlin.math.abs(end - containerSize) -> offset
+            else -> end - containerSize
+        }
+    }
+}
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HomeContent(
     continueItems: List<WatchEntry>,
+    fresh: List<CatalogTile>,
     pinned: List<TvApp>,
-    entries: List<WatchEntry>,
     shelves: List<Shelf>,
-    focus: Focus,
+    studio: FocusRequester,
+    /** False when coming back from the studio, whose tile takes the focus again instead. */
+    focusFirst: Boolean,
     onFocus: (Focus) -> Unit,
     onPoster: (FocusRequester) -> Unit,
     onMenu: (CatalogTile) -> Unit,
@@ -159,80 +193,96 @@ private fun HomeContent(
 ) {
     val context = LocalContext.current
     val first = remember { FocusRequester() }
-    val ready = continueItems.isNotEmpty() || pinned.isNotEmpty()
+    val list = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val hasFresh = continueItems.isNotEmpty() || fresh.isNotEmpty()
+    val ready = hasFresh || pinned.isNotEmpty()
     LaunchedEffect(ready) {
-        if (ready) {
+        if (ready && focusFirst) {
             delay(80)
             runCatching { first.requestFocus() }
         }
     }
+    // Back at the top rows, the greeting, clock and studio come back into view.
+    val toTop: () -> Unit = { if (list.firstVisibleItemIndex != 0 || list.firstVisibleItemScrollOffset != 0) scope.launch { list.animateScrollToItem(0) } }
 
-    Box(Modifier.fillMaxSize()) {
-        Scrims()
-        TopBar(
-            modifier = Modifier.align(Alignment.TopEnd),
-            onFocus = { onFocus(Focus.Other) },
-            onSearch = { openSearch(context) },
-            onPair = { onOverlay(Overlay.Pair) },
-            onSettings = { context.startSafely(Intent(Settings.ACTION_SETTINGS)) },
-        )
-        Greeting(Modifier.align(Alignment.TopStart).padding(start = 60.dp, top = 28.dp))
-        GlancePanel(Modifier.align(Alignment.TopEnd).padding(top = 62.dp, end = 50.dp))
-        Hero(focus, entries, Modifier.align(Alignment.TopStart))
-
-        // Continue and Apps sit at the bottom as before; the catalog rows (one per app's Popular,
-        // Trending and New, after For you) follow, and scroll up as focus moves down to them.
-        LazyColumn(
-            modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().height(RowsHeight),
-            verticalArrangement = Arrangement.Bottom,
-            contentPadding = PaddingValues(bottom = 18.dp),
-        ) {
-            if (continueItems.isNotEmpty()) item(key = "continue") { Column {
-                RowLabel("Continue")
+    CompositionLocalProvider(LocalBringIntoViewSpec provides JustEnough) {
+        LazyColumn(state = list, modifier = Modifier.fillMaxSize()) {
+            item(key = "top") {
+                Box(Modifier.fillMaxWidth().height(250.dp)) {
+                    HelloBlock(Modifier.padding(start = 48.dp, top = 34.dp))
+                    WeatherCard(Modifier.padding(start = 380.dp, top = 36.dp).size(170.dp, 200.dp))
+                    StudioTile(
+                        modifier = Modifier.padding(start = 562.dp, top = 36.dp).size(350.dp, 200.dp).focusRequester(studio),
+                        onFocus = { onFocus(Focus.Other); toTop() },
+                        onClick = { onOverlay(Overlay.Studio) },
+                    )
+                }
+            }
+            if (hasFresh) item(key = "fresh") { Column {
+                Text("Fresh today", fontSize = 13.sp, color = Color.White.copy(alpha = .85f), modifier = Modifier.padding(start = 48.dp, top = 4.dp))
+                // What's being watched can arrive after the picks: the row starts at its start again then.
+                val freshRow = rememberLazyListState()
+                LaunchedEffect(continueItems.firstOrNull()?.id, fresh.firstOrNull()?.id) {
+                    if (freshRow.firstVisibleItemIndex != 0) freshRow.scrollToItem(0)
+                }
                 LazyRow(
+                    state = freshRow,
                     modifier = Modifier.fillMaxWidth().focusRestorer(),
-                    contentPadding = PaddingValues(horizontal = 48.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(15.dp),
+                    contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(13.dp),
                 ) {
-                    itemsIndexed(continueItems, key = { _, e -> e.id }) { i, e ->
+                    itemsIndexed(continueItems, key = { _, e -> "h:" + e.id }) { i, e ->
                         ContinueCard(
                             entry = e,
                             modifier = (if (i == 0) Modifier.focusRequester(first) else Modifier)
-                                .rowEdges(first = i == 0, last = i == continueItems.lastIndex),
-                            onFocus = { onFocus(Focus.Title(e)) },
+                                .rowEdges(first = i == 0, last = fresh.isEmpty() && i == continueItems.lastIndex),
+                            onFocus = { onFocus(Focus.Title(e)); toTop() },
                             onClick = { Graph.apps.launch(e.pkg) },
                             onLongClick = {
                                 Graph.history.remove(e.id)
-                                Toast.makeText(context, "Removed from Continue", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Removed from Fresh today", Toast.LENGTH_SHORT).show()
                             },
                         )
                     }
+                    itemsIndexed(fresh, key = { _, t -> "c:" + t.id }) { i, t ->
+                        PosterTile(
+                            tile = t,
+                            modifier = (if (continueItems.isEmpty() && i == 0) Modifier.focusRequester(first) else Modifier)
+                                .rowEdges(first = continueItems.isEmpty() && i == 0, last = i == fresh.lastIndex),
+                            onFocus = { requester ->
+                                onFocus(Focus.Tile(t, "Fresh today"))
+                                onPoster(requester)
+                                toTop()
+                            },
+                            onClick = { openTile(context, t) },
+                            onLongClick = { onMenu(t) },
+                        )
+                    }
                 }
-                Spacer(Modifier.height(4.dp))
             } }
-            item(key = "apps") { LazyRow(
+            // Keyed on the apps, so a row first drawn with only its buttons doesn't stay scrolled to them.
+            item(key = "apps") { key(pinned.map { it.pkg }) { LazyRow(
                 modifier = Modifier.fillMaxWidth().focusRestorer(),
-                contentPadding = PaddingValues(horizontal = 48.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(11.dp),
+                contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 6.dp, bottom = 22.dp),
+                horizontalArrangement = Arrangement.spacedBy(13.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 itemsIndexed(pinned, key = { _, a -> a.pkg }) { i, app ->
                     AppTile(
                         app = app,
-                        modifier = (if (continueItems.isEmpty() && i == 0) Modifier.focusRequester(first) else Modifier)
+                        width = 144.dp,
+                        modifier = (if (!hasFresh && i == 0) Modifier.focusRequester(first) else Modifier)
                             .rowEdges(first = i == 0, last = false),
                         onFocus = { onFocus(Focus.App(app)) },
                         onClick = { Graph.apps.launch(app.pkg) },
                     )
                 }
-                item(key = "all-apps") {
-                    IconTile(
-                        Glyphs.Grid,
-                        modifier = Modifier.rowEdges(first = pinned.isEmpty(), last = true),
-                        onFocus = { onFocus(Focus.Other) },
-                        onClick = { onOverlay(Overlay.AllApps) },
-                    )
-                }
-            } }
+                item(key = "all-apps") { CircleButton(Glyphs.Grid, Modifier.rowEdges(first = pinned.isEmpty(), last = false), { onFocus(Focus.Other) }) { onOverlay(Overlay.AllApps) } }
+                item(key = "search") { CircleButton(Glyphs.Search, Modifier, { onFocus(Focus.Other) }) { openSearch(context) } }
+                item(key = "pair") { CircleButton(Glyphs.Phone, Modifier, { onFocus(Focus.Other) }) { onOverlay(Overlay.Pair) } }
+                item(key = "settings") { CircleButton(Glyphs.Gear, Modifier.rowEdges(first = false, last = true), { onFocus(Focus.Other) }) { context.startSafely(Intent(Settings.ACTION_SETTINGS)) } }
+            } } }
             items(shelves, key = { it.key }) { shelf ->
                 ShelfRow(
                     shelf = shelf,
@@ -244,190 +294,12 @@ private fun HomeContent(
                     edges = { first, last -> Modifier.rowEdges(first, last) },
                 )
             }
+            item(key = "end") { Spacer(Modifier.height(40.dp)) }
         }
     }
 }
 
-@Composable
-private fun Scrims() {
-    Box(
-        Modifier.fillMaxSize().background(
-            Brush.horizontalGradient(
-                0f to Palette.Bg.copy(alpha = .93f), .30f to Palette.Bg.copy(alpha = .74f),
-                .58f to Palette.Bg.copy(alpha = .2f), .80f to Color.Transparent,
-            )
-        )
-    )
-    Box(
-        Modifier.fillMaxSize().background(
-            Brush.verticalGradient(
-                .34f to Color.Transparent, .52f to Palette.Bg.copy(alpha = .45f),
-                .72f to Palette.Bg.copy(alpha = .94f), 1f to Palette.Bg,
-            )
-        )
-    )
-    // Keeps the clock and weather readable over a bright photo.
-    Box(
-        Modifier.fillMaxSize().drawBehind {
-            drawRect(
-                Brush.radialGradient(
-                    0f to Palette.Bg.copy(alpha = .55f), .6f to Palette.Bg.copy(alpha = .2f), 1f to Color.Transparent,
-                    center = Offset(size.width * .9f, size.height * .2f),
-                    radius = size.width * .4f,
-                )
-            )
-        }
-    )
-}
-
-@Composable
-private fun Wallpaper(bitmap: android.graphics.Bitmap) {
-    val image = remember(bitmap) { bitmap.asImageBitmap() }
-    Image(image, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-}
-
-private fun Focus.backdropKey(): String = when (this) {
-    is Focus.Title -> "t:" + entry.id
-    is Focus.App -> "a:" + app.pkg
-    // The app (for the glow while the picture loads) and the backdrop's address.
-    is Focus.Tile -> "c:" + tile.pkg.orEmpty() + "\n" + tile.backdrop.orEmpty()
-    Focus.Other -> "none"
-}
-
-/** Full-bleed art of the focused title, or the focused app's brand glow. Crossfades on focus moves. */
-@Composable
-private fun Backdrop(focus: Focus) {
-    Crossfade(targetState = focus.backdropKey(), animationSpec = tween(450), label = "backdrop") { key ->
-        when {
-            key.startsWith("t:") -> {
-                val entry = Graph.history.entries.value.firstOrNull { it.id == key.removePrefix("t:") }
-                val art = historyArt(entry, 1280)
-                if (art != null) {
-                    Image(
-                        bitmap = art,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        alignment = BiasAlignment(0.6f, -0.3f),
-                        modifier = Modifier.fillMaxSize().then(if (art.width < 1000) Modifier.blur(8.dp) else Modifier),
-                    )
-                } else {
-                    AppGlow(Graph.apps.find(entry?.pkg)?.color)
-                }
-            }
-            key.startsWith("a:") -> AppGlow(Graph.apps.find(key.removePrefix("a:"))?.color)
-            key.startsWith("c:") -> {
-                val pkg = key.removePrefix("c:").substringBefore("\n")
-                TileBackdrop(key.substringAfter("\n").ifEmpty { null }) { AppGlow(Graph.apps.find(pkg)?.color) }
-            }
-            else -> Box(Modifier.fillMaxSize())
-        }
-    }
-}
-
-@Composable
-private fun AppGlow(color: Int?) {
-    val c = Color(color ?: 0xFF2A3A4A.toInt())
-    Box(
-        Modifier.fillMaxSize().drawBehind {
-            drawRect(
-                Brush.radialGradient(
-                    0f to c.copy(alpha = .40f), .45f to c.copy(alpha = .13f), 1f to Color.Transparent,
-                    center = Offset(size.width * .78f, size.height * .3f),
-                    radius = size.width * .62f,
-                )
-            )
-        }
-    )
-}
-
-@Composable
-private fun Hero(focus: Focus, entries: List<WatchEntry>, modifier: Modifier) {
-    Box(modifier.padding(start = 60.dp, top = 66.dp).width(540.dp)) {
-        when (focus) {
-            is Focus.Title -> TitleHero(focus.entry)
-            is Focus.App -> AppHero(focus.app, entries.filter { it.pkg == focus.app.pkg }.take(3))
-            is Focus.Tile -> TileHero(focus.tile, focus.row)
-            Focus.Other -> Unit
-        }
-    }
-}
-
-@Composable
-private fun TitleHero(entry: WatchEntry) {
-    val app = Graph.apps.label(entry.pkg).orEmpty()
-    Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(app, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Palette.Text.copy(alpha = .9f))
-            Text("  ·  Continue", fontSize = 12.sp, color = Palette.Secondary)
-        }
-        Spacer(Modifier.height(12.dp))
-        Text(
-            entry.title,
-            fontSize = if (entry.title.length > 26) 32.sp else 46.sp,
-            lineHeight = if (entry.title.length > 26) 36.sp else 48.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = (-0.4).sp,
-            color = Color.White,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        entry.subtitle?.let {
-            Spacer(Modifier.height(10.dp))
-            Text(it, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Palette.Text.copy(alpha = .88f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        if (entry.progress >= 0f) {
-            Spacer(Modifier.height(16.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ProgressBar(entry.progress, Modifier.width(110.dp))
-                Spacer(Modifier.width(10.dp))
-                Text(remainingText(entry.remainingMin), fontSize = 11.sp, color = Palette.Secondary)
-            }
-        }
-    }
-}
-
-@Composable
-private fun AppHero(app: TvApp, items: List<WatchEntry>) {
-    val banner = remember(app.banner) { app.banner?.asImageBitmap() }
-    Column {
-        if (banner != null) {
-            Image(banner, app.label, Modifier.size(128.dp, 72.dp).clip(RoundedCornerShape(9.dp)), contentScale = ContentScale.Crop)
-        } else {
-            Text(app.label, fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Color.White)
-        }
-        Spacer(Modifier.height(14.dp))
-        if (items.isEmpty()) {
-            Text("Press OK to open ${app.label}", fontSize = 13.sp, color = Palette.Secondary)
-        } else {
-            Text("Waiting for you in ${app.label}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Palette.Text.copy(alpha = .7f))
-            Spacer(Modifier.height(9.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) { items.forEach { MiniCard(it) } }
-            Spacer(Modifier.height(10.dp))
-            Text("OK opens ${app.label}", fontSize = 10.5.sp, color = Palette.Secondary)
-        }
-    }
-}
-
-@Composable
-private fun MiniCard(entry: WatchEntry) {
-    val art = historyArt(entry, 320)
-    Column(Modifier.width(118.dp)) {
-        Box(Modifier.size(118.dp, 66.dp).clip(RoundedCornerShape(6.dp)).background(Palette.Card)) {
-            if (art != null) Image(art, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            if (entry.progress >= 0f) ProgressBar(entry.progress, Modifier.align(Alignment.BottomStart).fillMaxWidth(), height = 2.dp, rounded = false)
-        }
-        Spacer(Modifier.height(5.dp))
-        Text(entry.title, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        val sub = if (entry.remainingMin >= 0) remainingText(entry.remainingMin) else entry.subtitle.orEmpty()
-        Text(sub, fontSize = 9.sp, color = Palette.Secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@Composable
-private fun RowLabel(text: String) {
-    Text(text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Palette.Secondary, modifier = Modifier.padding(start = 50.dp))
-}
-
+/** Something on this TV still being watched: its own picture, a hairline of progress. */
 @Composable
 private fun ContinueCard(
     entry: WatchEntry,
@@ -439,30 +311,42 @@ private fun ContinueCard(
     var focused by remember { mutableStateOf(false) }
     val art = historyArt(entry, 480)
     val app = Graph.apps.find(entry.pkg)
-    Surface(
-        onClick = onClick,
-        onLongClick = onLongClick,
-        modifier = modifier.size(192.dp, 108.dp).onFocusChanged {
-            focused = it.isFocused || it.hasFocus
-            if (focused) onFocus()
-        },
-        shape = ClickableSurfaceDefaults.shape(CardShape),
-        colors = ClickableSurfaceDefaults.colors(containerColor = Palette.Card, focusedContainerColor = Palette.Card),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
-        border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(2.dp, Color.White), shape = CardShape)),
-    ) {
-        if (art != null) Image(art, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        else BannerFill(app)
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(.35f to Color.Transparent, 1f to Color.Black.copy(alpha = .8f))))
-        Column(Modifier.align(Alignment.BottomStart).padding(start = 10.dp, end = 10.dp, bottom = 10.dp)) {
-            Text(entry.title, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(
-                listOfNotNull(app?.label, entry.subtitle).joinToString(" · "),
-                fontSize = 8.sp, color = Color.White.copy(alpha = .72f), maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
+    Column(Modifier.width(214.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Surface(
+            onClick = onClick,
+            onLongClick = onLongClick,
+            modifier = modifier.size(214.dp, 160.dp).onFocusChanged {
+                focused = it.isFocused || it.hasFocus
+                if (focused) onFocus()
+            },
+            shape = ClickableSurfaceDefaults.shape(CardShape),
+            colors = ClickableSurfaceDefaults.colors(containerColor = Color.White.copy(alpha = .09f), focusedContainerColor = Color.White.copy(alpha = .16f)),
+            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+            border = ClickableSurfaceDefaults.border(
+                border = Border(BorderStroke(1.dp, Color.White.copy(alpha = .10f)), shape = CardShape),
+                focusedBorder = Border(BorderStroke(2.dp, Color.White), shape = CardShape),
+            ),
+        ) {
+            Column {
+                Box(Modifier.fillMaxWidth().height(118.dp).clip(RoundedCornerShape(topStart = CardRadius, topEnd = CardRadius))) {
+                    if (art != null) Image(art, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    else BannerFill(app)
+                }
+                Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 9.dp)) {
+                    Text(entry.title, fontSize = 11.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.height(7.dp))
+                    if (entry.progress >= 0f) ProgressBar(entry.progress, Modifier.fillMaxWidth())
+                    else Text(listOfNotNull(app?.label, entry.subtitle).joinToString(" · "), fontSize = 9.sp, color = Color.White.copy(alpha = .55f), maxLines = 1)
+                }
+            }
         }
-        if (entry.progress >= 0f) ProgressBar(entry.progress, Modifier.align(Alignment.BottomStart).fillMaxWidth(), height = 2.5.dp, rounded = false)
-        if (!focused) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .18f)))
+        // Same caption height as the posters, so the row lines up.
+        Column(Modifier.padding(top = 18.dp).height(34.dp).wrapContentWidth(unbounded = true), horizontalAlignment = Alignment.CenterHorizontally) {
+            if (focused) {
+                Text(listOfNotNull(app?.label, entry.subtitle?.takeIf { it != app?.label }).joinToString(" · "), fontSize = 10.sp, color = Color.White.copy(alpha = .55f), maxLines = 1)
+                if (entry.remainingMin >= 0) Text(remainingText(entry.remainingMin), fontSize = 10.sp, color = Color.White.copy(alpha = .55f))
+            }
+        }
     }
 }
 
@@ -470,7 +354,7 @@ private fun ContinueCard(
 private fun BannerFill(app: TvApp?) {
     val banner = remember(app?.banner) { app?.banner?.asImageBitmap() }
     Box(Modifier.fillMaxSize().background(Color(app?.color ?: 0xFF2A3A4A.toInt()).copy(alpha = .35f)), contentAlignment = Alignment.Center) {
-        if (banner != null) Image(banner, null, Modifier.size(112.dp, 63.dp).clip(RoundedCornerShape(6.dp)))
+        if (banner != null) Image(banner, null, Modifier.size(112.dp, 63.dp).clip(RoundedCornerShape(10.dp)))
     }
 }
 
@@ -490,77 +374,43 @@ fun AppTile(
         onLongClick = onLongClick,
         modifier = modifier.size(width, width * 9 / 16).onFocusChanged { if (it.isFocused) onFocus() },
         shape = ClickableSurfaceDefaults.shape(TileShape),
-        colors = ClickableSurfaceDefaults.colors(containerColor = Palette.Card, focusedContainerColor = Palette.Card),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.12f),
+        colors = ClickableSurfaceDefaults.colors(containerColor = Color.White.copy(alpha = .08f), focusedContainerColor = Color.White.copy(alpha = .08f)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.1f),
         border = ClickableSurfaceDefaults.border(
-            border = Border(BorderStroke(0.5.dp, Color.White.copy(alpha = .08f)), shape = TileShape),
+            border = Border(BorderStroke(1.dp, Color.White.copy(alpha = .10f)), shape = TileShape),
             focusedBorder = Border(BorderStroke(2.dp, Color.White), shape = TileShape),
         ),
     ) {
         if (banner != null) {
             Image(banner, app.label, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         } else {
-            Text(app.label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color.White, modifier = Modifier.align(Alignment.Center))
+            Text(app.label, fontSize = 12.sp, color = Color.White, modifier = Modifier.align(Alignment.Center))
         }
         if (pinnedBadge) {
-            Glyph(Glyphs.Pin, Color.White, Modifier.align(Alignment.TopEnd).padding(5.dp).size(10.dp))
+            Glyph(Glyphs.Pin, Color.White, Modifier.align(Alignment.TopEnd).padding(6.dp).size(10.dp))
         }
     }
 }
 
+/** A round glass button; focused, it turns solid white with a dark icon. */
 @Composable
-private fun IconTile(icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier, onFocus: () -> Unit, onClick: () -> Unit) {
+private fun CircleButton(icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier, onFocus: () -> Unit, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
-        modifier = modifier.size(55.dp).onFocusChanged { if (it.isFocused) onFocus() },
-        shape = ClickableSurfaceDefaults.shape(TileShape),
+        modifier = modifier.size(52.dp).onFocusChanged { if (it.isFocused) onFocus() },
+        shape = ClickableSurfaceDefaults.shape(CircleShape),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.White.copy(alpha = .07f), contentColor = Palette.Secondary,
-            focusedContainerColor = Color.White, focusedContentColor = Color.Black,
+            containerColor = Color.White.copy(alpha = .10f), contentColor = Color.White.copy(alpha = .85f),
+            focusedContainerColor = Color.White, focusedContentColor = Color(0xFF111111),
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.12f),
     ) {
-        Glyph(icon, LocalContentColor.current, Modifier.align(Alignment.Center).size(17.dp))
+        Glyph(icon, LocalContentColor.current, Modifier.align(Alignment.Center).size(18.dp))
     }
 }
 
 @Composable
-private fun TopBar(
-    modifier: Modifier,
-    onFocus: () -> Unit,
-    onSearch: () -> Unit,
-    onPair: () -> Unit,
-    onSettings: () -> Unit,
-) {
-    Row(
-        modifier.padding(top = 24.dp, end = 48.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-    ) {
-        TopButton(Glyphs.Search, onSearch, onFocus)
-        TopButton(Glyphs.Phone, onPair, onFocus)
-        TopButton(Glyphs.Gear, onSettings, onFocus)
-    }
-}
-
-@Composable
-private fun TopButton(icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit, onFocus: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.size(28.dp).onFocusChanged { if (it.isFocused) onFocus() },
-        shape = ClickableSurfaceDefaults.shape(CircleShape),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.White.copy(alpha = .06f), contentColor = Palette.Secondary,
-            focusedContainerColor = Color.White, focusedContentColor = Color.Black,
-        ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.15f),
-    ) {
-        Glyph(icon, LocalContentColor.current, Modifier.align(Alignment.Center).size(14.dp))
-    }
-}
-
-@Composable
-fun ProgressBar(progress: Float, modifier: Modifier, height: Dp = 2.dp, rounded: Boolean = true) {
+fun ProgressBar(progress: Float, modifier: Modifier, height: Dp = 3.dp, rounded: Boolean = true) {
     val shape = if (rounded) RoundedCornerShape(50) else RoundedCornerShape(0)
     Box(modifier.height(height).clip(shape).background(Color.White.copy(alpha = .25f))) {
         Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight().background(Color.White))

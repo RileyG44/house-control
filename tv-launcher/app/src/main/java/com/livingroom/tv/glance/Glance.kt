@@ -36,6 +36,8 @@ data class Weather(
     val sunset: Long,
     val imperial: Boolean,
     val updatedAt: Long,
+    /** Today's temperature hour by hour (local time, 0–23), in [units]. */
+    val hourly: List<Float> = emptyList(),
 ) {
     val condition: String get() = conditionFor(code)
     val windUnit: String get() = if (imperial) "mph" else "km/h"
@@ -95,6 +97,7 @@ class WeatherRepository(private val prefs: Prefs) {
         val url = "https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}" +
             "&current=temperature_2m,weather_code,wind_speed_10m,is_day" +
             "&daily=sunrise,sunset,temperature_2m_max,temperature_2m_min,wind_speed_10m_max,precipitation_probability_max" +
+            "&hourly=temperature_2m" +
             "&timezone=auto&timeformat=unixtime&forecast_days=1" +
             if (loc.imperial) "&temperature_unit=fahrenheit&wind_speed_unit=mph" else ""
         val o = JSONObject(get(url))
@@ -115,6 +118,9 @@ class WeatherRepository(private val prefs: Prefs) {
             sunset = daily.getJSONArray("sunset").getLong(0) * 1000,
             imperial = loc.imperial,
             updatedAt = System.currentTimeMillis(),
+            hourly = o.optJSONObject("hourly")?.optJSONArray("temperature_2m")?.let { a ->
+                (0 until minOf(a.length(), 24)).map { a.optDouble(it, Double.NaN).toFloat() }.filter { !it.isNaN() }
+            }.orEmpty(),
         )
         return true
     }
