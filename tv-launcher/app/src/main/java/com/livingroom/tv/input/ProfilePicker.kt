@@ -7,6 +7,7 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import com.livingroom.tv.Graph
+import com.livingroom.tv.media.MediaWatcher
 
 /**
  * Gets past an app's "Who's watching?" screen on its own: for a while after an app opens, if
@@ -14,7 +15,10 @@ import com.livingroom.tv.Graph
  *
  * It only ever acts on a screen that says it is a profile picker (a heading such as "Who's
  * watching") or that shows the profile's name as one of a short row of tiles, and only once per
- * launch. Apps that draw the picker without accessible text are left alone.
+ * launch. Apps that draw the picker without accessible text are left alone, except the ones in
+ * [BLIND]: after the launcher itself opened one of them from cold, it presses OK once on the
+ * profile the app has focused (its last one), when the screen has no readable text and nothing
+ * plays. Prefs.profileOk turns that off.
  */
 object ProfilePicker {
     private const val TAG = "ProfilePicker"
@@ -29,24 +33,52 @@ object ProfilePicker {
         RegexOption.IGNORE_CASE,
     )
 
+    /** Apps whose profile screen has no accessible text (checked with uiautomator, Oct 22). */
+    private val BLIND = setOf("com.google.android.youtube.tv", "com.netflix.ninja")
+    /** An app last seen longer ago than this starts cold, on its profile screen. */
+    private const val COLD_MS = 30 * 60_000L
+    /** How long a cold app's first window gets to settle before OK is pressed. */
+    private const val BLIND_WAIT_MS = 2_500L
+
     private val main = Handler(Looper.getMainLooper())
     @Volatile private var armedPkg: String? = null
     @Volatile private var armedUntil = 0L
     private var pending = false
+    /** A blind OK waits for this app's first window (set by [arm] with launched = true). */
+    @Volatile private var blindPkg: String? = null
+    /** When each app was last in front (uptime). */
+    private val lastSeen = HashMap<String, Long>()
 
-    /** Watch [pkg]'s windows for a profile picker for the next [ARMED_MS]. */
-    fun arm(pkg: String) {
+    /**
+     * Watch [pkg]'s windows for a profile picker for the next [ARMED_MS]. [launched] is true when
+     * the launcher itself opened it (launch, open, resume), which may allow a blind OK.
+     */
+    fun arm(pkg: String, launched: Boolean = false) {
         if (pkg.isBlank() || pkg == Graph.app.packageName) return
+        val now = SystemClock.uptimeMillis()
+        if (launched) {
+            val seen = synchronized(lastSeen) { lastSeen[pkg] }
+            val cold = Graph.hub.foreground.value != pkg && (seen == null || now - seen > COLD_MS)
+            blindPkg = if (cold && pkg in BLIND && Graph.prefs.profileOk) pkg else null
+        }
         armedPkg = pkg
-        armedUntil = SystemClock.uptimeMillis() + ARMED_MS
+        armedUntil = now + ARMED_MS
     }
 
-    private fun disarm() { armedPkg = null }
+    /** [pkg] is in front, or was until now: it isn't cold for a while. */
+    fun seen(pkg: String) = synchronized(lastSeen) { lastSeen[pkg] = SystemClock.uptimeMillis() }
+
+    private fun disarm() { armedPkg = null; blindPkg = null }
 
     /** A window of [pkg] appeared or changed: look at it once things settle. */
     fun onWindow(service: AccessibilityService, pkg: String) {
         if (pkg != armedPkg) return
         if (SystemClock.uptimeMillis() > armedUntil) { disarm(); return }
+        if (pkg == blindPkg) {
+            blindPkg = null
+            main.postDelayed({ blindOk(service, pkg) }, BLIND_WAIT_MS)
+            return
+        }
         if (pending) return
         pending = true
         main.postDelayed({
@@ -86,6 +118,26 @@ object ProfilePicker {
         } else {
             Log.w(TAG, "Found profile \"$name\" in $pkg but couldn't select it")
         }
+    }
+
+    /**
+     * OK on the profile the app has focused, once: only while it is still in front, shows no
+     * readable text (its profile screen has none; anything else that is readable isn't it), and
+     * plays nothing.
+     */
+    private fun blindOk(service: AccessibilityService, pkg: String) {
+        if (armedPkg != pkg) return
+        disarm()
+        val root = service.rootInActiveWindow ?: return
+        if (root.packageName?.toString() != pkg) return
+        var readable = false
+        walk(root) { if (label(it) != null) readable = true }
+        if (readable) { Log.i(TAG, "No OK in $pkg: its screen has text, so it isn't the profile screen"); return }
+        if (MediaWatcher.now.value?.let { it.pkg == pkg && it.state == "playing" } == true) {
+            Log.i(TAG, "No OK in $pkg: it is already playing"); return
+        }
+        service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_CENTER)
+        Log.i(TAG, "Pressed OK on $pkg's focused profile (cold start)")
     }
 
     /**

@@ -40,7 +40,11 @@ class RemoteInputService : AccessibilityService() {
                 val pkg = rootInActiveWindow?.packageName?.toString() ?: event.packageName?.toString() ?: return
                 if (pkg in TRANSIENT_WINDOWS) return
                 // An app coming to the front, however it was opened, may start on its profile picker.
-                if (pkg != Graph.hub.foreground.value) ProfilePicker.arm(pkg)
+                val before = Graph.hub.foreground.value
+                if (pkg != before) {
+                    before?.let { ProfilePicker.seen(it) }
+                    ProfilePicker.arm(pkg)
+                }
                 Graph.hub.foreground.value = pkg
                 ProfilePicker.onWindow(this, pkg)
             }

@@ -107,8 +107,10 @@ Commands:
 **Profiles.** For 20 s after an app opens (from Living Room, the hub, the phone or the physical
 remote), the accessibility service reads its window. If it shows a profile picker ("Who's
 watching?", "Choose profile", or the name as one of a short row of tiles), it selects the
-profile named by `POST /api/settings {"profile": "…"}` (default "Riley"), once. An app that draws
-its picker without accessible text is left alone.
+profile named by `POST /api/settings {"profile": "…"}` (default "Riley"), once. YouTube and
+Netflix draw theirs without accessible text: after Living Room itself opens one of them from cold
+(not in front in the last 30 minutes), it presses OK once on the profile the app has focused,
+unless the screen has readable text or something is playing. `{"profileOk": false}` turns that off.
 
 ## How it works
 

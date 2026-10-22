@@ -18,7 +18,7 @@ import java.net.NetworkInterface
  * GET /api/state   long-poll for TV state (?since=rev)
  * POST /api/cmd    {type: key|primary|media|seek|launch|open|resume|recommendation|text|submit|volume|mute|power|wake|sleep}
  * POST /api/wallpaper        raw image bytes (JPEG/PNG/HEIC); /api/wallpaper/clear removes it
- * POST /api/settings         {name?, profile?, hub?: "http://host:port", location?: {lat, lon, place?, country?} | null}
+ * POST /api/settings         {name?, profile?, profileOk?, hub?: "http://host:port", location?: {lat, lon, place?, country?} | null}
  * Every /api call must carry the pairing token (?k= or X-LR-Key).
  *
  * The iPhone app pairs without the QR code:
@@ -95,6 +95,7 @@ class CompanionServer(
                 hub.ownerName.value = prefs.ownerName
             }
             if (body.has("profile")) prefs.profile = body.optString("profile")
+            if (body.has("profileOk")) prefs.profileOk = body.optBoolean("profileOk", true)
             // Where the streaming catalog comes from: read again from there at once.
             val hubOk = !body.has("hub") || Prefs.cleanHubUrl(body.optString("hub")) != null
             if (body.has("hub") && hubOk) {

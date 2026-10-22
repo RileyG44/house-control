@@ -133,6 +133,11 @@ class Prefs(context: Context) {
         get() = sp.getString("profile", null) ?: "Riley"
         set(value) = sp.edit().putString("profile", value.trim().ifBlank { null }).apply()
 
+    /** Press OK once on YouTube's and Netflix's profile screen after a cold launch (ProfilePicker). */
+    var profileOk: Boolean
+        get() = sp.getBoolean("profileOk", true)
+        set(value) = sp.edit().putBoolean("profileOk", value).apply()
+
     val tvName: String get() = sp.getString("tvName", null) ?: "Living Room"
 
     /**

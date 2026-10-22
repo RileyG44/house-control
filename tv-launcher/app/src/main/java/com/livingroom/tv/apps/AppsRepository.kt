@@ -87,7 +87,7 @@ class AppsRepository(private val context: Context, private val prefs: Prefs) {
         val pm = context.packageManager
         val intent = pm.getLeanbackLaunchIntentForPackage(pkg) ?: pm.getLaunchIntentForPackage(pkg) ?: return false
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        ProfilePicker.arm(pkg)
+        ProfilePicker.arm(pkg, launched = true)
         return runCatching { context.startActivity(intent) }
             .onFailure { Log.w(TAG, "Launch failed for $pkg", it) }
             .isSuccess
