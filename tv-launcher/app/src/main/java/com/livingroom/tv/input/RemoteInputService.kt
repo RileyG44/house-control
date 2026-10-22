@@ -115,6 +115,9 @@ class RemoteInputService : AccessibilityService() {
 
     companion object {
         @Volatile private var instance: RemoteInputService? = null
+
+        /** The running service, for [ProfilePicker]'s look at Hulu's screen. */
+        internal fun current(): RemoteInputService? = instance
         private val main = Handler(Looper.getMainLooper())
 
         /** Windows that don't change which app the person is using. */

@@ -1,6 +1,9 @@
 package com.livingroom.tv.input
 
 import android.accessibilityservice.AccessibilityService
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.view.Display
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -19,6 +22,12 @@ import com.livingroom.tv.media.MediaWatcher
  * [BLIND]: after the launcher itself opened one of them from cold, it presses OK once on the
  * profile the app has focused (its last one), when the screen has no readable text and nothing
  * plays. Prefs.profileOk turns that off.
+ *
+ * Hulu's picker has no accessible text either, and comes up only after a long splash, so a
+ * timed OK would land on the splash. After the launcher opened a Hulu *title* link (never a plain
+ * launch: OK on Hulu's home plays whatever is focused), it looks at the screen every couple of
+ * seconds and presses OK once when the screen is Hulu's picker (see [looksLikeHuluPicker]). Hulu
+ * then plays the title, on the profile it had focused (its last one).
  */
 object ProfilePicker {
     private const val TAG = "ProfilePicker"
@@ -40,6 +49,11 @@ object ProfilePicker {
     /** How long a cold app's first window gets to settle before OK is pressed. */
     private const val BLIND_WAIT_MS = 2_500L
 
+    private const val HULU = "com.hulu.livingroomplus"
+    /** How long Hulu gets to show its picker after a title link (its splash alone can take 30 s). */
+    private const val HULU_WATCH_MS = 60_000L
+    private const val HULU_EVERY_MS = 2_000L
+
     private val main = Handler(Looper.getMainLooper())
     @Volatile private var armedPkg: String? = null
     @Volatile private var armedUntil = 0L
@@ -53,7 +67,7 @@ object ProfilePicker {
      * Watch [pkg]'s windows for a profile picker for the next [ARMED_MS]. [launched] is true when
      * the launcher itself opened it (launch, open, resume), which may allow a blind OK.
      */
-    fun arm(pkg: String, launched: Boolean = false) {
+    fun arm(pkg: String, launched: Boolean = false, title: Boolean = false) {
         if (pkg.isBlank() || pkg == Graph.app.packageName) return
         val now = SystemClock.uptimeMillis()
         if (launched) {
@@ -63,6 +77,74 @@ object ProfilePicker {
         }
         armedPkg = pkg
         armedUntil = now + ARMED_MS
+        if (launched) {
+            main.removeCallbacks(huluLook)
+            huluUntil = if (title && pkg == HULU && Graph.prefs.profileOk) now + HULU_WATCH_MS else 0L
+            if (huluUntil > 0) main.postDelayed(huluLook, HULU_EVERY_MS)
+        }
+    }
+
+    @Volatile private var huluUntil = 0L
+
+    /** One look at the screen while Hulu may be on its picker; again later until it is past it. */
+    private val huluLook: Runnable = object : Runnable {
+        override fun run() {
+            if (SystemClock.uptimeMillis() > huluUntil) return
+            val service = RemoteInputService.current() ?: return
+            val front = service.rootInActiveWindow?.packageName?.toString()
+            if (front != null && front != HULU && front != Graph.app.packageName) { huluUntil = 0; return }
+            if (MediaWatcher.now.value?.let { it.pkg == HULU && it.state == "playing" } == true) { huluUntil = 0; return }
+            val again = this
+            service.takeScreenshot(Display.DEFAULT_DISPLAY, service.mainExecutor,
+                object : AccessibilityService.TakeScreenshotCallback {
+                    override fun onSuccess(shot: AccessibilityService.ScreenshotResult) {
+                        val hw = shot.hardwareBuffer
+                        val picker = runCatching {
+                            Bitmap.wrapHardwareBuffer(hw, shot.colorSpace)?.copy(Bitmap.Config.ARGB_8888, false)
+                        }.getOrNull()?.let { bmp -> looksLikeHuluPicker(bmp).also { bmp.recycle() } } == true
+                        hw.close()
+                        if (picker && huluUntil > 0 && service.rootInActiveWindow?.packageName?.toString() == HULU) {
+                            huluUntil = 0
+                            service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DPAD_CENTER)
+                            Log.i(TAG, "Pressed OK on Hulu's focused profile")
+                        } else {
+                            main.postDelayed(again, HULU_EVERY_MS)
+                        }
+                    }
+                    override fun onFailure(errorCode: Int) {
+                        Log.w(TAG, "No screenshot of Hulu ($errorCode)")
+                        main.postDelayed(again, HULU_EVERY_MS)
+                    }
+                })
+        }
+    }
+
+    /**
+     * Hulu's "Who's watching?" screen, as drawn at 1080p (Oct 22): the green hulu logo small in
+     * the top right, nothing green in the middle (the splash has its big logo there), and a dark,
+     * plain background (a show's page or Hulu's home has bright art behind it).
+     */
+    internal fun looksLikeHuluPicker(bmp: Bitmap): Boolean {
+        val k = bmp.width / 1920f
+        fun count(x0: Int, y0: Int, x1: Int, y1: Int, test: (Int) -> Boolean): Int {
+            var n = 0
+            var x = x0
+            while (x < x1) {
+                var y = y0
+                while (y < y1) {
+                    if (test(bmp.getPixel((x * k).toInt(), (y * k).toInt()))) n++
+                    y += 4
+                }
+                x += 4
+            }
+            return n
+        }
+        val green = { c: Int -> Color.green(c) > 180 && Color.red(c) < 80 && Color.blue(c) < 160 }
+        val bright = { c: Int -> Color.red(c) + Color.green(c) + Color.blue(c) > 240 }
+        val logo = count(1680, 70, 1800, 125, green)
+        val middle = count(800, 480, 1120, 600, green)
+        val art = count(900, 250, 1900, 1000, bright)
+        return logo >= 40 && middle == 0 && art < 200
     }
 
     /** [pkg] is in front, or was until now: it isn't cold for a while. */

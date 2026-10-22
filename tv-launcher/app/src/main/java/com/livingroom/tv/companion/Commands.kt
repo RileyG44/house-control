@@ -121,7 +121,7 @@ object Commands {
             intent.putExtra("source", "30").addFlags(Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
         }
         if (intent.resolveActivity(context.packageManager) == null) return false
-        ProfilePicker.arm(pkg, launched = true)
+        ProfilePicker.arm(pkg, launched = true, title = true)
         return runCatching { context.startActivity(intent) }.isSuccess
     }
 

@@ -31,6 +31,7 @@ Riley asked for House Control to be "as integrated with the streaming apps as po
 
 - **Hub → launcher `open {url, pkg}`**, using JustWatch's Android TV deep link when there is one, otherwise the offer's web URL (the launcher sends ACTION_VIEW restricted to the package). `validate_link` keeps checking that the host belongs to the app.
 - The profile pick runs after the open. A title deep link usually lands on the title page; where the app supports it (YouTube, Netflix `/watch/ID`), the link starts playback.
+- Hulu (checked on the TV, Oct 22): both `hulu.com/series/<slug-id>` and `hulu.com/watch/<id>` play the show once a profile is chosen, from cold or warm. From cold Hulu shows "Who's watching?" after a long splash, with no accessible text; after a title link (never a plain launch) the launcher looks at the screen every 2 s for up to a minute and presses OK once when it is that picker (`ProfilePicker.looksLikeHuluPicker`, which needs `canTakeScreenshot` on the remote input service).
 - Record which app and link shapes actually start playback, per app, in this doc after testing on the TV.
 
 ## API (hub)
