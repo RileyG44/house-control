@@ -7,7 +7,7 @@
   "outdoorTemp": 22,
   "site": {
     "address": "2595 Westshore Dr NE, Moses Lake, WA",
-    "lat": 47.16, "lon": -119.33,
+    "lat": 47.1258, "lon": -119.3498,
     "planUp": 90,
     "landscape": { "water": "north", "field": "south", "shore": 7, "fieldEdge": 9 }
   },
