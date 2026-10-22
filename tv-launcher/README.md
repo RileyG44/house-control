@@ -104,6 +104,12 @@ Commands:
 | `resume` | `id` | Opens a Continue entry's app. |
 | `text`, `submit` | `text` | Types into the focused field; presses its Search / Go key. |
 
+**Profiles.** For 20 s after an app opens (from Living Room, the hub, the phone or the physical
+remote), the accessibility service reads its window. If it shows a profile picker ("Who's
+watching?", "Choose profile", or the name as one of a short row of tiles), it selects the
+profile named by `POST /api/settings {"profile": "…"}` (default "Riley"), once. An app that draws
+its picker without accessible text is left alone.
+
 ## How it works
 
 | Piece | File |
@@ -112,6 +118,7 @@ Commands:
 | Installed apps, banners, pinned order, launching | `apps/AppsRepository.kt` |
 | Now Playing + history (notification-listener access) | `media/MediaWatcher.kt`, `history/HistoryStore.kt` |
 | Arrows, OK, Back, typing, launching from the background (accessibility service) | `input/RemoteInputService.kt` |
+| Choosing Riley's profile on an app's "Who's watching?" screen | `input/ProfilePicker.kt` |
 | Server on port 8686, pairing, long-poll state, commands | `companion/` |
 
 ## Verified on the device (Oct 20, 2026)

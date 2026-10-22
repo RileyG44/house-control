@@ -113,5 +113,10 @@ class Prefs(context: Context) {
         get() = sp.getString("ipLocation", null)?.let { runCatching { JSONObject(it) }.getOrNull() }
         set(value) = sp.edit().putString("ipLocation", value?.toString()).apply()
 
+    /** The profile chosen on apps' "Who's watching?" screens (input/ProfilePicker.kt). Set from the phone or hub. */
+    var profile: String
+        get() = sp.getString("profile", null) ?: "Riley"
+        set(value) = sp.edit().putString("profile", value.trim().ifBlank { null }).apply()
+
     val tvName: String get() = sp.getString("tvName", null) ?: "Living Room"
 }

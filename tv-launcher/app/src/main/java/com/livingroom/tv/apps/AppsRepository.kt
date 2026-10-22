@@ -11,6 +11,7 @@ import android.util.Log
 import androidx.core.graphics.drawable.toBitmap
 import androidx.palette.graphics.Palette
 import com.livingroom.tv.Prefs
+import com.livingroom.tv.input.ProfilePicker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.ByteArrayOutputStream
@@ -86,6 +87,7 @@ class AppsRepository(private val context: Context, private val prefs: Prefs) {
         val pm = context.packageManager
         val intent = pm.getLeanbackLaunchIntentForPackage(pkg) ?: pm.getLaunchIntentForPackage(pkg) ?: return false
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        ProfilePicker.arm(pkg)
         return runCatching { context.startActivity(intent) }
             .onFailure { Log.w(TAG, "Launch failed for $pkg", it) }
             .isSuccess

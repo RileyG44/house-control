@@ -9,6 +9,7 @@ import android.os.Looper
 import android.os.PowerManager
 import com.livingroom.tv.Graph
 import com.livingroom.tv.MainActivity
+import com.livingroom.tv.input.ProfilePicker
 import com.livingroom.tv.input.RemoteInputService
 import com.livingroom.tv.media.MediaWatcher
 import org.json.JSONObject
@@ -110,6 +111,7 @@ object Commands {
         val uri = runCatching { Uri.parse(url) }.getOrNull()?.takeIf { it.scheme == "https" || it.scheme == "http" } ?: return false
         val intent = Intent(Intent.ACTION_VIEW, uri).setPackage(pkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         if (intent.resolveActivity(context.packageManager) == null) return false
+        ProfilePicker.arm(pkg)
         return runCatching { context.startActivity(intent) }.isSuccess
     }
 

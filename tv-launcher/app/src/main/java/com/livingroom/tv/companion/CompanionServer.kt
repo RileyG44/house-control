@@ -18,7 +18,7 @@ import java.net.NetworkInterface
  * GET /api/state   long-poll for TV state (?since=rev)
  * POST /api/cmd    {type: key|primary|media|seek|launch|open|resume|text|submit|volume|mute|power|wake|sleep}
  * POST /api/wallpaper        raw image bytes (JPEG/PNG/HEIC); /api/wallpaper/clear removes it
- * POST /api/settings         {name?, location?: {lat, lon, place?, country?} | null}
+ * POST /api/settings         {name?, profile?, location?: {lat, lon, place?, country?} | null}
  * Every /api call must carry the pairing token (?k= or X-LR-Key).
  *
  * The iPhone app pairs without the QR code:
@@ -94,6 +94,7 @@ class CompanionServer(
                 prefs.ownerName = body.optString("name")
                 hub.ownerName.value = prefs.ownerName
             }
+            if (body.has("profile")) prefs.profile = body.optString("profile")
             if (body.has("location")) {
                 prefs.location = body.optJSONObject("location")
                 Graph.weather.refreshSoon(Graph.scope)
