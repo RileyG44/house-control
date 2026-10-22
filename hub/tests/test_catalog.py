@@ -201,7 +201,9 @@ def test_rows_for_you_and_the_cache(tmp_path, monkeypatch):
             # For you: Continue, then like Stranger Things (seeded by the show of the episode) in
             # the TV's apps, then each app's popular titles in turn.
             assert [t["id"] for t in out["forYou"]] == ["h:0a1b2c3d4e5f6071", "ts72073", "ts300000", "ts20503", "tm1065711"]
-            seed = next(a for a in asked if a["kind"] == "seed")
+            # The show being watched, looked up as itself (Netflix first), and as the seed of the similar titles.
+            find, seed = (next(a for a in asked if a["kind"] == "seed" and ("monetizationTypes" in a["filter"]) == f) for f in (True, False))
+            assert find["filter"]["searchQuery"] == "Stranger Things" and find["filter"]["packages"][:2] == ["nfx", "nfa"]
             assert seed["filter"] == {"searchQuery": "Stranger Things", "packages": ["nfx", "nfa"]}
             similar = next(a for a in asked if a["kind"] == "similar")
             assert similar["id"] == "ts20503" and similar["filter"]["packages"] == ["nfx", "nfa", "hlu"]
@@ -437,4 +439,30 @@ def test_pairing_tells_the_launcher_where_the_hub_is(tmp_path):
                                          hub_url="http://192.168.0.127:8766")
         assert entry and fake.settings == [{"hub": "http://192.168.0.127:8766"}]
         await lr.close()
+    run(go())
+
+
+def test_the_nightly_picks_follow_what_is_being_watched(tmp_path, monkeypatch):
+    async def go():
+        jw, asked, _ = await fake_justwatch(monkeypatch)
+        fake = FakeLauncher(hold=5.0)
+        fake.state["continue"] = [WATCHING]
+        fake.state["recommendations"] = PICKS
+        bear = catalog.tile(FIX["popular"]["hlu"]["data"]["popularTitles"]["edges"][0]["node"], ["Hulu"])
+        elsewhere = {**bear, "id": "ts999999", "pkg": "com.peacocktv.peacockandroid", "app": "peacock"}
+        (tmp_path / catalog.SMART_FILE).write_text(json.dumps({"generatedAt": "2026-10-22T03:00:00", "picks": [bear, elsewhere, {"id": "../x"}]}))
+        fake, lr, server, state, sent, hub, client = await hub_with_launcher(tmp_path, monkeypatch, fake)
+        origin = f"http://{client.host}:{client.port}"
+        try:
+            await client.get("/api/tv")
+            out = (await (await client.get("/api/tv/catalog")).json())["forYou"]
+            # Continue, then the night's picks (in the TV's apps only), then the apps' own picks.
+            assert [t["id"] for t in out[:4]] == ["h:0a1b2c3d4e5f6071", "ts300000", "r:11aa22bb33cc44dd", "r:99cc00dd11ee22ff"]
+            assert out[1]["poster"] == origin + bear["poster"] and not any("reason" in t for t in out)
+            # The show being watched was looked up as itself, in its app.
+            assert any(a.get("filter", {}).get("searchQuery") == "Stranger Things" for a in asked)
+        finally:
+            await client.close()
+            await server.close()
+            await lr.close()
     run(go())

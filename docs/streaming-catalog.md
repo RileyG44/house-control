@@ -10,7 +10,7 @@ Riley asked for House Control to be "as integrated with the streaming apps as po
 
 - **TV launcher (Living Room Home):** under Continue and Apps, one row per installed streaming app: "Netflix: Popular", "Max: New", and so on. Each row is 10 to 20 poster tiles. The focused tile fills the top half with backdrop, title, year, a one-line description and the app's name. OK opens the title in its app, which skips the profile picker (see `RemoteInputService` profile pick) and starts on the title page, or plays it where the app's deep link allows. Hold OK gives Details / Open in app / Hide.
 - **Phone (iPhone app TV sheet, and the web panel's TV sheet):** a "Browse" section above search. It has a chip row of apps ("For you", then Netflix, Max and the rest) and a grid of posters under it. Tapping a poster opens a small sheet with art, title, year, runtime, rating, description and "where it's included", plus **Play on TV**. Search stays and searches the same catalog.
-- **"For you" row (both):** Continue first, then titles similar to what the TV actually played (from the launcher's history), then each app's popular items.
+- **"For you" row (both):** Continue first, then the shows in it as themselves, then the nightly picks (below), then the apps' own picks, titles similar to what the TV actually played, and each app's popular items. On the TV this is the **Fresh today** row of the redesigned Home (tv-launcher/README.md). No title says why it's there ("Because you watched…" is out, on the TV and the phone).
 - **Only Riley's services.** A title is shown under an app only when that app is installed on the TV and the offer is a subscription offer (`FLATRATE`/`FREE`/`ADS`). Rentals and purchases are left out unless Riley asks for them.
 
 ## Where the data comes from
@@ -103,3 +103,26 @@ October 22, 2026, not yet deployed to the hubs, installed on the TV or built in 
   sheet with Play on TV and where it's included.
 - **Not yet:** the web panel's Browse, and step 5 (which link shapes start playback, per app).
 
+### Nightly picks (October 22, 2026)
+
+Riley asked for the TV to send the hub a log of everything watched, and for Codex on the server
+to build the day's recommendations at about 3 AM.
+
+- **The log.** The launcher's `HistorySync` sends each title it records (`HistoryStore`, from the
+  apps' Now Playing: app, title, subtitle, position, duration, times, and the JustWatch id of a
+  catalog title opened just before) to `POST /api/tv/history`, a batch at most once a minute, kept
+  in a file on the TV until the hub takes it. The hub (`hub/history.py`) keeps one line per title,
+  app and day in `~/.house-hub/watch-history.jsonl`; `GET /api/tv/history?days=90` reads it.
+- **The picks.** `hub/smart_recs.py`, run by `house-smart-recs.timer` at 03:00 on the Dell:
+  `codex exec` (read-only, `--ephemeral`, answer held to a JSON schema) gets the last 90 days (an
+  episode's show once) and the TV's apps, and names 25 titles as `{picks: [{title, year, kind,
+  app_hint}]}`, nothing already watched or started. Each is looked up on JustWatch
+  (`Catalog.find`: same title, year within one, same kind) and kept only when one of the TV's apps
+  includes it in the subscription, in the app Codex named when it has it. They are written as
+  ordinary tiles to `~/.house-hub/smart-recs.json` with `generatedAt`; a failed night keeps the
+  previous file and exits non-zero, which the journal shows.
+- **Serving them.** For you is Continue, then the shows in Continue as themselves (found the same
+  way, so OK opens the show), then the nightly picks, then the rest as before. No `reason` field
+  exists anywhere.
+- Tests: `hub/tests/test_history.py`, `hub/tests/test_smart_recs.py` (a pretend Codex and
+  JustWatch), and `test_the_nightly_picks_follow_what_is_being_watched` in `test_catalog.py`.

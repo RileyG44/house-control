@@ -36,6 +36,9 @@ class HistoryStore(context: Context) {
     private val _entries = MutableStateFlow<List<WatchEntry>>(emptyList())
     val entries: StateFlow<List<WatchEntry>> = _entries
 
+    /** Told each entry as it is recorded (Graph passes it on to [HistorySync]). */
+    var onRecord: ((WatchEntry) -> Unit)? = null
+
     @Synchronized
     fun load() {
         if (!file.exists()) return
@@ -72,6 +75,7 @@ class HistoryStore(context: Context) {
         val entry = WatchEntry(id, pkg, title, subtitle, positionMs, durationMs, System.currentTimeMillis(), artFile)
         _entries.value = (listOf(entry) + _entries.value.filter { it.id != id }).take(MAX_ENTRIES)
         persist()
+        onRecord?.invoke(entry)
     }
 
     @Synchronized

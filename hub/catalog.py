@@ -28,11 +28,13 @@ short names (nfx, hlu, mxx), and those change when a service renames, so they ar
 `packages` list once a day and matched to tv.APPS by their technical names; SHORT_NAMES is only
 the fallback. A row that fails, or comes back empty, is just left out.
 
-**For you** is the launcher's Continue first, then the apps' own recommendations when the
-launcher can read them from the TV provider (its `recommendations`; Watch Next and preview
-channels, in the TV's apps only), then titles similar to the latest Continue titles
-(`similarTitlesV2` of the JustWatch title found by a search in that app), in the TV's apps, then
-each app's popular titles in turn.
+**For you** is the launcher's Continue first; then the shows in it as themselves (the JustWatch
+title found by a search in that app, so OK opens the show); then the nightly picks
+(smart_recs.py writes ~/.house-hub/smart-recs.json at 03:00); then the apps' own recommendations
+when the launcher can read them from the TV provider (its `recommendations`; Watch Next and preview
+channels, in the TV's apps only); then titles similar to the latest Continue titles
+(`similarTitlesV2`), in the TV's apps, then each app's popular titles in turn. Nothing says why a
+title is there.
 
 **Kept** for six hours in ~/.house-hub/catalog-cache.json, so a restart doesn't ask again; an
 older row is still shown while it is asked again in the background. Pictures stay in
@@ -75,6 +77,8 @@ FETCHES = 4          # JustWatch requests at once
 SIMILAR_SEEDS = 3    # Continue titles that "For you" finds similar titles for
 SIMILAR_EACH = 8
 FOR_YOU_MAX = 30
+WATCHING_MAX = 6     # shows in Continue that lead For you as themselves
+SMART_FILE = "smart-recs.json"
 ART_LIMIT = 200 * 1024 * 1024   # the picture cache on disk
 ART_ONE = 3 * 1024 * 1024       # a picture bigger than this isn't one
 ART_PROFILES = {"poster": "s332", "backdrop": "s1440"}
@@ -118,6 +122,10 @@ SEED_QUERY = """query Seed($country: Country!, $language: Language!, $filter: Ti
     edges { node { id objectType content(country: $country, language: $language) { title } } } } }"""
 TITLE_QUERY = f"""query Title($id: ID!, $country: Country!, $language: Language!) {{
   node(id: $id) {{ ... on MovieOrShow {{ {_CARD} }} }} }}"""
+# A title by name, in some apps' packages and included offers (the nightly picks, and the shows in Continue).
+FIND_QUERY = f"""query Find($country: Country!, $language: Language!, $filter: TitleFilter!, $first: Int!) {{
+  popularTitles(country: $country, filter: $filter, first: $first) {{
+    edges {{ node {{ {_CARD} }} }} }} }}"""
 PACKAGES_QUERY = """query Packages($country: Country!) {
   packages(country: $country, platform: WEB) { shortName technicalName clearName } }"""
 
@@ -284,6 +292,38 @@ def seed_query(entry: dict) -> str:
     return " ".join((show or title).split())[:100]
 
 
+def same_title(a: str, b: str) -> bool:
+    """Whether two titles name the same thing: case, punctuation, a leading article and "&"
+    against "and" aside."""
+    def norm(t: str) -> str:
+        t = re.sub(r"[^\w\s]", " ", t.casefold().replace("&", " and "))
+        t = re.sub(r"^(the|a|an)\s+", "", " ".join(t.split()))
+        return t
+    return bool(a and b) and norm(a) == norm(b)
+
+
+def best_match(nodes: list[dict], title: str, year: int | None = None, kind: str | None = None) -> dict | None:
+    """Of a search's answers, the one that is `title` (and its year, give or take one, and kind,
+    when they're known); None when none is."""
+    best, score = None, -1
+    for n in nodes:
+        c = card(n or {})
+        if c is None or not same_title(c["title"], title):
+            continue
+        s = 0
+        if year and c["year"]:
+            if abs(c["year"] - year) > 1:
+                continue
+            s += 2 if c["year"] == year else 1
+        if kind in ("movie", "show"):
+            if c["kind"] != kind:
+                continue
+            s += 1
+        if s > score:
+            best, score = n, s
+    return best
+
+
 def for_client(value, origin: str):
     """`value` with the hub's own picture addresses (/api/tv/…) made whole with the address the
     client reaches the hub by."""
@@ -337,6 +377,9 @@ class Catalog:
         self._packages_retry = 0.0
         self._failed: dict[str, float] = {}    # a row that failed, with nothing kept -> when to ask again
         self._titles: dict[str, tuple[float, dict]] = {}
+        self._found: dict[str, tuple[float, dict | None]] = {}   # find()'s answers
+        self.smart_file = conf / SMART_FILE
+        self._smart: tuple[float, list[dict]] = (0.0, [])
         self._busy: dict[str, asyncio.Future] = {}
         self._later: set[asyncio.Future] = set()
         self._gate: asyncio.Semaphore | None = None
@@ -359,6 +402,9 @@ class Catalog:
             p = data.get("packages")
             if isinstance(p, dict) and isinstance(p.get("at"), (int, float)) and isinstance(p.get("short"), dict):
                 self._packages = p
+            for k, v in (data.get("found") or {}).items():
+                if isinstance(v, dict) and isinstance(v.get("at"), (int, float)) and (v.get("item") is None or isinstance(v.get("item"), dict)):
+                    self._found[k] = (v["at"], v.get("item"))
 
     def _save(self) -> None:
         if not self._dirty:
@@ -367,7 +413,8 @@ class Catalog:
         now = time.time()
         # Rows nobody has asked for again in a day go.
         keep = lambda d: {k: v for k, v in d.items() if now - v["at"] < TTL + 24 * 3600}  # noqa: E731
-        data = {"rows": keep(self._rows), "similar": keep(self._similar), "packages": self._packages}
+        found = {k: {"at": at, "item": item} for k, (at, item) in self._found.items() if now - at < TTL + 24 * 3600}
+        data = {"rows": keep(self._rows), "similar": keep(self._similar), "packages": self._packages, "found": found}
         try:
             self.file.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.file.with_suffix(".json.tmp")
@@ -537,14 +584,83 @@ class Catalog:
         self._dirty = True
         return items
 
+    async def _fetch_found(self, title: str, year: int | None, kind: str | None, names: list[str]) -> dict | None:
+        shorts = await self.short_names()
+        packages = [s for n in names for s in shorts.get(n, [])]
+        if not packages:
+            return None
+        flt = {"searchQuery": title, "packages": packages, "monetizationTypes": MONETIZATION}
+        if kind in ("movie", "show"):
+            flt["objectTypes"] = ["MOVIE" if kind == "movie" else "SHOW"]
+        data = await self._ask(FIND_QUERY, {"filter": flt, "first": 8})
+        nodes = [(e or {}).get("node") for e in ((data.get("popularTitles") or {}).get("edges")) or []]
+        node = best_match([n for n in nodes if isinstance(n, dict)], title, year, kind)
+        return tile(node, names, self._by_short(shorts)) if node else None
+
+    async def find(self, title: str, names: list[str], year: int | None = None, kind: str | None = None,
+                   prefer: str | None = None) -> dict | None:
+        """`title` as a tile in the first of `names` (`prefer` first, when it's one of them) that
+        includes it in the subscription, or None: nothing by that name, or not on those apps."""
+        title = " ".join(str(title or "").split())[:200]
+        if not title or not names:
+            return None
+        order = [prefer] + [n for n in names if n != prefer] if prefer in names else list(names)
+        k = f"{title.casefold()}|{year}|{kind}|{','.join(APP_IDS[n] for n in order)}"
+        hit = self._found.get(k)
+        if hit and time.time() - hit[0] < TTL:
+            return hit[1]
+        try:
+            found = await self._once("find:" + k, lambda: self._fetch_found(title, year, kind, order))
+        except CatalogError as e:
+            log.info("Couldn't look up %r: %s", title, e)
+            self._found[k] = (time.time() - TTL + RETRY, hit[1] if hit else None)
+            return hit[1] if hit else None
+        if len(self._found) > 500:
+            self._found.clear()
+        self._found[k] = (time.time(), found)
+        self._dirty = True
+        return found
+
+    def smart_picks(self) -> list[dict]:
+        """The nightly picks (smart_recs.py), read again when the file changes."""
+        try:
+            stamp = self.smart_file.stat().st_mtime
+        except OSError:
+            return []
+        if stamp != self._smart[0]:
+            picks: list[dict] = []
+            with contextlib.suppress(OSError, ValueError):
+                data = json.loads(self.smart_file.read_text())
+                picks = [t for t in (data.get("picks") if isinstance(data, dict) else None) or []
+                         if isinstance(t, dict) and isinstance(t.get("id"), str) and _TITLE_ID.match(t["id"])
+                         and isinstance(t.get("title"), str) and isinstance(t.get("pkg"), str)]
+            self._smart = (stamp, picks)
+        return self._smart[1]
+
     async def for_you(self, names: list[str], popular: dict[str, list[dict]]) -> list[dict]:
-        """Continue, the apps' own picks, then titles similar to the latest Continue titles (in
-        the TV's apps), then each app's popular ones in turn."""
+        """Continue; the shows in it as themselves; the nightly picks; the apps' own picks; then
+        titles similar to the latest Continue titles (in the TV's apps), then each app's popular
+        ones in turn."""
         recent = self.recent()
         out = [t for t in (continue_tile(e) for e in recent[:8]) if t]
         packages = {APPS[n][0] for n in names}
-        out += [t for t in (recommendation_tile(e) for e in self.picks()) if t and t["pkg"] in packages][:20]
         seen: set[str] = set()
+        lead: list[dict] = []
+        watching = []
+        for e in recent:
+            app = BY_PACKAGE.get(e.get("pkg"))
+            if app in names and app != "YouTube" and seed_query(e):
+                watching.append((app, seed_query(e)))
+        for t in await asyncio.gather(*(self.find(q, names, prefer=app) for app, q in list(dict.fromkeys(watching))[:WATCHING_MAX])):
+            if t and t["id"] not in seen:
+                seen.add(t["id"])
+                lead.append(t)
+        for t in self.smart_picks():
+            if t["pkg"] in packages and t["id"] not in seen:
+                seen.add(t["id"])
+                lead.append(t)
+        out += lead
+        out += [t for t in (recommendation_tile(e) for e in self.picks()) if t and t["pkg"] in packages][:20]
         picked: list[dict] = []
 
         def add(t: dict) -> None:

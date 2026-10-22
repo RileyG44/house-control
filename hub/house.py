@@ -33,6 +33,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import catalog as catalogs  # noqa: E402
+import history  # noqa: E402
+from history import WatchLog  # noqa: E402
 import plan as plans  # noqa: E402
 from aidot_lan import AidotError, AidotLanClient  # noqa: E402
 import launcher as launchers  # noqa: E402
@@ -107,6 +109,8 @@ class Hub:
         self.tv = TvRemote(tv_url(conf, local_ip), self._publish, watched=lambda: bool(self.listeners), adb=Adb.find(),
                            launcher=launcher_for(conf))
         # Rows of titles for each streaming app the TV has (catalog.py), from JustWatch.
+        # What the TV played (history.py), for the nightly picks (smart_recs.py).
+        self.watched = WatchLog(conf)
         self.streaming = catalogs.Catalog(conf, apps=lambda: catalogs.installed_apps(self.tv),
                                           recent=lambda: catalogs.continuing(self.tv),
                                           picks=lambda: catalogs.recommended(self.tv))
@@ -765,6 +769,24 @@ def make_app(hub: Hub) -> web.Application:
             return web.Response(status=404, text="No picture")
         return web.Response(body=got[0], content_type=got[1], headers={"Cache-Control": "max-age=604800"})
 
+    async def tv_history_add(request):
+        # The launcher's batch of what it played (history.py).
+        try:
+            body = await request.json()
+        except ValueError:
+            return web.json_response({"error": "Send JSON"}, status=400)
+        entries = body.get("entries") if isinstance(body, dict) else None
+        if not isinstance(entries, list) or len(entries) > history.MAX_BATCH:
+            return web.json_response({"error": f"Send {{\"entries\": [...]}}, at most {history.MAX_BATCH}"}, status=400)
+        return web.json_response({"ok": True, "kept": hub.watched.add(entries)})
+
+    async def tv_history(request):
+        try:
+            days = min(max(int(request.query.get("days", "90")), 1), 3650)
+        except ValueError:
+            return web.json_response({"error": "days is a number"}, status=400)
+        return web.json_response({"entries": hub.watched.recent(days)}, headers={"Cache-Control": "no-store"})
+
     async def weather(_):
         return web.json_response(hub.weather.current(), headers={"Cache-Control": "no-store"})
 
@@ -847,6 +869,8 @@ def make_app(hub: Hub) -> web.Application:
     app.router.add_get("/api/tv/catalog/{app}", tv_catalog_more)
     app.router.add_get("/api/tv/title/{jw}", tv_title)
     app.router.add_get("/api/tv/img/{kind}/{num}/{slug}", tv_catalog_picture)
+    app.router.add_get("/api/tv/history", tv_history)
+    app.router.add_post("/api/tv/history", tv_history_add)  # before /api/tv/{id}, which would take it
     app.router.add_post("/api/tv/{id}", tv_action)
     app.router.add_get("/api/plan", plan)
     app.router.add_get("/api/weather", weather)

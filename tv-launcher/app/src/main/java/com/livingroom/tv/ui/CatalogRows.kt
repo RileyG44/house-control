@@ -198,6 +198,8 @@ fun openTile(context: Context, tile: CatalogTile) {
     val label = Graph.apps.label(pkg) ?: tile.app ?: "the app"
     val opened = if (tile.kind == "recommendation") Graph.recommendations.open(context, tile.id.removePrefix("r:"))
                  else tile.openUrls.any { Commands.open(context, it, pkg) }
+    // What plays next in that app is probably this title: the nightly picks learn its JustWatch id.
+    if (tile.id.matches(Regex("t[a-z]{1,3}\\d{1,12}"))) Graph.historySync.opened(pkg, tile.id, tile.title)
     if (opened) return
     if (Graph.apps.launch(pkg)) {
         Toast.makeText(context, "Opened $label: it didn't take the title’s link", Toast.LENGTH_SHORT).show()

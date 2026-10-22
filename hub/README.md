@@ -154,6 +154,24 @@ and For you, `GET /api/tv/catalog/<app>?row=…&page=n` more of one row, and `GE
 kept 6 hours in `~/.house-hub/catalog-cache.json`; posters come through `/api/tv/img/…` and
 stay in `~/.house-hub/catalog-art` (at most 200 MB).
 
+#### The TV's nightly picks
+
+The launcher sends what the TV plays to `POST /api/tv/history` (`history.py`); the hub keeps one
+line per title, app and day in `~/.house-hub/watch-history.jsonl` (`GET /api/tv/history?days=90`
+reads it). At 03:00, `smart_recs.py` gives Codex the last 90 days and the TV's apps, keeps the
+titles it names that one of those apps includes in the subscription (found on JustWatch), and
+writes `~/.house-hub/smart-recs.json`; For you serves them after the shows being watched. When a
+night fails, the last picks stay. On the Dell, once (Codex signed in as riley: `codex login status`):
+
+```sh
+sudo cp ~/house-control/hub/systemd/house-smart-recs.* /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now house-smart-recs.timer
+sudo systemctl start house-smart-recs.service       # tonight's picks now, rather than at 03:00
+journalctl -u house-smart-recs.service -n 30         # how the last run went
+```
+
+`.venv/bin/python smart_recs.py --dry-run` prints the picks without keeping them.
+
 ### A second hub that keeps the same plan
 
 Two hubs can stand in for each other: Riley's runs on the home server (dell-server) and, as a

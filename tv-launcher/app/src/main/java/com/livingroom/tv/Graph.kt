@@ -14,6 +14,7 @@ import com.livingroom.tv.companion.StateHub
 import com.livingroom.tv.glance.WallpaperStore
 import com.livingroom.tv.glance.WeatherRepository
 import com.livingroom.tv.history.HistoryStore
+import com.livingroom.tv.history.HistorySync
 import com.livingroom.tv.house.HouseRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -57,6 +58,8 @@ object Graph {
         private set
     lateinit var house: HouseRepository
         private set
+    lateinit var historySync: HistorySync
+        private set
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -73,6 +76,8 @@ object Graph {
         art = ArtCache(app)
         recommendations = TvRecommendations(app)
         house = HouseRepository(prefs)
+        historySync = HistorySync(app, prefs)
+        history.onRecord = { e -> historySync.note(e, apps.label(e.pkg)) }
         hub = StateHub()
         hub.ownerName.value = prefs.ownerName
         server = CompanionServer(app, prefs, hub, Pairing(prefs))
@@ -88,6 +93,7 @@ object Graph {
         catalog.start(scope)
         recommendations.start(scope)
         house.start(scope, hub.homeVisible)
+        historySync.start(scope)
         server.startSafely()
         advertiser.start()
     }
