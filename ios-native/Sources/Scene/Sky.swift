@@ -634,7 +634,7 @@ final class Sky {
             pe.emitterShape = .box
             pe.birthLocation = .volume
             pe.emitterShapeSize = SIMD3(size.x, 0.2, size.y)
-            pe.birthDirection = .constant
+            pe.birthDirection = .world
             pe.emissionDirection = simd_normalize(velocity)
             pe.speed = simd_length(velocity)
             pe.speedVariation = p.speed * 0.1
