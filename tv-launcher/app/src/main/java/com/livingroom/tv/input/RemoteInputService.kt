@@ -35,7 +35,9 @@ class RemoteInputService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                val pkg = event.packageName?.toString() ?: return
+                // The active window decides, not the event: apps in the background (Google TV's
+                // own Home among them) send window events too.
+                val pkg = rootInActiveWindow?.packageName?.toString() ?: event.packageName?.toString() ?: return
                 if (pkg in TRANSIENT_WINDOWS) return
                 // An app coming to the front, however it was opened, may start on its profile picker.
                 if (pkg != Graph.hub.foreground.value) ProfilePicker.arm(pkg)
@@ -115,6 +117,7 @@ class RemoteInputService : AccessibilityService() {
         private val TRANSIENT_WINDOWS = setOf(
             "com.android.systemui", "com.google.android.inputmethod.latin", "android",
             "com.google.android.katniss", "com.google.android.systemui.gtvoverlayx",
+            "com.google.android.tv.remote.service",
         )
 
         val available: Boolean get() = instance != null
