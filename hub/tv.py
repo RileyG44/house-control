@@ -82,6 +82,16 @@ APPS = {
     "Plex": ("com.plexapp.android", ("plex.tv",), ("plex",)),
     "Crunchyroll": ("com.crunchyroll.crunchyroid", ("crunchyroll.com",), ("crunchyroll",)),
 }
+# How tv-remote opens an app: this Google TV refuses a bare package (androidtvremote2 sends it as
+# market://launch?id=…, the TV answers with an error and drops the connection for a few seconds),
+# but opens an https app link. The links are the ones Home Assistant's Android TV Remote docs list;
+# YouTube's was checked on the TV (Oct 21). Apps missing here still go as their package.
+APP_LINKS = {
+    "YouTube": "https://www.youtube.com",
+    "Netflix": "https://www.netflix.com/title",
+    "Prime Video": "https://app.primevideo.com",
+    "Disney+": "https://www.disneyplus.com",
+}
 # The panel's names for them (web/src/tv/apps.js).
 APP_IDS = {
     "YouTube": "youtube", "Netflix": "netflix", "Prime Video": "prime", "Disney+": "disney", "Hulu": "hulu",
@@ -882,7 +892,8 @@ class TvRemote:
             name = APP_NAMES.get(body.get("app"))
             if not name:
                 return {"error": "The TV doesn't have that app"}, 400
-            package = target = APPS[name][0]
+            package = APPS[name][0]
+            target = APP_LINKS.get(name, package)
             commands = [{"type": "launch", "pkg": package}]
             if action == "play":
                 link = validate_link(name, body.get("link"))

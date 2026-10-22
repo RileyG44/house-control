@@ -232,7 +232,7 @@ def test_hub_tv_actions_are_checked(tmp_path, monkeypatch):
             assert r.status == 403
             # Opening an app launches its package.
             r = await post({"action": "open", "app": "netflix"})
-            assert r.status == 200 and sent[-1] == {"action": "launch", "url": "com.netflix.ninja"}
+            assert r.status == 200 and sent[-1] == {"action": "launch", "url": "https://www.netflix.com/title"}
             # A search result plays by its https form, and only in its own app.
             link = "intent://www.netflix.com/title/80057281#Intent;scheme=https;package=com.netflix.ninja;end"
             n = len(sent)
@@ -255,7 +255,7 @@ def test_hub_tv_open_wakes_a_sleeping_tv_first(tmp_path, monkeypatch):
             assert (await (await client.get("/api/tv")).json())["devices"][0]["on"] is False
             r = await client.post(f"/api/tv/{TV_ID}", json={"action": "open", "app": "youtube"})
             assert r.status == 200
-            assert [b["action"] for b in sent] == ["wake", "launch"] and sent[-1]["url"] == "com.google.android.youtube.tv"
+            assert [b["action"] for b in sent] == ["wake", "launch"] and sent[-1]["url"] == "https://www.youtube.com"
             assert state["isOn"] is True
             # Already on: no wake.
             sent.clear()
