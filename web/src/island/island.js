@@ -165,6 +165,7 @@ export async function bootIsland(root) {
   try {
     world = createWorld(canvas, config, store, {
       background: '#000000',
+      outdoors: false, // the island is the notch's black: the model alone, on its plinth
       onHover: () => {},
       onPick(target) {
         if (!target) return;

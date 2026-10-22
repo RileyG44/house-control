@@ -367,6 +367,8 @@ export function replacePlan(old, next) {
   if (old.version != null && plan.version == null) plan.version = old.version;
   // The order the tiles were dragged into is the panel's, not part of the drawing.
   if (Array.isArray(old.tileOrder) && plan.tileOrder == null) plan.tileOrder = old.tileOrder;
+  // Nor is where the home stands (its sky and landscape): kept unless the new plan says.
+  if (old.site != null && plan.site === undefined) plan.site = structuredClone(old.site);
   const lost = [...(old.lights || []), ...(old.acs || [])].filter((d) => isLinked(d)
     && ![...(plan.lights || []), ...(plan.acs || [])].some((n) => n.id === d.id));
   if (lost.length) {

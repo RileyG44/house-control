@@ -157,6 +157,8 @@ export function normalize(raw) {
   // "tv:<id>" for a TV's tile. Tiles not listed follow, in the plan's order.
   const tileOrder = Array.isArray(raw.tileOrder) ? [...new Set(raw.tileOrder.filter((k) => typeof k === 'string' && k))] : [];
 
+  const site = siteOf(raw.site);
+
   const minX = Math.min(...rooms.map((r) => r.x));
   const minZ = Math.min(...rooms.map((r) => r.z));
   const maxX = Math.max(...rooms.map((r) => r.x + r.w));
@@ -175,6 +177,30 @@ export function normalize(raw) {
     acs,
     scenes,
     tileOrder,
+    site,
     bounds: { minX, minZ, maxX, maxZ },
+  };
+}
+
+const SIDES = ['north', 'south', 'east', 'west'];
+
+/**
+ * Where the home is (docs/landscape-weather.md), or null: the stage then looks as it always
+ * did. With one, the real sky and weather light it and a landscape is drawn around it.
+ * `planUp` is the compass bearing of the plan's -z; `landscape` says on which side of the
+ * plan the lake (`water`) and the field are, and how far from the walls they begin.
+ */
+function siteOf(site) {
+  if (!site || typeof site !== 'object' || !Number.isFinite(site.lat) || !Number.isFinite(site.lon)) return null;
+  if (Math.abs(site.lat) > 90 || Math.abs(site.lon) > 180) return null;
+  const l = site.landscape && typeof site.landscape === 'object' ? site.landscape : {};
+  const side = (v) => (SIDES.includes(v) ? v : null);
+  const metres = (v, d) => (Number.isFinite(v) && v >= 0 ? Math.min(v, 200) : d);
+  return {
+    address: typeof site.address === 'string' ? site.address : '',
+    lat: site.lat,
+    lon: site.lon,
+    planUp: Number.isFinite(site.planUp) ? site.planUp : 0,
+    landscape: { water: side(l.water), field: side(l.field), shore: metres(l.shore, 7), fieldEdge: metres(l.fieldEdge, 9) },
   };
 }

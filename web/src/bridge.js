@@ -156,6 +156,8 @@ if (isHub) {
       planChanged(update);
     } else if (update.tv) {
       incoming.tvState?.(update.tv); // the TV (hub/tv.py), for tv/client.js
+    } else if (update.weather) {
+      incoming.weather?.(update.weather); // the weather at the house (hub/weather.py), for sky/weather.js
     } else incoming.applyRemote?.(update);
   };
 }

@@ -94,6 +94,8 @@ final class HubTests: XCTestCase {
         XCTAssertTrue(LocalHubClient.allows(path: "api/tv"))
         XCTAssertTrue(LocalHubClient.allows(path: "api/tv/79519fff"))
         XCTAssertTrue(LocalHubClient.allows(path: "api/tv/search?q=the%20bear"))
+        XCTAssertTrue(LocalHubClient.allows(path: "api/weather"))
+        XCTAssertFalse(LocalHubClient.allows(path: "api/weather/../call"))
         XCTAssertFalse(LocalHubClient.allows(path: "api/call"))
         XCTAssertFalse(LocalHubClient.allows(path: "api/tvx"))
         XCTAssertFalse(LocalHubClient.allows(path: "api/tv/../call"))

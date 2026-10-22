@@ -746,8 +746,12 @@ export function createEditor(host, opts) {
     const { error } = M.check(json);
     if (error) { toast(`Not a valid plan: ${error}`, { tone: 'bad' }); return; }
     change((d) => {
+      // Where the home stands (`site`: its sky and landscape) is no part of the drawing: an
+      // imported plan without one keeps this home's.
+      const site = json.site === undefined ? d.site : undefined;
       for (const k of Object.keys(d)) delete d[k];
       Object.assign(d, M.ensureArrays(structuredClone(json)));
+      if (site !== undefined) d.site = site;
     });
     select(null);
     plan.fit({ animate: 450 });

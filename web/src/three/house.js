@@ -8,6 +8,8 @@ const INT_T = 0.1;   // interior wall thickness
 const CURB = 0.14;   // height of the cut-away walls on the camera side
 const EPS = 1e-4;
 
+const SLAB = 0.05;    // the foundation slab under a home in its landscape
+
 const DOOR_OPEN = 30; // degrees a door leaf stands open, so its swing reads in 3D
 
 const key = (v) => Math.round(v * 1000);
@@ -166,10 +168,28 @@ export function buildHouse(config, camDir) {
   const { minX, minZ, maxX, maxZ } = config.bounds;
 
   // Plinth the model stands on (its own material: its colour follows the light or dark look).
-  const plinth = box(maxX - minX + 0.7, 0.3, maxZ - minZ + 0.7, mat('#141927', { rough: 0.9 }).clone(), { r: 0.12 });
-  at(plinth, (minX + maxX) / 2, -0.305, (minZ + maxZ) / 2);
-  plinth.receiveShadow = true;
-  group.add(plinth);
+  // A home with a `site` stands in its landscape instead, on a thin foundation slab under
+  // its rooms.
+  let plinth;
+  if (config.site) {
+    const concrete = mat('#a9a59d', { rough: 0.95 }).clone();
+    for (const room of config.rooms) {
+      const pts = room.points || [[room.x, room.z], [room.x + room.w, room.z], [room.x + room.w, room.z + room.d], [room.x, room.z + room.d]];
+      const geo = new THREE.ExtrudeGeometry(new THREE.Shape(grow(pts, EXT_T / 2 + 0.02).map(([x, z]) => new THREE.Vector2(x, -z))),
+        { depth: SLAB, bevelEnabled: false });
+      geo.rotateX(-Math.PI / 2);
+      const slab = new THREE.Mesh(geo, concrete);
+      slab.position.y = -SLAB - 0.001;
+      slab.receiveShadow = true;
+      plinth ||= slab;
+      group.add(slab);
+    }
+  } else {
+    plinth = box(maxX - minX + 0.7, 0.3, maxZ - minZ + 0.7, mat('#141927', { rough: 0.9 }).clone(), { r: 0.12 });
+    at(plinth, (minX + maxX) / 2, -0.305, (minZ + maxZ) / 2);
+    plinth.receiveShadow = true;
+    group.add(plinth);
+  }
 
   // Rooms may overlap (a bathroom drawn inside a studio). Floors in the same plane
   // fight over the same pixels, so the smaller room's floor is laid on top: lifted a
@@ -315,6 +335,26 @@ export function buildHouse(config, camDir) {
   }
 
   return { group, floors, plinth };
+}
+
+// A polygon pushed out by `d` on every side (mitred corners).
+function grow(pts, d) {
+  let area = 0;
+  pts.forEach(([x, z], i) => { const [x2, z2] = pts[(i + 1) % pts.length]; area += x * z2 - x2 * z; });
+  const side = area > 0 ? 1 : -1;
+  const normal = (a, b) => {
+    const [dx, dz] = [b[0] - a[0], b[1] - a[1]];
+    const l = Math.hypot(dx, dz) || 1;
+    return [(dz / l) * side, (-dx / l) * side];
+  };
+  return pts.map((p, i) => {
+    const n1 = normal(pts[(i + pts.length - 1) % pts.length], p);
+    const n2 = normal(p, pts[(i + 1) % pts.length]);
+    const m = [n1[0] + n2[0], n1[1] + n2[1]];
+    const l = Math.hypot(m[0], m[1]) || 1;
+    const k = Math.min(3, 1 / Math.max(0.2, (m[0] * n1[0] + m[1] * n1[1]) / l));
+    return [p[0] + (m[0] / l) * d * k, p[1] + (m[1] / l) * d * k];
+  });
 }
 
 // How far along a segment a point lies, in metres from its `from` end.

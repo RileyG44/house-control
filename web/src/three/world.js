@@ -11,6 +11,8 @@ import { buildFurniture } from './furniture.js';
 import { LightUnit } from './lights.js';
 import { ACUnit } from './ac.js';
 import { TvUnit } from './tv.js';
+import { createSky } from './sky.js';
+import { buildLandscape } from './landscape.js';
 import { tv, tvLinks } from '../tv/client.js';
 
 export const STAGE_BG = '#0a0e1a';
@@ -41,10 +43,15 @@ const EL_MIN = 26;
 const EL_MAX = 70;
 const ZOOM_MIN = 0.55;     // closest
 const ZOOM_MAX = 1.2;
+const FAR = 120;
+const FAR_OUTDOORS = 2600; // the sky dome and the lake's far shore
 
 // `background: null` leaves the stage see-through, for a panel drawn on glass. `theme`:
-// 'dark' (the default) or 'light'.
-export function createWorld(canvas, config, store, { onHover, onPick, background = STAGE_BG, theme = 'dark' }) {
+// 'dark' (the default) or 'light'. A plan with a `site` stands in its landscape under the
+// real sky (sky.js), which then lights the stage instead of the theme; `outdoors: false`
+// keeps it on its plinth all the same (the Mac's island).
+export function createWorld(canvas, config, store, { onHover, onPick, background = STAGE_BG, theme = 'dark', outdoors = true }) {
+  const site = outdoors ? config.site : null;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: background === null, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -54,9 +61,10 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
   renderer.shadowMap.autoUpdate = false; // the model is static: shadow maps are rendered once
 
   const scene = new THREE.Scene();
-  scene.background = background === null ? null : new THREE.Color(background);
+  // Under the sky an opaque stage shows its dome instead of a flat colour.
+  scene.background = background === null || site ? null : new THREE.Color(background);
 
-  const camera = new THREE.PerspectiveCamera(FOV, 1, NEAR, 120);
+  const camera = new THREE.PerspectiveCamera(FOV, 1, NEAR, site ? FAR_OUTDOORS : FAR);
 
   const { minX, minZ, maxX, maxZ } = config.bounds;
   const H = config.wallHeight;
@@ -68,7 +76,7 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
 
   /* ---------- content ---------- */
 
-  const house = buildHouse(config, camDir);
+  const house = buildHouse(site ? config : { ...config, site: null }, camDir);
   scene.add(house.group);
   const furniture = buildFurniture(config.furniture);
   scene.add(furniture);
@@ -108,6 +116,25 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
   moon.shadow.normalBias = 0.04;
   moon.shadow.radius = 4;
   scene.add(moon, moon.target);
+
+  // The real sky and the land around the house, for a plan with a site. The light then comes
+  // from the sun or the moon where they really are: the shadow box takes in the house's
+  // shadow on the yard too.
+  const sky = site ? createSky({ config, scene, camera, renderer, opaque: background !== null, center, camDir, wake: () => wake(2) }) : null;
+  const landscape = sky ? buildLandscape(config, sky, { camDir, fade: background === null }) : null;
+  if (landscape) {
+    scene.add(landscape.group);
+    sc.left = sc.bottom = -(span * 0.85 + 8);
+    sc.right = sc.top = span * 0.85 + 8;
+    sc.far = 60;
+    sc.updateProjectionMatrix();
+  }
+  const shadowDir = new THREE.Vector3();
+  function aimLight(dir) {
+    moon.position.copy(center).addScaledVector(dir, 28);
+    // The model is static: its shadows are drawn again only when the light has moved a degree.
+    if (shadowDir.angleTo(dir) > THREE.MathUtils.degToRad(1)) { shadowDir.copy(dir); shadowFrames = Math.max(shadowFrames, 2); }
+  }
 
   /* ---------- post-processing ---------- */
 
@@ -509,15 +536,22 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
 
   let raf = 0;
   let last = 0;
+  let shadowFrames = 3;
+  let ambientTimer = 0; // the sky's next slow frame (drifting clouds, rain), when nothing else moves
   let awake = 0;       // frames still owed after the last change
   let running = false;
-  let shadowFrames = 3;
   const hooks = new Set(); // run first in every frame (the card's spring): true for more frames
 
   let inFrame = false;
   function wake(frames = 2) {
     awake = Math.max(awake, frames);
     if (running && !raf && !inFrame) { last = performance.now(); raf = requestAnimationFrame(frame); }
+  }
+
+  // A frame in 1/fps seconds, unless one comes sooner: the sky runs at 20–30 fps, not 60.
+  function ambient(fps) {
+    if (ambientTimer || !running) return;
+    ambientTimer = setTimeout(() => { ambientTimer = 0; if (running && !document.hidden) wake(1); }, 1000 / fps);
   }
 
   /* ---------- light and dark ---------- */
@@ -530,6 +564,7 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
   let lookGoal = lookT;
   const mix = (a, b, t, out) => out.copy(a).lerp(b, t);
   function applyLook() {
+    if (sky) { skyLook(); return; }
     const [a, b, t] = [looks.dark, looks.light, lookT * lookT * (3 - 2 * lookT)];
     if (scene.background) mix(a.bg, b.bg, t, scene.background);
     mix(a.sky, b.sky, t, hemi.color);
@@ -542,6 +577,32 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     lookBloom = [a.bloom + (b.bloom - a.bloom) * t, a.threshold + (b.threshold - a.threshold) * t];
   }
   let lookBloom = [LOOKS.dark.bloom, LOOKS.dark.threshold];
+
+  // Under the real sky: its light and dark, whatever the panel's theme. Lightning lifts it all.
+  function skyLook() {
+    const l = sky.look;
+    const f = sky.flash;
+    hemi.color.copy(l.hemiSky);
+    hemi.groundColor.copy(l.hemiGround);
+    hemi.intensity = l.hemi + f * 2.4;
+    moon.color.copy(l.light);
+    moon.intensity = l.lightI + f * 0.6;
+    renderer.toneMappingExposure = l.exposure * (1 + f * 0.3);
+    lookBloom = [l.bloom, l.threshold];
+    aimLight(l.dir);
+    // Fog thick enough to see: a haze over the model too, not only the land.
+    if (l.haze > 0.001) {
+      scene.fog ||= new THREE.FogExp2(0xffffff, 0);
+      scene.fog.color.copy(l.fog);
+      scene.fog.density = l.haze;
+    } else scene.fog = null;
+  }
+  function stepSky(now) {
+    if (!sky) return 0;
+    const { changed, fps } = sky.update(now);
+    if (changed || sky.flash) { applyLook(); landscape.update(); }
+    return changed ? Math.max(fps, 20) : fps;
+  }
 
   function stepLook(dt) {
     if (lookT === lookGoal) return false;
@@ -561,6 +622,7 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     active = (tween ? (stepTween(now), true) : updateRig(dt)) || active;
     project();
     active = stepLook(dt) || active;
+    const skyFps = stepSky(now);
     // A lit screen seen from up close is read, not admired: the bloom steps back.
     const close = clamp((6 - rig.dist) / 4, 0, 1);
     bloom.strength = lookBloom[0] * (1 - close * 0.8);
@@ -576,6 +638,7 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     }
     inFrame = false;
     if (running && !raf && (active || awake > 0)) raf = requestAnimationFrame(frame);
+    else if (running && !raf && skyFps) ambient(skyFps);
   }
 
   function resize() {
@@ -622,7 +685,10 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     wake,
     get running() { return running; },
 
-    /** 'light' or 'dark': background and lighting blend there in about 300 ms. */
+    /**
+     * 'light' or 'dark': background and lighting blend there in about 300 ms. Under the real
+     * sky (a plan with a site) the stage keeps the sky's light and dark.
+     */
     setTheme(name, { instant = false } = {}) {
       lookGoal = name === 'light' ? 1 : 0;
       if (instant) { lookT = lookGoal; applyLook(); }
@@ -696,6 +762,8 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
       if (on) wake(4);
       else {
         if (raf) { cancelAnimationFrame(raf); raf = 0; }
+        clearTimeout(ambientTimer);
+        ambientTimer = 0;
         // A move that cannot play out lands at once.
         if (tween) { const { resolve } = tween; tween = null; updateRig(0, true); settleAzimuth(); resolve(); }
       }
@@ -710,6 +778,9 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
       running = false;
       if (raf) cancelAnimationFrame(raf);
       raf = 0;
+      clearTimeout(ambientTimer);
+      sky?.dispose();
+      landscape?.dispose();
       composer.dispose();
       target.dispose();
       renderer.dispose();
@@ -720,6 +791,7 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     settle(seconds = 6) {
       if (tween) { const { resolve } = tween; tween = null; updateRig(0, true); settleAzimuth(); resolve(); }
       lookT = lookGoal;
+      if (sky) { sky.settle(); landscape.update(); }
       applyLook();
       for (let t = 0; t < seconds; t += 0.05) {
         updateRig(0.05);
@@ -742,6 +814,7 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
     });
   }
 
+  if (sky) { sky.update(); landscape.update(); }
   applyLook();
   syncAll({ instant: true });
   if (tvs.length) syncTvs(tv.state, { instant: true });

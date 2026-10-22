@@ -1,6 +1,6 @@
 import { loadRawConfig, normalize, normalizeScenes, isLinked, DEFAULT_PLAN } from './config.js';
 import { createStore } from './store.js';
-import { createWorld } from './three/world.js';
+import { createWorld, STAGE_BG } from './three/world.js';
 import { createPanel } from './ui/panel.js';
 import { createAgent } from './agent/tools.js';
 import { h, openMenu } from './ui/dom.js';
@@ -232,9 +232,10 @@ function mountHome(raw, { first = false, editing: underEditor = false, grown = f
 
   try {
     // See-through: the window's own background (or the desktop, on glass) shows behind the
-    // model, so it meets the page's colour exactly and changes with the look.
+    // model, so it meets the page's colour exactly and changes with the look. A home under
+    // its real sky (a plan with a site) on an opaque page (a phone) shows the sky behind it.
     world = createWorld(panel.canvas, config, store, {
-      background: null,
+      background: config.site && !glass ? STAGE_BG : null,
       theme: resolved(),
       onHover: panel.showTooltip,
       onPick(target, { mini } = {}) {
