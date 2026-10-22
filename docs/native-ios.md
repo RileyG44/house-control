@@ -30,7 +30,7 @@ stays as it is. The native app is a separate, self-contained project in `ios-nat
 
 ```
 HouseApp
- ├─ HubClient        URLSession: GET /api/plan, GET /api/tv, SSE /api/events, POST /api/call, /api/tv/{id}, /api/tv/search
+ ├─ HubClient        URLSession: GET /api/plan, GET /api/tv, SSE /api/events, POST /api/call, /api/tv/{id}, /api/tv/search, /api/tv/catalog, /api/tv/title/{id}
  ├─ HomeStore        @Observable: plan, light/AC state by plan id, TV state, tile order, optimistic edits
  ├─ ThemeStore       auto / light / dark (AppStorage), resolved ColorScheme
  ├─ Scene3D          RealityKit RealityView: the home built from the plan, live lamp/AC/TV state, camera rigs

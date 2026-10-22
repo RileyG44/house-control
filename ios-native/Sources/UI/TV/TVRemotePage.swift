@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// The TV's remote, pushed inside the card (docs/tv-remote.md, docs/card-sheet.md): what's on,
-/// the direction pad with the keys and an upright volume beside it, the apps, and a title search.
+/// the direction pad with the keys and an upright volume beside it, the apps, Browse (posters of
+/// what's on the TV's apps, docs/streaming-catalog.md) and a title search.
 /// While it is open, the TV's own launcher is driven straight over the Wi-Fi when this phone is
 /// paired with it (TVStore); the ••• menu says which way, and offers the pairing.
 struct TVRemotePage: View {
@@ -50,6 +51,8 @@ struct TVRemotePage: View {
                 remote(d, on: on, available: available)
                 Text("Apps").font(.subheadline.weight(.semibold)).foregroundStyle(Color.muted)
                 apps(d, on: on)
+                Text("Browse").font(.subheadline.weight(.semibold)).foregroundStyle(Color.muted)
+                TVBrowse(id: id, onPlay: { tile, offer in play(tile, offer: offer) })
                 Text("Search").font(.subheadline.weight(.semibold)).foregroundStyle(Color.muted)
                 TVSearch(id: id, onPlay: { result, offer in
                     open(TVCatalog.info(id: offer.app) ?? TVAppInfo(id: offer.app, name: offer.name, bg: ["#2b3140"], glow: "#9aa4b5", mark: []), play: offer)
@@ -132,6 +135,29 @@ struct TVRemotePage: View {
     private func key(_ action: String) { tv.act(id, action: action) }
 
     private func open(_ app: TVAppInfo, play: SearchResult.Offer? = nil) {
+        var body: [String: JSON] = ["action": .string(play == nil ? "open" : "play"), "app": .string(app.id), "name": .string(app.name)]
+        if let play { body["link"] = .string(play.link) }
+        send(app, body)
+    }
+
+    /// A title from Browse, the way a search result plays (POST /api/tv/{id} {"action": "play",
+    /// "app", "link"}): in `offer`'s app when its sheet picked one, else the app it was shown
+    /// under. A Continue title is picked up again ("resume"), and one of the apps' own picks
+    /// opened by the launcher ("recommendation").
+    private func play(_ tile: BrowseTile, offer: TitleDetails.Offer?) {
+        let appID = offer?.app ?? tile.app ?? "other"
+        let app = TVCatalog.info(id: appID) ?? TVAppInfo(id: appID, name: offer?.name ?? appID, bg: ["#2b3140"], glow: "#9aa4b5", mark: [])
+        if let hid = tile.resume {
+            send(app, ["action": .string("resume"), "id": .string(hid)])
+        } else if let rid = tile.recommendation {
+            send(app, ["action": .string("recommendation"), "id": .string(rid)])
+        } else if let link = offer?.playLink ?? tile.playLink {
+            open(app, play: SearchResult.Offer(app: app.id, name: app.name, how: offer?.how ?? "", link: link))
+        }
+    }
+
+    /// Sends `body`, showing "Opening …" for `app` until the TV switches to it.
+    private func send(_ app: TVAppInfo, _ body: [String: JSON]) {
         guard tv.state.available else {
             store.show(tv.state.error.isEmpty ? "The TV can’t be reached." : tv.state.error, error: true)
             Haptics.error()
@@ -139,8 +165,6 @@ struct TVRemotePage: View {
         }
         Haptics.light()
         opening = (app, Date().addingTimeInterval(8))
-        var body: [String: JSON] = ["action": .string(play == nil ? "open" : "play"), "app": .string(app.id), "name": .string(app.name)]
-        if let play { body["link"] = .string(play.link) }
         Task {
             let ok = await tv.act(id, body)
             if !ok { opening = nil }

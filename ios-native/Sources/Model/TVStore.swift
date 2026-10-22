@@ -42,6 +42,11 @@ final class TVStore {
     @ObservationIgnored private var link: Task<Void, Never>?
     /// The launcher last tried, so the hub's every event doesn't try it again.
     @ObservationIgnored private var probed: String?
+    /// The streaming catalog for the remote page's Browse (hub/catalog.py), kept while the app
+    /// runs and read again when it is older than `browseAge`.
+    private(set) var browse: BrowseCatalog?
+    @ObservationIgnored private var browseAt: Date?
+    static let browseAge: Double = 15 * 60
 
     /// How long the launcher has to answer before the hub is used.
     static let probeTimeout: Double = 0.6
@@ -234,6 +239,27 @@ final class TVStore {
         let query = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&+=?"))) ?? q
         let json = try await hub.get("api/tv/search?q=\(query)")
         return (json["results"]?.array ?? []).compactMap(SearchResult.init(json:))
+    }
+
+    /// Reads the streaming catalog from the hub, unless the one kept is recent (or `force`).
+    func loadBrowse(force: Bool = false) async throws {
+        if !force, browse != nil, let at = browseAt, Date().timeIntervalSince(at) < Self.browseAge { return }
+        let json = try await hub.get("api/tv/catalog")
+        browse = BrowseCatalog(json: json)
+        browseAt = Date()
+    }
+
+    /// The next page of one app's row; `more` says whether there are pages after it.
+    func browseMore(app: String, row: String, page: Int) async throws -> (items: [BrowseTile], more: Bool) {
+        let json = try await hub.get("api/tv/catalog/\(Self.path(app))?row=\(Self.path(row))&page=\(page)")
+        return ((json["items"]?.array ?? []).compactMap(BrowseTile.init(json:)), json["more"]?.bool ?? false)
+    }
+
+    /// A title's details, and which of the TV's apps include it.
+    func title(_ id: String) async throws -> TitleDetails {
+        let json = try await hub.get("api/tv/title/\(Self.path(id))")
+        guard let details = TitleDetails(json: json) else { throw HubClient.HubError(message: "The streaming catalog doesn’t know that title") }
+        return details
     }
 
     private static func path(_ id: String) -> String {

@@ -148,6 +148,137 @@ struct SearchResult: Sendable, Identifiable {
     }
 }
 
+/// One title of the streaming catalog (`GET /api/tv/catalog`, hub/catalog.py's tile). Its
+/// pictures are the hub's own addresses. A title from the launcher's Continue has kind
+/// "continue" and `resume`; one of the apps' own picks has kind "recommendation" and
+/// `recommendation`.
+struct BrowseTile: Sendable, Identifiable, Equatable {
+    var id: String
+    var title: String
+    var year: Int?
+    var kind: String              // movie, show, continue, recommendation
+    var poster: URL?
+    var backdrop: URL?
+    var app: String?
+    var link: String?
+    var tvLink: String?
+    var blurb: String?
+    var runtime: Int?
+    var rating: Double?
+    var age: String?
+    var genres: [String]
+    var subtitle: String?
+    var progress: Double?
+    var resume: String?
+    var recommendation: String?
+
+    init?(json: JSON) {
+        guard let id = json["id"]?.string, !id.isEmpty, let title = json["title"]?.string, !title.isEmpty else { return nil }
+        self.id = id
+        self.title = title
+        year = json["year"]?.int
+        kind = json["kind"]?.string ?? "movie"
+        poster = json["poster"]?.string.flatMap(URL.init(string:))
+        backdrop = json["backdrop"]?.string.flatMap(URL.init(string:))
+        app = json["app"]?.string
+        link = json["link"]?.string
+        tvLink = json["tvLink"]?.string
+        blurb = json["blurb"]?.string
+        runtime = json["runtime"]?.int
+        rating = json["rating"]?.double
+        age = json["age"]?.string
+        genres = (json["genres"]?.array ?? []).compactMap(\.string)
+        subtitle = json["subtitle"]?.string
+        progress = json["progress"]?.double
+        resume = json["resume"]?.string
+        recommendation = json["recommendation"]?.string
+    }
+
+    /// What Play on TV sends as the title's link: the Android TV deep link when there is one,
+    /// else its page (the hub checks either against the app, as for a search result).
+    var playLink: String? { tvLink ?? link }
+
+    /// Whether the TV can be asked to play it at all.
+    var playable: Bool { resume != nil || recommendation != nil || (app != nil && playLink != nil) }
+
+    /// "2022 · Show · 50 min · TV-14 · IMDb 8.1".
+    var facts: String {
+        let what: String? = kind == "movie" ? "Movie" : kind == "show" ? "Show" : nil
+        let length = runtime.map { $0 >= 60 ? "\($0 / 60) h \($0 % 60) min" : "\($0) min" }
+        return [year.map(String.init), what, length, age, rating.map { String(format: "IMDb %.1f", $0) }]
+            .compactMap { $0 }.joined(separator: " · ")
+    }
+}
+
+/// One of an app's rows: Popular, Trending or New.
+struct BrowseRow: Sendable, Identifiable, Equatable {
+    var key: String
+    var label: String
+    var title: String
+    var items: [BrowseTile]
+    var id: String { key }
+
+    init?(json: JSON) {
+        guard let key = json["key"]?.string else { return nil }
+        self.key = key
+        label = json["label"]?.string ?? key.capitalized
+        title = json["title"]?.string ?? label
+        items = (json["items"]?.array ?? []).compactMap(BrowseTile.init(json:))
+        if items.isEmpty { return nil }
+    }
+}
+
+struct BrowseApp: Sendable, Identifiable, Equatable {
+    var id: String
+    var name: String
+    var rows: [BrowseRow]
+
+    init?(json: JSON) {
+        guard let id = json["id"]?.string else { return nil }
+        self.id = id
+        name = json["name"]?.string ?? id
+        rows = (json["rows"]?.array ?? []).compactMap(BrowseRow.init(json:))
+        if rows.isEmpty { return nil }
+    }
+}
+
+/// The whole catalog: each of the TV's apps with its rows, and For you.
+struct BrowseCatalog: Sendable, Equatable {
+    var apps: [BrowseApp]
+    var forYou: [BrowseTile]
+
+    init(json: JSON) {
+        apps = (json["apps"]?.array ?? []).compactMap(BrowseApp.init(json:))
+        forYou = (json["forYou"]?.array ?? []).compactMap(BrowseTile.init(json:))
+    }
+}
+
+/// `GET /api/tv/title/{id}`: the title, and which of the TV's apps include it.
+struct TitleDetails: Sendable, Equatable {
+    struct Offer: Sendable, Identifiable, Equatable {
+        var app: String
+        var name: String
+        var how: String
+        var link: String
+        var tvLink: String?
+        var id: String { app }
+        var playLink: String { tvLink ?? link }
+    }
+    var tile: BrowseTile
+    var offers: [Offer]
+    var rentOrBuy: [String]
+
+    init?(json: JSON) {
+        guard let tile = BrowseTile(json: json) else { return nil }
+        self.tile = tile
+        offers = (json["offers"]?.array ?? []).compactMap { o in
+            guard let app = o["app"]?.string, let link = o["link"]?.string else { return nil }
+            return Offer(app: app, name: o["name"]?.string ?? app, how: o["how"]?.string ?? "", link: link, tvLink: o["tvLink"]?.string)
+        }
+        rentOrBuy = (json["rentOrBuy"]?.array ?? []).compactMap(\.string)
+    }
+}
+
 /// Which real TV each tv / tvCabinet piece of the plan shows: its `device`, or (no `device`)
 /// the one TV there is when the plan has one TV piece. `"device": "none"` leaves it unlinked.
 func tvLinks(_ furniture: [Furniture], _ state: TVState) -> [(furniture: Furniture, id: String?)] {
