@@ -190,6 +190,14 @@ private fun JSONObject.optUrl(key: String): String? =
     optStringOrNull(key)?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
 
 /** At most [limit] bytes, or null when there are more. */
+/** A JPEG that ends where JPEGs end; pictures that aren't JPEG pass. A cut-off JPEG draws as a strip over black. */
+private fun wholeJpeg(b: ByteArray): Boolean {
+    if (b.size < 2 || b[0] != 0xFF.toByte() || b[1] != 0xD8.toByte()) return true
+    var end = b.size
+    while (end > 2 && b[end - 1] == 0.toByte()) end--
+    return b[end - 2] == 0xFF.toByte() && b[end - 1] == 0xD9.toByte()
+}
+
 private fun InputStream.readLimited(limit: Int): ByteArray? {
     val out = ByteArrayOutputStream()
     val buf = ByteArray(16 * 1024)
@@ -223,6 +231,8 @@ class ArtCache(context: Context) {
         memory.get(key)?.let { return it }
         return withContext(Dispatchers.IO) {
             val file = File(dir, name(url))
+            // An older hub could send pictures cut off: those are fetched again.
+            if (file.exists() && !wholeJpeg(file.readBytes())) file.delete()
             if (file.exists()) {
                 file.setLastModified(System.currentTimeMillis())
             } else {
@@ -251,6 +261,12 @@ class ArtCache(context: Context) {
             try {
                 if (conn.responseCode != 200 || conn.contentType?.startsWith("image/") != true) return
                 val bytes = conn.inputStream.use { it.readLimited(MAX_PICTURE) } ?: return
+                // A connection that ends early still ends: only a whole picture is kept.
+                val expected = conn.contentLengthLong
+                if ((expected >= 0 && bytes.size.toLong() != expected) || !wholeJpeg(bytes)) {
+                    Log.i(TAG, "Cut-off picture at $url (${bytes.size} of $expected bytes)")
+                    return
+                }
                 val tmp = File(dir, file.name + ".tmp")
                 tmp.writeBytes(bytes)
                 if (tmp.renameTo(file)) kept(bytes.size.toLong()) else tmp.delete()
