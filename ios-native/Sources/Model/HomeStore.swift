@@ -74,6 +74,9 @@ final class HomeStore {
     var toast: Toast?
     /// Whether the first state from the hub has come.
     private(set) var live = false
+    /// The weather at the plan's site from the hub in use (or forced with `-sky`); nil: none known,
+    /// and the sky shows the real day or night with a plain look.
+    private(set) var weather: WeatherReading? = SkyOverride.kind.flatMap(WeatherReading.forced)
 
     @ObservationIgnored private var outbox: [String: Outbox] = [:]
     @ObservationIgnored private var saveTask: Task<Void, Never>?
@@ -84,6 +87,9 @@ final class HomeStore {
     @ObservationIgnored private var planFresh = false
     /// The scenes as edited here, until the hub has them.
     @ObservationIgnored private var localScenes: [JSON]?
+    @ObservationIgnored private var weatherTask: Task<Void, Never>?
+    /// Weather events heard: a read that was on its way when one came is older than it.
+    @ObservationIgnored private var weatherHeard = 0
 
     private struct Outbox { var pending: [String: JSON]?; var before: [String: JSON] = [:] }
 
@@ -97,11 +103,20 @@ final class HomeStore {
         hub.onTV = { [weak self] in self?.tv.take($0) }
         hub.onPathChanged = { [weak self] in self?.tv.networkChanged() }
         hub.onPlanChanged = { [weak self] in self?.refreshPlan() }
+        hub.onWeather = { [weak self] in self?.takeWeather($0) }
         hub.onConnected = { [weak self] _ in
             self?.refreshPlan()
             self?.tv.refresh()
+            self?.refreshWeather()
         }
         tv.onError = { [weak self] in self?.show($0, error: true) }
+        // Read again every 10 minutes, whatever events come (an event may have been missed).
+        weatherTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(600))
+                self?.refreshWeather()
+            }
+        }
     }
 
     private static var cacheURL: URL {
@@ -138,6 +153,31 @@ final class HomeStore {
             roomOrder = next.rooms.map(\.id)
         }
         folded = Set(UserDefaults.standard.stringArray(forKey: "house.folded:\(next.name)") ?? [])
+    }
+
+    // MARK: - the weather
+
+    /// Asks the hub in use for the weather at the plan's site (not when it is forced, nor for a plan
+    /// without a site). No answer: the last reading stays.
+    func refreshWeather() {
+        guard !SkyOverride.active, plan.site != nil else { return }
+        let mark = weatherHeard
+        Task {
+            do {
+                let reading = try await hub.weather()
+                guard mark == weatherHeard, reading != weather else { return }
+                weather = reading
+            } catch {
+                // The hub can't be asked just now: the last reading stays.
+            }
+        }
+    }
+
+    private func takeWeather(_ json: JSON) {
+        weatherHeard += 1
+        guard !SkyOverride.active else { return }
+        let reading = WeatherReading(json: json)
+        if reading != weather { weather = reading }
     }
 
     var orderedRooms: [Room] {

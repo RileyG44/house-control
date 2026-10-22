@@ -112,6 +112,49 @@ struct SceneConfig: Sendable, Identifiable {
     var acs: [String: JSON]
 }
 
+/// Where the home is (docs/landscape-weather.md): the real sun, moon and weather over it, and the
+/// land around it. Plans without one keep the plinth and the theme's light and dark.
+struct Site: Sendable, Equatable {
+    var address: String
+    var lat: Double
+    var lon: Double
+    /// The compass bearing the plan's -z points at (90: east).
+    var planUp: Double
+    /// The plan side ("north" = -z, "south" = +z, "east" = +x, "west" = -x) the lake and the field are on.
+    var water: String?
+    var field: String?
+    /// Metres from the outline to the waterline, and to where the crop rows start.
+    var shore: Double
+    var fieldEdge: Double
+
+    static let sides: Set<String> = ["north", "south", "east", "west"]
+
+    init?(json: JSON?) {
+        guard let json, let lat = json["lat"]?.double, let lon = json["lon"]?.double,
+              abs(lat) <= 90, abs(lon) <= 180 else { return nil }
+        let land = json["landscape"]
+        address = json["address"]?.string ?? ""
+        self.lat = lat
+        self.lon = lon
+        planUp = json["planUp"]?.double ?? 0
+        water = land?["water"]?.string.flatMap { Self.sides.contains($0) ? $0 : nil }
+        field = land?["field"]?.string.flatMap { Self.sides.contains($0) ? $0 : nil }
+        shore = max(4, land?["shore"]?.double ?? 7)
+        fieldEdge = max(3, land?["fieldEdge"]?.double ?? 9)
+    }
+
+    /// A plan side as a unit vector in (x, z), or nil.
+    static func vector(_ side: String?) -> SIMD2<Float>? {
+        switch side {
+        case "north": return [0, -1]
+        case "south": return [0, 1]
+        case "east": return [1, 0]
+        case "west": return [-1, 0]
+        default: return nil
+        }
+    }
+}
+
 struct Plan: Sendable {
     var raw: JSON
     var name: String
@@ -127,6 +170,8 @@ struct Plan: Sendable {
     var acs: [ACConfig]
     var scenes: [SceneConfig]
     var tileOrder: [String]
+    /// Where the home is, for the landscape and the real sky (kept in `raw` through every save).
+    var site: Site?
     var minX: Double, minZ: Double, maxX: Double, maxZ: Double
 
     struct Problem: Error, LocalizedError {
@@ -143,6 +188,7 @@ struct Plan: Sendable {
         azimuth = o["camera"]?["azimuth"]?.double ?? 34
         elevation = o["camera"]?["elevation"]?.double ?? 47
         outdoorTemp = o["outdoorTemp"]?.double ?? 27
+        site = Site(json: o["site"])
 
         var rooms: [Room] = []
         for r in o["rooms"]?.array ?? [] {

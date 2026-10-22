@@ -2,8 +2,8 @@ import Foundation
 import Network
 import Observation
 
-/// Talks to the House Control hub (hub/house.py): the plan, device commands, the TV and the
-/// server-sent events that carry every device's state. There are two hubs that keep the same plan:
+/// Talks to the House Control hub (hub/house.py): the plan, device commands, the TV, the weather
+/// at the plan's site and the server-sent events that carry every device's state. There are two hubs that keep the same plan:
 /// the home server (dell-server) and a backup (Riley's MacBook). The home server's addresses (the
 /// house Wi-Fi and Tailscale) are asked at once; only when neither answers within ~3 s are the
 /// backup's. While on the backup the home server is asked again every 30 s, and taken back as soon
@@ -41,6 +41,8 @@ final class HubClient {
     /// Device state (`lights` / `acs` / `features`), the TV, and "the plan changed".
     @ObservationIgnored var onDevices: ((JSON) -> Void)?
     @ObservationIgnored var onTV: ((JSON) -> Void)?
+    /// The weather at the plan's site changed (hub/weather.py): the reading, or `{"kind": null}`.
+    @ObservationIgnored var onWeather: ((JSON) -> Void)?
     @ObservationIgnored var onPlanChanged: (() -> Void)?
     /// A fresh connection: the plan should be read again.
     @ObservationIgnored var onConnected: ((URL) -> Void)?
@@ -247,6 +249,8 @@ final class HubClient {
                     if msg["by"]?.string != clientID { onPlanChanged?() }
                 } else if let tv = msg["tv"] {
                     onTV?(tv)
+                } else if let weather = msg["weather"] {
+                    onWeather?(weather)
                 } else {
                     onDevices?(msg)
                 }

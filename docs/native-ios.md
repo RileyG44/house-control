@@ -123,7 +123,13 @@ material so the frame cost stays low (target 120 fps on the 15 Pro Max, never be
   card expanded the mini strip shows this TV view in a rounded 2:1 window, not the whole home.
   Closing the remote flies back to the home view at the home's detent.
 - **Theme**: light mode = bright warm-white backdrop and lighting; dark = today's look. Blend
-  ~0.3 s on change.
+  ~0.3 s on change. A plan with a `site` ignores the theme for the stage (below).
+- **Landscape and sky** (plans with a `site`, docs/landscape-weather.md): `Landscape.swift` (the
+  yard, the lake, the field, scrub; a 5 cm slab in place of the plinth), `Sky.swift` (the look from
+  the real sun and moon, `Model/SunMoon.swift`, and the hub's weather, `Model/Weather.swift`; the
+  dome, clouds, rain and snow, lightning). `HomeScene.applyLook` then takes its light from the sky.
+  Launch arguments `-sky <kind> -skytime <HH:MM> [-skydate YYYY-MM-DD]` force a look and a local
+  time at the house and skip the hub.
 
 ## The controls card
 

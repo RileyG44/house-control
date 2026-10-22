@@ -21,6 +21,11 @@ final class HomeScene {
     private(set) var tvUnits: [TVUnit] = []
     private var darkEnv: EnvironmentResource?
     private var lightEnv: EnvironmentResource?
+    /// With a site: the real sky over the house, which lights the stage, and the land around it.
+    private var sky: Sky?
+    private var landscape: Landscape?
+    private var landLook = SkyLook()
+    private var sinceLand: Double = 0
     var subscription: EventSubscription?
 
     // MARK: camera rig
@@ -91,14 +96,24 @@ final class HomeScene {
             root.addChild(e)
         }
 
-        // The plinth the model stands on: its colour follows the look.
-        let p = MeshBuilder()
-        let (minX, minZ, maxX, maxZ) = (Float(plan.minX), Float(plan.minZ), Float(plan.maxX), Float(plan.maxZ))
-        p.box(maxX - minX + 0.7, 0.3, maxZ - minZ + 0.7, .c("#141927", rough: 0.9), r: 0.12, at: SIMD3((minX + maxX) / 2, -0.305, (minZ + maxZ) / 2))
-        if let e = p.entity(named: "plinth") {
-            e.components.set(ImageBasedLightReceiverComponent(imageBasedLight: ibl))
-            root.addChild(e)
-            plinth = e
+        if plan.site != nil {
+            // Out in the landscape the house stands on a thin slab instead of the plinth.
+            let p = MeshBuilder()
+            Landscape.slab(plan, into: p)
+            for e in p.entities() {
+                e.components.set(ImageBasedLightReceiverComponent(imageBasedLight: ibl))
+                root.addChild(e)
+            }
+        } else {
+            // The plinth the model stands on: its colour follows the look.
+            let p = MeshBuilder()
+            let (minX, minZ, maxX, maxZ) = (Float(plan.minX), Float(plan.minZ), Float(plan.maxX), Float(plan.maxZ))
+            p.box(maxX - minX + 0.7, 0.3, maxZ - minZ + 0.7, .c("#141927", rough: 0.9), r: 0.12, at: SIMD3((minX + maxX) / 2, -0.305, (minZ + maxZ) / 2))
+            if let e = p.entity(named: "plinth") {
+                e.components.set(ImageBasedLightReceiverComponent(imageBasedLight: ibl))
+                root.addChild(e)
+                plinth = e
+            }
         }
 
         let H = Float(plan.wallHeight)
@@ -138,8 +153,23 @@ final class HomeScene {
         moon.look(at: center, from: from, relativeTo: nil)
         root.addChild(moon)
 
+        // The real sky and the land around the house (docs/landscape-weather.md).
+        if let site = plan.site {
+            let sky = Sky(plan: plan, site: site, camDir: camDir)
+            sky.take(store?.weather)
+            sky.settle()
+            root.addChild(sky.root)
+            let land = Landscape(plan: plan, site: site, camDir: camDir, month: sky.month, ibl: ibl, waterIBL: sky.waterIBL)
+            root.addChild(land.root)
+            land.apply(sky.look)
+            landLook = sky.look
+            self.sky = sky
+            landscape = land
+        }
+
         camera.camera.near = Self.near
-        camera.camera.far = 120
+        // Out to the far shore's hills and the sky's dome.
+        camera.camera.far = plan.site == nil ? 120 : 2600
         camera.camera.fieldOfViewInDegrees = Self.fov
         root.addChild(camera)
 
@@ -171,6 +201,12 @@ final class HomeScene {
     // MARK: - light and dark
 
     private func applyLook() {
+        // With a site the stage follows the real sky over the house, not the theme: the image-based
+        // light from the sky's colours, the light from the real sun or moon (Sky.swift).
+        if let sky {
+            sky.light(ibl: ibl, sun: moon)
+            return
+        }
         let t = look * look * (3 - 2 * look)
         if let darkEnv, let lightEnv {
             ibl.components.set(ImageBasedLightComponent(source: .blend(darkEnv, lightEnv, t), intensityExponent: -0.35 + 1.35 * t))
@@ -423,7 +459,18 @@ final class HomeScene {
         noteFrame(dt)
         #endif
         guard let store else { return }
-        if look != lookGoal {
+        if let sky {
+            sky.take(store.weather)
+            if sky.update(dt: Double(dt)) { applyLook() }
+            landscape?.update(dt: Double(dt), wind: sky.wind, still: sky.still)
+            // The land's colours follow the sky a few times a second while it changes.
+            sinceLand += Double(dt)
+            if sinceLand >= 0.3, landLook.gap(sky.look) > 0.004 {
+                sinceLand = 0
+                landLook = sky.look
+                landscape?.apply(sky.look)
+            }
+        } else if look != lookGoal {
             let step = dt / 0.3
             look = lookGoal > look ? min(lookGoal, look + step) : max(lookGoal, look - step)
             applyLook()
