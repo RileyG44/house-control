@@ -41,6 +41,7 @@ import launcher as launchers  # noqa: E402
 from mrcool import MrcoolClient, MrcoolError  # noqa: E402
 from nowplaying import Adb  # noqa: E402
 from weather import Weather  # noqa: E402
+from spotify import Spotify  # noqa: E402
 from tv import TvRemote, default_url as tv_url, for_client as tv_for_client, launcher_for  # noqa: E402
 from wiz import Light, WizClient, WizError  # noqa: E402
 
@@ -118,6 +119,7 @@ class Hub:
         self._ac_due = 0.0
         # Another hub that keeps the same plan (the home server and a backup): see _sync_peer.
         self.peers = peer_urls(conf)
+        self.spotify = Spotify(conf, self.peers)
         self._push_task: asyncio.Task | None = None
         # The weather at the plan's `site` (weather.py), for the panels' sky.
         self.weather = Weather(lambda: self.plan, self._publish)
@@ -147,6 +149,7 @@ class Hub:
         self.tv.http = self.http
         self.streaming.http = self.http
         self.weather.http = self.http
+        self.spotify.http = self.http
         self.mrcool = MrcoolClient(self.conf / "mrcool.json", self.http)
         self.aidot = AidotLanClient(self.conf / "aidot.json", self.http)
         self._recall_lights()
@@ -709,7 +712,19 @@ def make_app(hub: Hub) -> web.Application:
     async def devices(_):
         return web.json_response(hub.devices())
 
-    # ---------- the TV (tv.py) ----------
+    # ---------- Spotify and the TV ----------
+
+    async def spotify_state(request):
+        return web.json_response(await hub.spotify.state(local_only=request.query.get("local") == "1"),
+                                 headers={"Cache-Control": "no-store"})
+
+    async def spotify_action(request):
+        try:
+            body = await request.json()
+        except (ValueError, TypeError):
+            return web.json_response({"error": "Send a Spotify action as JSON"}, status=400)
+        result, status = await hub.spotify.act(body, local_only=request.query.get("local") == "1")
+        return web.json_response(result, status=status)
 
     async def tv_state(request):
         return web.json_response(tv_for_client(await hub.tv.current(), client_origin(request)),
@@ -861,6 +876,8 @@ def make_app(hub: Hub) -> web.Application:
     app.router.add_post("/api/call", call)
     app.router.add_get("/api/devices", devices)
     app.router.add_get("/api/tv", tv_state)
+    app.router.add_get("/api/spotify", spotify_state)
+    app.router.add_post("/api/spotify", spotify_action)
     app.router.add_get("/api/tv/search", tv_search)
     app.router.add_get("/api/tv/art/now", tv_picture)
     app.router.add_get("/api/tv/banner/{pkg}", tv_picture)

@@ -25,6 +25,7 @@ targets:
         LSApplicationCategoryType: public.app-category.lifestyle
         UILaunchScreen:
           UIColorName: LaunchBackground
+        UIAppFonts: [Urbanist.ttf]
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         ITSAppUsesNonExemptEncryption: false
         NSLocalNetworkUsageDescription: House talks to the House Control hub, and straight to your TV, over this Wi-Fi network to switch your lights, air conditioner and TV.

@@ -16,6 +16,7 @@ import { tv, tvLinks } from '../tv/client.js';
 import { APPS, appInfo, statusOf, glowOf, logoSVG } from '../tv/apps.js';
 import { createPad, createVolume, createSearch } from '../tv/remote.js';
 import { createNowPlaying } from '../tv/nowplaying.js';
+import { spotify, createSpotifyRemote } from '../media/spotify.js';
 import { createReorder, flip } from './reorder.js';
 import { createDeck } from './deck.js';
 import { cycleTheme, themeChoice, resolved, onTheme } from './theme.js';
@@ -100,7 +101,8 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
   const aiBadge = h('button.ai-badge', { hidden: true, title: 'An AI assistant has access — click to manage', 'aria-label': 'AI access',
     onclick: () => onMenu(aiBadge, 'agent') }, icon('sparkles', 13, 2.2), h('span', 'AI'));
 
-  const scenes = h('div.scenes');
+  const sceneTrack = h('div.scene-track');
+  const scenes = h('div.scenes', sceneTrack);
   const rooms = h('div.rooms');
   const listTitle = h('span.title');
   const grid = h('div.grid');
@@ -141,8 +143,8 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     el: deckEl,
     scrollers: '.devices, .sheet-scroll',
     handles: '.deck-grab',
-    canDrag: () => !reorder.busy && !card.classList.contains('editing'),
-    onGrab: () => { reorder.cancel(); hideTooltip(); },
+    canDrag: () => !reorder.busy && !sceneReorder.busy && !card.classList.contains('editing'),
+    onGrab: () => { reorder.cancel(); sceneReorder.cancel(); hideTooltip(); },
     onProgress: (p) => world?.setSheetProgress(p),
     onDetent: (d) => {
       if (!ui.sheet) homeDetent = d;
@@ -176,33 +178,30 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
   // A tap sets the scene; held, a scene can be edited or deleted. The + chip at the end makes
   // a new one from the lights as they are (ui.sheet { kind: 'scene' }, sceneSheet).
   const sceneButtons = new Map();
+  const sceneReorder = createReorder({
+    grid: sceneTrack, scroller: scenes, selector: '.scene[data-key]', axis: 'x', hold: 450,
+    announce: (text) => { said.textContent = text; },
+    onOrder: (keys) => {
+      const byID = new Map(config.scenes.map((s) => [s.id, s]));
+      commitScenes(keys.map((id) => byID.get(id)).filter(Boolean));
+    },
+  });
   const addScene = h('button.scene.scene-add', { title: 'New scene', 'aria-label': 'New scene', onclick: () => { haptic('light'); openSheet({ kind: 'scene', id: null }); } },
     icon('plus', 19, 2.2), h('span.scene-name', 'New'));
 
   function sceneChip(s) {
-    const b = h('button.scene', { title: s.name, 'aria-keyshortcuts': 'Shift+F10' }, icon(s.icon, 19), h('span.scene-name', s.name));
-    let press = null;
-    let held = false;
-    const letGo = () => { if (press) clearTimeout(press.timer); press = null; b.classList.remove('holding'); };
-    b.addEventListener('pointerdown', (ev) => {
-      lastPointer = ev.pointerType;
-      held = false;
-      if (ev.button !== 0 || !ev.isPrimary) return;
-      press = { x: ev.clientX, y: ev.clientY, timer: setTimeout(() => { press = null; held = true; b.classList.remove('holding'); sceneMenu(s, b); }, 450) };
-      b.classList.add('holding');
-    });
-    b.addEventListener('pointermove', (ev) => { if (press && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > AXIS) letGo(); });
-    b.addEventListener('pointerup', letGo);
-    b.addEventListener('pointercancel', letGo);
-    b.addEventListener('pointerleave', (ev) => { if (ev.pointerType === 'mouse') letGo(); });
+    const b = h('button.scene', { title: s.name, 'aria-label': s.name, 'data-key': s.id,
+      'aria-keyshortcuts': 'Shift+F10 Alt+ArrowLeft Alt+ArrowRight' }, icon(s.icon, 19), h('span.scene-name', s.name));
+    b.addEventListener('pointerdown', (ev) => { lastPointer = ev.pointerType; });
+    sceneReorder.attach(b, { onHold: () => sceneMenu(s, b) });
     b.addEventListener('click', () => {
-      if (held) { held = false; return; } // the hold opened the menu
+      if (sceneReorder.lifted(b)) return;
       haptic('medium');
       store.applyScene(s.id);
     });
     b.addEventListener('contextmenu', (ev) => {
       ev.preventDefault();
-      if (lastPointer === 'mouse' && !held) sceneMenu(s, b);
+      if (lastPointer === 'mouse' && !sceneReorder.busy) sceneMenu(s, b);
     });
     b.addEventListener('keydown', (ev) => {
       if (ev.key === 'ContextMenu' || (ev.shiftKey && ev.key === 'F10')) { ev.preventDefault(); sceneMenu(s, b); }
@@ -220,13 +219,14 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
   }
 
   function renderScenes() {
+    sceneReorder.cancel();
     sceneButtons.clear();
     const chips = config.scenes.map((s) => {
       const b = sceneChip(s);
       sceneButtons.set(s.id, b);
       return b;
     });
-    scenes.replaceChildren(...chips, addScene);
+    sceneTrack.replaceChildren(...chips, addScene);
   }
   renderScenes();
 
@@ -234,6 +234,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
   const planScene = (s) => {
     const out = { id: s.id, name: s.name, icon: s.icon, lights: s.lights };
     if (s.acs && Object.keys(s.acs).length) out.acs = s.acs;
+    if (s.tvs && Object.keys(s.tvs).length) out.tvs = s.tvs;
     return out;
   };
 
@@ -250,6 +251,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     if (!s) return;
     haptic('medium');
     commitScenes(config.scenes.filter((x) => x.id !== id));
+    if (state.scene === id) store.markScene(null);
     toast(`Deleted “${s.name}”`, null, { note: true });
   }
 
@@ -544,7 +546,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
         h('button', { 'aria-label': 'Warmer', onclick: step(1) }, icon('plus', 15, 2.2))),
       h('button.mini-power', { 'aria-label': `${cfg.name} power`, onclick: (e) => { e.stopPropagation(); power(); } }, icon('power', 16, 2.2)),
       readout);
-    const touch = gestures(el, { tap: power, open, slide: acSlide(cfg, el, readout) });
+    const touch = gestures(el, { tap: open, open, slide: acSlide(cfg, el, readout) });
     let shownMode = null;
     return draggable({
       el, cfg, kind: 'ac',
@@ -561,6 +563,22 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
 
   for (const cfg of config.acs) tiles.set(cfg.id, acTile(cfg));
   for (const cfg of config.lights) tiles.set(cfg.id, lightTile(cfg));
+  for (const item of config.furniture.filter((f) => f.type === 'speaker')) {
+    const id = item.device || 'spotify';
+    const key = `speaker:${id}`;
+    if (tiles.has(key)) continue;
+    const open = () => openSheet({ kind: 'speaker', id });
+    const sub = h('div.tile-sub', 'Spotify');
+    const el = h('div.tile.speaker', { role: 'button', tabindex: 0, 'aria-label': item.name || 'Studio speaker' },
+      h('div.bubble', icon('speaker', 20)), h('div.tile-text', h('div.tile-name', item.name || 'Speaker'), sub),
+      icon('next', 17));
+    gestures(el, { tap: open, open });
+    tiles.set(key, draggable({ el, kind: 'speaker', cfg: { id: key, room: roomAt(item.pos) || config.rooms[0].id }, update() {
+      el.classList.toggle('on', Boolean(spotify.state.playing));
+      el.style.setProperty('--c', '#85d7b3');
+      sub.textContent = spotify.state.track?.title || (spotify.state.available ? 'Spotify · Ready' : 'Spotify');
+    } }, { onHold: open }));
+  }
 
   /* ---------- the TV ---------- */
 
@@ -600,9 +618,34 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     const bubble = h('div.bubble');
     const powerBtn = h('button.mini-power', { 'aria-label': 'TV power', onclick: (e) => { e.stopPropagation(); tvPower(t.id); } }, icon('power', 16, 2.2));
     const open = () => openSheet({ kind: 'tv', id: t.id });
+    const readout = h('div.tile-readout', { 'aria-hidden': 'true' });
     const el = h('div.tile.tv', { role: 'button', tabindex: 0 },
-      bubble, h('div.tile-text', name, sub), powerBtn);
-    gestures(el, { tap: () => tvPower(t.id), open });
+      h('div.tile-fill'), bubble, h('div.tile-text', name, sub), powerBtn, readout, h('div.tile-level'));
+    let start, value, max, pending = null, sending = false;
+    async function sendVolume() {
+      if (sending) return;
+      sending = true;
+      try {
+        while (pending !== null) {
+          const level = pending; pending = null;
+          await tv.act(t.id, { action: 'volume', level });
+        }
+      } finally { sending = false; }
+    }
+    const slide = {
+      begin() { const d = tvDevice(t.id); max = d?.volumeMax ?? 100; start = value = d?.volume; },
+      move(dx) {
+        if (!tvDevice(t.id)?.on || !Number.isFinite(start)) return;
+        const next = clamp(Math.round(start + dx / Math.max(40, el.clientWidth) * max), 0, max);
+        if (next === value) return;
+        value = next; haptic('tick');
+        showLevel(el, readout, value / max, `${Math.round(value / max * 100)}%`);
+        pending = value; sendVolume();
+      },
+      end() {},
+      step(dir) { if (tvDevice(t.id)?.on) tv.act(t.id, { action: dir > 0 ? 'volup' : 'voldown' }); },
+    };
+    const touch = gestures(el, { tap: open, open, slide });
     let shownApp;
     return draggable({
       el, cfg: { id: t.id, room: t.room }, kind: 'tv',
@@ -610,6 +653,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
         const d = tvDevice(t.id);
         const on = Boolean(d?.on);
         el.classList.toggle('on', on);
+        el.style.setProperty('--level', String((d?.volume ?? 0) / (d?.volumeMax || 100)));
         el.style.setProperty('--c', on ? glowOf(d.app) : 'var(--warm)');
         name.textContent = tvName(t.id);
         el.setAttribute('aria-label', tvName(t.id));
@@ -624,7 +668,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
         }
         powerBtn.disabled = !tv.state.available;
       },
-    }, { onHold: open });
+    }, { canLift: () => !touch.busy, onHold: open });
   }
 
   // A TV that turns up (or goes) changes the list: lay it out again.
@@ -649,7 +693,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
   // as the plan has them (its ACs, its TV, then its lamps).
   function roomTiles(roomId) {
     const devices = [...tiles.values(), ...tvTiles.values()].filter((t) => t.cfg.room === roomId);
-    const plain = ['ac', 'tv', 'light'].flatMap((kind) => devices.filter((t) => t.kind === kind));
+    const plain = ['ac', 'tv', 'speaker', 'light'].flatMap((kind) => devices.filter((t) => t.kind === kind));
     const rank = new Map(order.map((k, i) => [k, i]));
     return plain.map((t, i) => ({ t, i, r: rank.get(keyOf(t)) ?? Infinity }))
       .sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.t);
@@ -791,7 +835,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     }
     if (!nodes.length) nodes.push(h('div.group-label', 'No devices in this room yet'));
     else if (isPhone && config.lights.some((l) => l.capabilities.length && inScope(l))) {
-      nodes.push(h('div.grid-hint', 'Tap a tile to switch it, slide across it to dim, hold it for everything else, or hold and drag it to move it'));
+      nodes.push(h('div.grid-hint', 'Tap lights to switch; tap AC, TV or speaker for controls. Slide to dim, set temperature or volume. Hold and drag devices or presets to reorder; hold a preset to edit or delete.'));
     }
     grid.classList.toggle('still', still);
     grid.replaceChildren(...nodes);
@@ -818,7 +862,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     const from = ui.sheet;
     sheetView?.dispose?.();
     ui.sheet = target;
-    sheetView = { ac: acSheet, tv: tvSheet, scene: sceneSheet }[target.kind]?.(target.id) || lightSheet(target.id);
+    sheetView = { ac: acSheet, tv: tvSheet, scene: sceneSheet, speaker: speakerSheet }[target.kind]?.(target.id) || lightSheet(target.id);
     sheet.replaceChildren(...sheetView.nodes);
     sheet.classList.toggle('tv', target.kind === 'tv');
     panel.classList.add('hidden');
@@ -827,11 +871,15 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     sheet.inert = false;
     card.classList.add('detail');
     hideTooltip();
-    if (target.kind === 'scene') onFocus(ui.room === 'all' ? null : { kind: 'room', id: ui.room });
+    if (target.kind === 'speaker') {
+      const item = config.furniture.find((f) => f.type === 'speaker' && (f.device || 'spotify') === target.id);
+      onFocus({ kind: 'room', id: roomAt(item?.pos) || config.rooms[0].id });
+    }
+    else if (target.kind === 'scene') onFocus(ui.room === 'all' ? null : { kind: 'room', id: ui.room });
     else onFocus(target.kind === 'ac' || target.kind === 'tv' ? target : { kind: 'room', id: store.lightCfg.get(target.id).room });
     if (!from) homeDetent = deck.detent;
     // The TV's remote and a scene's name and icons want the room; a lamp or the AC sits under its model.
-    deck.set(detent || (target.kind === 'tv' || target.kind === 'scene' ? 'expanded' : 'rest'));
+    deck.set(detent || (['tv', 'scene', 'speaker'].includes(target.kind) ? 'expanded' : 'rest'));
     sheetView.opened?.();
     update();
   }
@@ -857,6 +905,11 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
       h('button.round', { 'aria-label': 'Back', onclick: closeSheet }, icon('back', 19, 2.2)),
       h('div.sheet-title', h('div.sheet-name', name), sub),
       powerBtn);
+  }
+
+  function speakerSheet() {
+    const remote = createSpotifyRemote();
+    return { nodes: [sheetHead('Spotify', h('div.sheet-sub', 'Studio speaker')), remote.el], dispose: remote.stop };
   }
 
   function bigNumber(unit) {
@@ -1028,6 +1081,24 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     let iconName = existing?.icon || 'sparkles';
     let withAC = hadAC;
     let retake = !existing;
+    const tvActions = structuredClone(existing?.tvs || {});
+    const tvIDs = [...new Set([...linkedTvs().map((t) => t.id), ...Object.keys(tvActions)])];
+    const tvOptions = tvIDs.map((deviceID) => {
+      const selected = tvActions[deviceID]?.app || '';
+      const apps = APPS.slice();
+      if (selected && !apps.some((a) => a.id === selected)) apps.push({ id: selected, name: tvActions[deviceID].name || selected });
+      const select = h('select.scene-input', { 'aria-label': `${tvName(deviceID)} app` },
+        h('option', { value: '' }, 'Leave TV unchanged'),
+        apps.map((app) => h('option', { value: app.id }, app.name)));
+      select.value = selected;
+      select.addEventListener('change', () => {
+        const app = apps.find((a) => a.id === select.value);
+        if (app) tvActions[deviceID] = { app: app.id, name: app.name };
+        else delete tvActions[deviceID];
+        sync();
+      });
+      return h('div.scene-tv-choice', h('label', tvName(deviceID)), select);
+    });
     const name = h('input.scene-input', {
       type: 'text', value: existing?.name || '', placeholder: 'Movie night, Reading, Dinner…', maxlength: 32,
       autocomplete: 'off', autocapitalize: 'words', enterkeyhint: 'done', spellcheck: false, 'aria-label': 'Scene name',
@@ -1066,6 +1137,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
         parts.push(hadAC && !retake ? 'its AC settings' : config.acs.length > 1 ? 'the ACs as they are'
           : a.on ? `the AC at ${a.target}° on ${MODE_LABEL[a.mode]}` : 'the AC off');
       }
+      for (const [deviceID, action] of Object.entries(tvActions)) parts.push(`${action.name || action.app} on ${tvName(deviceID)}`);
       what.replaceChildren(icon('sparkles', 16), h('span', `Saves ${parts.join(' and ')}.`));
     }
 
@@ -1074,7 +1146,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
       if (!label) { name.classList.add('invalid'); name.focus(); haptic('error'); return; }
       const lights = retake ? captureLights() : existing.lights;
       const acs = !withAC ? {} : retake || !hadAC ? captureAcs() : existing.acs;
-      const scene = { id: existing?.id || newSceneId(label), name: label, icon: iconName, lights, acs };
+      const scene = { ...existing, id: existing?.id || newSceneId(label), name: label, icon: iconName, lights, acs, tvs: tvActions };
       haptic('success');
       commitScenes(existing ? config.scenes.map((x) => (x.id === existing.id ? scene : x)) : [...config.scenes, scene]);
       // Made from the lights as they are: that is the scene they are in now.
@@ -1090,6 +1162,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
           h('div.field-label', h('span', 'Name')), name,
           h('div.field-label', h('span', 'Icon')), h('div.scene-icons', iconButtons),
           acChip || retakeChip ? h('div.scene-toggles', retakeChip, acChip) : null,
+          tvOptions.length ? h('div.scene-tv-actions', h('div.field-label', 'TV apps'), ...tvOptions) : null,
           what, del),
       ],
       // On a phone the keyboard would cover the icons: there the name is tapped when wanted.
@@ -1239,6 +1312,8 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     } else if (hit.kind === 'tv') {
       const d = tvDevice(hit.id);
       name = tvName(hit.id); status = tvStatus(hit.id); on = Boolean(d?.on); color = glowOf(d?.app);
+    } else if (hit.kind === 'speaker') {
+      name = 'Studio speaker'; status = spotify.state.track?.title || 'Spotify'; on = Boolean(spotify.state.playing); color = '#85d7b3';
     } else {
       const cfg = store.acCfg.get(hit.id);
       const s = state.acs[hit.id];
@@ -1311,7 +1386,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     for (const t of tiles.values()) t.update();
     for (const t of tvTiles.values()) t.update();
     for (const head of heads.values()) head.update();
-    sheetView?.update();
+    sheetView?.update?.();
     const m = css(mood());
     card.style.setProperty('--mood', m);
   }
@@ -1334,6 +1409,8 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     if (!closeSheet()) onMenu(null, 'escape');
   };
   window.addEventListener('keydown', onKey);
+
+  const unsubscribeSpotify = config.furniture.some((f) => f.type === 'speaker') ? spotify.subscribe(() => update()) : () => {};
 
   layoutTiles();
   update();
@@ -1383,12 +1460,14 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
       window.removeEventListener('keydown', onKey);
       unsubscribe();
       unsubscribeTv();
+      unsubscribeSpotify();
       offTheme();
       offFrame?.();
       layoutRO.disconnect();
       deck.dispose();
       clearTimeout(themeHint.timer);
       reorder.cancel();
+      sceneReorder.cancel();
       sheetView?.dispose?.();
       clearTimeout(toastEl.timer);
     },

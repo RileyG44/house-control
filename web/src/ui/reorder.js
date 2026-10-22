@@ -48,7 +48,7 @@ export function flip(els, mutate, { duration = FLIP_MS, easing = FLIP_EASE } = {
  * `onOrder(keys, el)`: a group's tiles were put in a new order (its keys, top to bottom).
  * `announce(text)`: words for a screen reader after a move made with the keyboard.
  */
-export function createReorder({ grid, scroller, onOrder, announce, hold = HOLD }) {
+export function createReorder({ grid, scroller, onOrder, announce, hold = HOLD, selector = '.tile', axis = 'y' }) {
   let press = null;   // a press that may become a lift: { el, opts, id, x, y, lx, ly, timer }
   let drag = null;    // the lifted tile
   let zone = null;    // the lifted tile's group, softly lit behind it
@@ -68,7 +68,7 @@ export function createReorder({ grid, scroller, onOrder, announce, hold = HOLD }
     let cur = [];
     const all = [cur];
     for (const c of grid.children) {
-      if (c.classList.contains('group-label')) { cur = []; all.push(cur); } else if (c.classList.contains('tile')) cur.push(c);
+      if (c.classList.contains('group-label')) { cur = []; all.push(cur); } else if (c.matches(selector)) cur.push(c);
     }
     return all.find((g) => g.includes(el)) || [el];
   }
@@ -122,8 +122,9 @@ export function createReorder({ grid, scroller, onOrder, announce, hold = HOLD }
   function attach(el, opts = {}) {
     el.addEventListener('pointerdown', (ev) => {
       if (drag || ev.button !== 0 || !ev.isPrimary) return;
+      if (ev.target.closest('button') && ev.target.closest('button') !== el) return;
       cancelPress();
-      press = { el, opts, id: ev.pointerId, x: ev.clientX, y: ev.clientY, lx: ev.clientX, ly: ev.clientY, top: scroller.scrollTop };
+      press = { el, opts, id: ev.pointerId, x: ev.clientX, y: ev.clientY, lx: ev.clientX, ly: ev.clientY, top: axis === 'x' ? scroller.scrollLeft : scroller.scrollTop };
       press.timer = setTimeout(lift, hold);
       el.liftedBy = null;
     });
@@ -168,7 +169,7 @@ export function createReorder({ grid, scroller, onOrder, announce, hold = HOLD }
     const p = press;
     press = null;
     // The list moved meanwhile (a slow scroll): the finger was scrolling, not holding.
-    if (!p || drag || Math.abs(scroller.scrollTop - p.top) > 2 || (p.opts.canLift && !p.opts.canLift())) return;
+    if (!p || drag || Math.abs((axis === 'x' ? scroller.scrollLeft : scroller.scrollTop) - p.top) > 2 || (p.opts.canLift && !p.opts.canLift())) return;
     const { el } = p;
     const group = groupOf(el);
     try { el.setPointerCapture(p.id); } catch { /* the pointer is already gone */ }
@@ -182,7 +183,7 @@ export function createReorder({ grid, scroller, onOrder, announce, hold = HOLD }
     el.classList.remove('pressed');
     el.classList.add('lifted');
     grid.classList.add('reordering');
-    for (const t of grid.querySelectorAll('.tile')) t.classList.toggle('elsewhere', !group.includes(t));
+    for (const t of grid.querySelectorAll(selector)) t.classList.toggle('elsewhere', !group.includes(t));
     labelOf(group)?.classList.add('lit');
     zone = grid.appendChild(document.createElement('div'));
     zone.className = 'reorder-zone';
@@ -227,6 +228,15 @@ export function createReorder({ grid, scroller, onOrder, announce, hold = HOLD }
     const s = scroller.getBoundingClientRect();
     const g = grid.getBoundingClientRect();
     const b = bounds(drag.group);
+    if (axis === 'x') {
+      const dx = drag.px - drag.sx;
+      let v = 0;
+      if (drag.travel >= SLOP && dx < -SLOP && drag.px < s.left + EDGE && g.left + b.left < s.left + 4) v = -Math.min(1, (s.left + EDGE - drag.px) / EDGE);
+      else if (drag.travel >= SLOP && dx > SLOP && drag.px > s.right - EDGE && g.left + b.right > s.right - 4) v = Math.min(1, (drag.px - s.right + EDGE) / EDGE);
+      const before = scroller.scrollLeft;
+      scroller.scrollLeft += v * Math.abs(v) * SCROLL_MAX;
+      return scroller.scrollLeft !== before;
+    }
     const toward = (dir) => drag.travel >= SLOP && (drag.py - drag.sy) * dir > SLOP;
     let v = 0;
     if (drag.py < s.top + EDGE && g.top + b.top < s.top + 4 && toward(-1)) v = -Math.min(1, (s.top + EDGE - drag.py) / EDGE);
@@ -250,7 +260,7 @@ export function createReorder({ grid, scroller, onOrder, announce, hold = HOLD }
     if (inside(own)) return null;
     const others = group.filter((t) => t !== el).map((t) => ({ t, r: slotOf(t) }));
     if (!others.length) return null;
-    const wide = own.w > grid.clientWidth * 0.75;
+    const wide = axis !== 'x' && own.w > grid.clientWidth * 0.75;
     let candidates = others;
     if (wide) {
       // A row: the tiles that share a line count as one.
@@ -266,9 +276,10 @@ export function createReorder({ grid, scroller, onOrder, announce, hold = HOLD }
     const dist = (r) => Math.hypot(Math.max(r.x - c.x, 0, c.x - r.x - r.w), Math.max(r.y - c.y, 0, c.y - r.y - r.h));
     const near = candidates.reduce((a, b) => (dist(b.r) < dist(a.r) ? b : a));
     const r = near.r;
-    const full = wide || r.w > grid.clientWidth * 0.75;
+    const full = axis !== 'x' && (wide || r.w > grid.clientWidth * 0.75);
     let after;
-    if (c.y < r.y) after = false;
+    if (axis === 'x') after = c.x > r.x + r.w / 2;
+    else if (c.y < r.y) after = false;
     else if (c.y > r.y + r.h) after = true;
     else after = full ? c.y > r.y + r.h / 2 : c.x > r.x + r.w / 2;
     const list = group.filter((t) => t !== el);
@@ -299,7 +310,7 @@ export function createReorder({ grid, scroller, onOrder, announce, hold = HOLD }
       a.onfinish = a.oncancel = () => el.classList.remove('settling');
     }
     grid.classList.remove('reordering');
-    for (const t of grid.querySelectorAll('.tile.elsewhere')) t.classList.remove('elsewhere');
+    for (const t of grid.querySelectorAll(selector)) t.classList.remove('elsewhere');
     for (const l of grid.querySelectorAll('.group-label.lit')) l.classList.remove('lit');
     const z = zone;
     zone = null;

@@ -1,6 +1,28 @@
 import SwiftUI
 import UIKit
 
+extension Font {
+    static func house(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .custom("Urbanist-Regular", size: size, relativeTo: .body).weight(weight)
+    }
+}
+
+/// The launcher's teal field and softly highlighted glass, adapted for both appearances.
+struct LauncherField: View {
+    var card = false
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        ZStack {
+            Color.stage
+            RadialGradient(colors: [Color(hex: "#347d74").opacity(scheme == .dark ? 0.45 : 0.16), .clear],
+                           center: .topLeading, startRadius: 0, endRadius: card ? 480 : 800)
+            RadialGradient(colors: [Color(hex: "#8e8b51").opacity(scheme == .dark ? 0.22 : 0.12), .clear],
+                           center: .bottomTrailing, startRadius: 0, endRadius: 600)
+        }
+        .overlay(alignment: .top) { if card { Rectangle().fill(Color.ink.opacity(0.14)).frame(height: 1) } }
+    }
+}
+
 /// Light, dark or the system's (Auto), cycled by the card's appearance button and kept on this
 /// phone. The colours are the asset catalog's sets, which mirror the tokens at the top of
 /// web/src/style.css (any / dark appearances).

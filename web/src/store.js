@@ -1,4 +1,5 @@
 import { post, call, controlsDevices } from './bridge.js';
+import { tv } from './tv/client.js';
 
 const STORAGE_KEY = 'house-control:state:v1';
 
@@ -217,13 +218,16 @@ export function createStore(config) {
         const patch = { ...(scene.acs['*'] || {}), ...(scene.acs[id] || {}) };
         if (Object.keys(patch).length) writeAC(id, patch);
       }
+      for (const [id, action] of Object.entries(scene.tvs || {})) {
+        if (typeof action?.app === 'string' && action.app) tv.act(id, { action: 'open', app: action.app, name: action.name || action.app });
+      }
       state.scene = sceneId;
       emit({ type: 'bulk', scene: sceneId });
     },
 
     /** The lights are in `sceneId` now (it was just made from them): marked, nothing sent. */
     markScene(sceneId) {
-      if (state.scene === sceneId || !config.scenes.some((s) => s.id === sceneId)) return;
+      if (state.scene === sceneId || (sceneId !== null && !config.scenes.some((s) => s.id === sceneId))) return;
       state.scene = sceneId;
       emit({ type: 'bulk', scene: sceneId });
     },

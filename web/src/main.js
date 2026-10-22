@@ -246,7 +246,7 @@ function mountHome(raw, { first = false, editing: underEditor = false, grown = f
         if (mini && (!device || same)) { haptic('tick'); panel.deck.set('rest'); return; }
         if (!target) return;
         if (target.kind === 'light') { haptic('light'); store.toggleLight(target.id); }
-        else if ((target.kind === 'ac' || target.kind === 'tv') && !same) panel.openSheet(target);
+        else if (['ac', 'tv', 'speaker'].includes(target.kind) && !same) panel.openSheet(target);
         else if (target.kind === 'room') panel.selectRoom(target.id);
       },
     });

@@ -107,6 +107,7 @@ const DRAW = {
     return [rect(-w / 2, -d / 2, w, d, 0.04), line(-w / 2 + 0.04, d / 2 - 0.08, w / 2 - 0.04, d / 2 - 0.08), line(-w / 2 + 0.1, d / 2 - 0.02, -w / 2 + 0.1, d / 2 + 0.03, 'strong')];
   },
   nightstand(item, [w, d]) { return [rect(-w / 2, -d / 2, w, d, 0.04), circle(0, -0.02, 0.09, 'soft')]; },
+  speaker() { return [circle(0, 0, 0.085), circle(0, 0, 0.06, 'soft')]; },
   plant() {
     const parts = [circle(0, 0, 0.22, 'soft')];
     for (let i = 0; i < 7; i++) {

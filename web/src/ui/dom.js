@@ -85,6 +85,8 @@ export function openMenu(host, anchor, items, { onClose } = {}) {
   const close = () => {
     if (closed) return;
     closed = true;
+    menu.inert = true;
+    menu.setAttribute('aria-hidden', 'true');
     document.removeEventListener('pointerdown', outside, true);
     document.removeEventListener('keydown', onKey, true);
     menu.classList.add('closing');

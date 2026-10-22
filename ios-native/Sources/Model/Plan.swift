@@ -110,6 +110,7 @@ struct SceneConfig: Sendable, Identifiable {
     var icon: String
     var lights: [String: LightPatch]
     var acs: [String: JSON]
+    var tvs: [String: JSON]
 }
 
 /// Where the home is (docs/landscape-weather.md): the real sun, moon and weather over it, and the
@@ -251,7 +252,7 @@ struct Plan: Sendable {
             var lights: [String: LightPatch] = [:]
             for (k, v) in s["lights"]?.object ?? [:] { lights[k] = LightPatch(json: v) }
             return SceneConfig(id: id, name: s["name"]?.string ?? id, icon: s["icon"]?.string ?? "sun",
-                               lights: lights, acs: s["acs"]?.object ?? [:])
+                               lights: lights, acs: s["acs"]?.object ?? [:], tvs: s["tvs"]?.object ?? [:])
         }
 
         var seen = Set<String>()

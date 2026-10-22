@@ -1,3 +1,5 @@
+@font-face { font-family: Urbanist; src: url('/fonts/Urbanist.ttf') format('truetype'); font-weight: 100 900; font-display: swap; }
+
 @property --mood {
   syntax: '<color>';
   inherits: true;
@@ -10,7 +12,7 @@
    island are dark only); ui/theme.js sets data-theme on the panel's page. */
 
 :root {
-  --bg: #0a0e1a;
+  --bg: #071617;
   --text: #f3f5fa;
   --muted: rgba(222, 230, 247, 0.6);
   --faint: rgba(222, 230, 247, 0.36);
@@ -22,11 +24,12 @@
   --well: rgba(0, 0, 0, 0.36);
   --well-line: rgba(255, 255, 255, 0.05);
   --tick: rgba(255, 255, 255, 0.13);
-  --accent: #3d8bff;
-  --accent-hi: #4a8ef5;
-  --accent-soft: rgba(61, 139, 255, 0.18);
-  --accent-line: rgba(120, 175, 255, 0.36);
-  --accent-ink: #a9cbff;
+  --accent: #dcebe2;
+  --accent-on: #13282a;
+  --accent-hi: #f5f5f7;
+  --accent-soft: rgba(185, 226, 206, 0.16);
+  --accent-line: rgba(214, 238, 225, 0.36);
+  --accent-ink: #d6eee1;
   --warm: #ffb46b;
   --warm-ink: #2a1a05;
   --idle: rgba(255, 255, 255, 0.25);
@@ -34,7 +37,7 @@
   --shadow: rgba(0, 0, 0, 0.5);
 
   /* The card, and what floats over it (tooltips, menus, toasts). */
-  --deck: #121828;
+  --deck: rgba(12, 31, 32, 0.88);
   --deck-edge: rgba(255, 255, 255, 0.09);
   --deck-shadow: 0 -14px 40px -16px rgba(0, 0, 0, 0.7);
   --grabber: rgba(255, 255, 255, 0.24);
@@ -67,9 +70,9 @@
   --halo: color-mix(in srgb, var(--accent) 55%, #fff); /* the direction pad's light */
   --widget-bg: linear-gradient(180deg, rgba(16, 21, 38, 0.97), rgba(9, 12, 23, 0.97));
   --body-bg:
-    radial-gradient(90% 70% at 20% 0%, #5b6f8f 0%, transparent 60%),
-    radial-gradient(80% 80% at 90% 100%, #6e5a4a 0%, transparent 60%),
-    #2b3140;
+    radial-gradient(90% 70% at 20% 0%, #216260 0%, transparent 60%),
+    radial-gradient(80% 80% at 90% 100%, #7a7844 0%, transparent 60%),
+    #071617;
 
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -78,7 +81,7 @@
 
 /* Light: warm white, like paper in daylight; on tiles take a warm tint of their colour. */
 :root[data-theme='light'] {
-  --bg: #f1ece4;
+  --bg: #edf3ef;
   --text: #1b2030;
   --muted: rgba(27, 32, 48, 0.64);
   --faint: rgba(27, 32, 48, 0.44);
@@ -90,18 +93,19 @@
   --well: rgba(27, 32, 48, 0.08);
   --well-line: rgba(27, 32, 48, 0.07);
   --tick: rgba(27, 32, 48, 0.16);
-  --accent: #2b78f0;
-  --accent-hi: #1f6be0;
+  --accent: #22695e;
+  --accent-on: #ffffff;
+  --accent-hi: #185e55;
   --accent-soft: rgba(43, 120, 240, 0.11);
   --accent-line: rgba(43, 120, 240, 0.38);
-  --accent-ink: #1e62cf;
+  --accent-ink: #185e55;
   --warm: #f59a3c;
   --warm-ink: #ffffff;
   --idle: rgba(27, 32, 48, 0.24);
   --knob: #ffffff;
   --shadow: rgba(70, 52, 30, 0.22);
 
-  --deck: #fbf9f6;
+  --deck: rgba(244, 249, 245, 0.92);
   --deck-edge: rgba(255, 255, 255, 0.95);
   --deck-shadow: 0 -10px 34px -14px rgba(80, 60, 30, 0.3), 0 0 0 0.5px rgba(27, 32, 48, 0.08);
   --grabber: rgba(27, 32, 48, 0.2);
@@ -150,7 +154,7 @@ html, body {
   height: 100%;
   margin: 0;
   overflow: hidden;
-  font-family: -apple-system, 'SF Pro Text', 'Inter', system-ui, sans-serif;
+  font-family: Urbanist, -apple-system, system-ui, sans-serif;
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   user-select: none;
@@ -328,7 +332,7 @@ html.electron .top { display: block; position: absolute; inset: 0 0 auto 0; heig
   height: calc(100% - var(--exp-top));
   display: flex;
   flex-direction: column;
-  border-radius: 28px 28px 0 0;
+  border-radius: 36px 36px 0 0;
   background: var(--deck);
   box-shadow: var(--deck-shadow), 0 1px 0 0 var(--deck-edge) inset;
   transform: translate3d(0, var(--rest-top), 0);
@@ -383,7 +387,7 @@ html.glass .deck { background: color-mix(in srgb, var(--deck) 95%, transparent);
   flex: none;
 }
 .home { flex: 1; min-width: 0; }
-.home-name { font-size: 17px; font-weight: 700; letter-spacing: -0.015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.home-name { font-size: 23px; font-weight: 300; letter-spacing: -0.015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .home-sub { margin-top: 2px; font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .home-sub b { color: var(--text); font-weight: 600; }
 .live { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 8px #4ade80; flex: none; }
@@ -408,7 +412,7 @@ html.glass .deck { background: color-mix(in srgb, var(--deck) 95%, transparent);
 .power.on {
   background: var(--accent);
   border-color: rgba(255, 255, 255, 0.14);
-  color: #fff;
+  color: var(--accent-on);
   box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--accent) 80%, transparent);
 }
 @media (hover: hover) { .power.on:hover { background: var(--accent-hi); } }
@@ -465,42 +469,49 @@ html.glass .deck { background: color-mix(in srgb, var(--deck) 95%, transparent);
 
 /* As many as fit share the row; more (scenes made on a screen) scroll sideways. */
 .scenes {
-  display: flex; gap: 8px;
+  display: block;
   margin: 16px -14px 0; padding: 0 14px; flex: none;
   overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; touch-action: pan-x;
 }
 .scenes::-webkit-scrollbar { display: none; }
+.scene-track { position: relative; display: flex; gap: 10px; width: max-content; min-width: 100%; padding: 5px 0 8px; }
 
 .scene {
   position: relative;
-  height: 62px;
-  border-radius: 18px;
+  height: 78px;
+  border-radius: 26px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font-size: 11.5px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 400;
   color: var(--muted);
-  background: var(--glass);
-  border: 1px solid var(--line);
+  background: transparent;
+  border: 0;
   transition: transform 300ms var(--spring), background 220ms, color 220ms, border-color 220ms, box-shadow 300ms;
 }
 @media (hover: hover) { .scene:hover { background: var(--glass-hi); color: var(--text); } }
 .scene:active { transform: scale(0.94); }
 .scene.active {
   color: var(--text);
-  background: var(--accent-soft);
-  border-color: var(--accent-line);
+  background: transparent;
 }
-.scene.active .icon { color: var(--accent-ink); }
-.scene { flex: 1 0 64px; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; min-width: 0; padding: 0 4px; }
+.scene > .icon { width: 46px; height: 46px; padding: 12px; border-radius: 50%; background: var(--glass-hi); border: 1px solid var(--line); }
+.scene.active > .icon { color: var(--bg); background: var(--text); }
+.scene { flex: 0 0 76px; width: 76px; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; min-width: 0; padding: 0 4px; touch-action: pan-x; }
+.scene.lifted { z-index: 6; scale: 1.08; transition: none; filter: drop-shadow(0 8px 12px var(--shadow)); }
+.scene-track.reordering .scene { touch-action: none; }
 .scene-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Held: it sinks a little while the menu is on its way. */
 .scene.holding { transform: scale(0.95); transition: transform 450ms var(--ease); }
 .scene.menu-open { background: var(--glass-hi); color: var(--text); }
 .scene-add { flex: 0 0 52px; border-style: dashed; color: var(--faint); background: transparent; }
+.scene-tv-actions { margin-top: 18px; }
+.scene-tv-choice { display: grid; gap: 8px; margin-top: 12px; }
+.scene-tv-choice label { font-size: 13px; color: var(--muted); }
+.scene-input option { color: var(--text); background: var(--bg); }
 @media (hover: hover) { .scene-add:hover { color: var(--text); } }
 
 /* Making or editing a scene (panel.js sceneSheet) */
@@ -528,8 +539,8 @@ html.glass .deck { background: color-mix(in srgb, var(--deck) 95%, transparent);
 .scene-toggle { width: 100%; text-align: left; }
 .scene-toggle .grow { flex: 1; }
 .scene-what { margin-top: 14px; }
-.pill.scene-save { height: 34px; padding: 0 16px; font-size: 13px; background: var(--accent); color: #fff; border-color: transparent; }
-@media (hover: hover) { .pill.scene-save:hover { background: var(--accent-hi); color: #fff; } }
+.pill.scene-save { height: 34px; padding: 0 16px; font-size: 13px; background: var(--accent); color: var(--accent-on); border-color: transparent; }
+@media (hover: hover) { .pill.scene-save:hover { background: var(--accent-hi); color: var(--accent-on); } }
 .scene-delete {
   display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 44px; margin-top: 16px;
   border-radius: 15px; font-size: 13px; font-weight: 650; color: var(--danger-ink);
@@ -653,7 +664,7 @@ html.glass .deck { background: color-mix(in srgb, var(--deck) 95%, transparent);
 /* Putting the rooms in order: one row per room */
 .tile.room-row { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; height: 56px; min-height: 0; padding: 0 16px; cursor: grab; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .room-grip { display: inline-flex; color: var(--muted); }
-.list-head .pill.done { display: none; background: var(--accent); color: #fff; border-color: transparent; }
+.list-head .pill.done { display: none; background: var(--accent); color: var(--accent-on); border-color: transparent; }
 .card.arranging .list-head .pill.bulk { display: none; }
 .card.arranging .list-head .pill.done { display: inline-flex; align-items: center; justify-content: center; }
 
@@ -663,7 +674,7 @@ html.glass .deck { background: color-mix(in srgb, var(--deck) 95%, transparent);
   --c: var(--warm);
   position: relative;
   height: 68px;
-  border-radius: 20px;
+  border-radius: 26px;
   padding: 0 12px;
   display: flex;
   align-items: center;
@@ -697,7 +708,7 @@ html.glass .deck { background: color-mix(in srgb, var(--deck) 95%, transparent);
 
 .bubble {
   flex: none;
-  width: 38px; height: 38px; border-radius: 13px;
+  width: 40px; height: 40px; border-radius: 50%;
   display: grid; place-items: center;
   color: var(--muted);
   background: var(--fill);
@@ -710,7 +721,7 @@ html.glass .deck { background: color-mix(in srgb, var(--deck) 95%, transparent);
 .tile.ac.on .bubble { color: #06162c; }
 
 .tile-text { flex: 1; min-width: 0; }
-.tile-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile-name { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile-sub { margin-top: 2px; font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .tile.on .tile-sub { color: color-mix(in srgb, var(--c) 55%, var(--on-sub)); }
 
@@ -887,7 +898,7 @@ html.glass .deck { background: color-mix(in srgb, var(--deck) 95%, transparent);
 
 .sheet-head { display: flex; align-items: center; gap: 10px; flex: none; padding-top: 18px; }
 .sheet-title { flex: 1; min-width: 0; }
-.sheet-name { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sheet-name { font-size: 23px; font-weight: 300; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sheet-sub { margin-top: 1px; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
 .sheet-sub b { color: var(--text); font-weight: 600; }
 
@@ -982,7 +993,7 @@ html.glass .deck { background: color-mix(in srgb, var(--deck) 95%, transparent);
   position: relative;
   height: 96px;
   padding: 12px 11px;
-  border-radius: 20px;
+  border-radius: 26px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -1102,7 +1113,7 @@ html.ios .deck-head .power { width: 50px; height: 50px; }
 
 html.ios .panel { padding: 0 14px; }
 html.ios .sheet { padding: 0 18px; }
-html.ios .scene { height: 68px; border-radius: 20px; font-size: 12.5px; }
+html.ios .scene { height: 68px; border-radius: 26px; font-size: 12.5px; }
 html.ios .room { height: 38px; padding: 0 8px 0 15px; font-size: 14px; }
 html.ios .room .count { min-width: 22px; height: 22px; border-radius: 11px; font-size: 12px; }
 html.ios .list-head { font-size: 13px; margin: 12px 4px 10px; }
@@ -1111,9 +1122,9 @@ html.ios .devices { padding-bottom: calc(var(--safe-bottom) + 18px); }
 html.ios .sheet-scroll { margin: 6px -18px 0; padding: 8px 18px calc(var(--safe-bottom) + 22px); }
 html.ios .grid { gap: 10px; }
 html.ios .group-label { font-size: 11.5px; margin-top: 10px; }
-html.ios .tile { height: 76px; border-radius: 22px; padding: 0 13px; }
+html.ios .tile { height: 76px; border-radius: 26px; padding: 0 13px; }
 html.ios .reorder-zone { border-radius: 28px; }
-html.ios .bubble { width: 42px; height: 42px; border-radius: 14px; }
+html.ios .bubble { width: 42px; height: 42px; border-radius: 50%; }
 html.ios .tile-name { font-size: 14.5px; }
 html.ios .tile-sub { font-size: 12.5px; }
 html.ios .grid-hint { grid-column: 1 / -1; margin: 10px 18px 0; text-align: center; font-size: 12.5px; line-height: 1.4; color: var(--faint); transition: opacity 220ms; }
@@ -1146,7 +1157,7 @@ html.ios .pad { height: 132px; border-radius: 18px; }
 html.ios .swatch { height: 36px; border-radius: 12px; }
 html.ios .swatches { margin-top: 12px; }
 html.ios .sheet-note { font-size: 13px; }
-html.ios .menu { min-width: 190px; border-radius: 20px; }
+html.ios .menu { min-width: 190px; border-radius: 26px; }
 html.ios .menu button { height: 46px; font-size: 15px; border-radius: 14px; }
 html.ios .menu button:active { background: var(--fill); color: var(--text); }
 html.ios .panel-toast { bottom: calc(var(--safe-bottom) + 14px); font-size: 13.5px; }
@@ -1204,7 +1215,7 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
   --menu: rgba(15, 21, 38, 0.9);
   --menu-on: rgba(70, 130, 255, 0.28);
   --menu-on-ink: #ffffff;
-  --accent-ink: #a9cbff;
+  --accent-ink: #d6eee1;
   --shadow: rgba(0, 0, 0, 0.5);
   color-scheme: dark;
   color: var(--text);
@@ -1263,7 +1274,7 @@ html.ios .fatal { margin: calc(env(safe-area-inset-top, 0px) + 20px) 16px 0; wid
 /* Now playing: artwork, title, a slider through it, back / play-pause / ahead */
 .tv-np {
   --glow: #7aa2ff;
-  margin-top: 4px; padding: 12px 12px 8px; border-radius: 20px;
+  margin-top: 4px; padding: 12px 12px 8px; border-radius: 26px;
   background:
     radial-gradient(120% 100% at 0% 0%, color-mix(in srgb, var(--glow) 13%, transparent), transparent 62%),
     var(--glass);
@@ -1634,3 +1645,23 @@ html.ios .tv-result-title { font-size: 15px; }
 html.ios .tv-result-sub, html.ios .tv-result-note { font-size: 12.5px; }
 html.ios .tv-offer { width: 36px; height: 36px; border-radius: 11px; }
 html.ios .tv-extra-row { min-height: 50px; font-size: 14px; }
+
+/* The same round controls and generous glass radii as Living Room on the TV. */
+.tile.speaker { grid-column: 1 / -1; cursor: pointer; }
+.tile.tv { touch-action: pan-y; }
+.spotify-remote { display: flex; flex-direction: column; align-items: stretch; gap: 16px; padding-top: 18px; padding-bottom: 32px; }
+.spotify-cover { width: min(64%, 240px); aspect-ratio: 1; align-self: center; position: relative; }
+.spotify-art { width: 100%; height: 100%; border-radius: 30px; object-fit: cover; }
+.spotify-placeholder { display: grid; place-items: center; color: var(--muted); background: linear-gradient(150deg, rgba(120, 192, 172, .22), var(--glass)); }
+.spotify-art[hidden], .spotify-note[hidden], .spotify-actions [hidden] { display: none; }
+.spotify-title { font-size: 28px; font-weight: 300; text-align: center; line-height: 1.1; }
+.spotify-artist { text-align: center; color: var(--muted); font-size: 15px; }
+.spotify-transport { display: flex; align-items: center; justify-content: center; gap: 30px; padding: 6px 0; }
+.spotify-transport .round { width: 48px; height: 48px; }
+.spotify-transport .spotify-play { width: 70px; height: 70px; color: var(--bg); background: var(--text); }
+.spotify-slider { width: 100%; accent-color: var(--accent); height: 32px; margin: 0; cursor: pointer; touch-action: none; }
+.spotify-times { display: flex; justify-content: center; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.spotify-volume { display: flex; align-items: center; gap: 14px; color: var(--muted); }
+.spotify-output-hint { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 0; }
+.spotify-actions { display: flex; justify-content: center; gap: 12px; }
+.spotify-remote button:disabled, .spotify-remote input:disabled { opacity: .35; cursor: default; }

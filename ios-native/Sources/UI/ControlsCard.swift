@@ -13,6 +13,7 @@ struct ControlsCard: View {
                     case .light(let id): LightPage(id: id)
                     case .ac(let id): ACPage(id: id)
                     case .tv(let id): TVRemotePage(id: id)
+                    case .speaker: SpotifyPage()
                     case .scene(let id): ScenePage(id: id)
                     case .settings: SettingsPage()
                     }
@@ -43,7 +44,7 @@ struct HomeCard: View {
                         let tiles = store.tiles(in: room.id)
                         if !tiles.isEmpty { RoomSection(room: room, tiles: tiles) }
                     }
-                    Text("Tap a tile to switch it, slide across it to dim or set the temperature. Hold and let go for its page; hold and drag to move it.")
+                    Text("Tap a light to switch it, or AC and TV to open controls. Slide to dim, set temperature or volume. Hold and drag devices or presets to reorder; hold a preset to edit or delete.")
                         .font(.footnote)
                         .foregroundStyle(Color.faint)
                         .frame(maxWidth: .infinity)
@@ -79,7 +80,7 @@ struct CardHeader: View {
         HStack(alignment: .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(store.plan.name)
-                    .font(.title2.weight(.bold))
+                    .font(.house(26, weight: .light))
                     .foregroundStyle(Color.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -144,7 +145,7 @@ struct CardHeader: View {
                         Image(systemName: "power")
                             .font(.system(size: 22, weight: .bold))
                             .frame(width: 38, height: 38)
-                            .foregroundStyle(store.anyOn ? Color.white : Color.ink)
+                            .foregroundStyle(store.anyOn ? Color.stage : Color.ink)
                     }
                     .buttonStyle(.glassProminent)
                     .buttonBorderShape(.circle)
@@ -198,65 +199,6 @@ struct CardHeader: View {
             guard !Task.isCancelled else { return }
             withAnimation(.smooth) { themeNote = nil }
         }
-    }
-}
-
-/// The plan's scenes, one tap each; held, one can be edited or deleted; + makes a new one.
-struct ScenesRow: View {
-    @Environment(HomeStore.self) private var store
-    @Environment(CardModel.self) private var card
-
-    var body: some View {
-        ScrollView(.horizontal) {
-            GlassEffectContainer(spacing: 8) {
-                HStack(spacing: 8) {
-                    ForEach(store.plan.scenes) { s in
-                        let active = store.scene == s.id
-                        Button {
-                            Haptics.medium()
-                            store.applyScene(s.id)
-                        } label: {
-                            VStack(spacing: 5) {
-                                Image(systemName: sceneSymbol(s.icon))
-                                    .font(.system(size: 18, weight: .medium))
-                                Text(s.name)
-                                    .font(.footnote.weight(.semibold))
-                                    .lineLimit(1)
-                            }
-                            .frame(minWidth: 62)
-                            .padding(.vertical, 6)
-                            .foregroundStyle(active ? Color.white : Color.ink)
-                        }
-                        .buttonStyle(active ? AnyPrimitiveButtonStyle(.glassProminent) : AnyPrimitiveButtonStyle(.glass))
-                        .buttonBorderShape(.roundedRectangle(radius: 16))
-                        .contextMenu {
-                            Button("Edit", systemImage: "pencil") { card.open(.scene(s.id)) }
-                            Button("Delete", systemImage: "trash", role: .destructive) {
-                                Haptics.medium()
-                                withAnimation(.snappy) { store.deleteScene(s.id) }
-                            }
-                        }
-                    }
-                    Button {
-                        Haptics.light()
-                        card.open(.scene(nil))
-                    } label: {
-                        VStack(spacing: 5) {
-                            Image(systemName: "plus").font(.system(size: 18, weight: .semibold))
-                            Text("New").font(.footnote.weight(.semibold))
-                        }
-                        .frame(minWidth: 52)
-                        .padding(.vertical, 6)
-                        .foregroundStyle(Color.ink)
-                    }
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.roundedRectangle(radius: 16))
-                    .accessibilityLabel("New scene")
-                }
-            }
-        }
-        .scrollIndicators(.hidden)
-        .scrollClipDisabled()
     }
 }
 

@@ -72,7 +72,7 @@ public struct LocalHubClient: Sendable {
     /// of the hub has its own native calls.
     public static func allows(path: String) -> Bool {
         let path = path.hasPrefix("/") ? String(path.dropFirst()) : path
-        if path == "api/weather" { return true }
+        if path == "api/weather" || path == "api/spotify" { return true }
         guard path == "api/tv" || path.hasPrefix("api/tv/") || path.hasPrefix("api/tv?") else { return false }
         return !path.contains("..") && !path.contains("#") && !path.contains("\\")
     }

@@ -74,6 +74,13 @@ function doorLines(width, height, y, z, count, material) {
 }
 
 const builders = {
+  speaker() {
+    return group(
+      at(cyl(0.075, 0.085, 0.115, mat('#303a3b', { rough: 1 }), 32), 0, 0.008, 0),
+      at(cyl(0.072, 0.072, 0.008, mat('#192526', { rough: 0.6 }), 32), 0, 0.123, 0),
+      at(cyl(0.084, 0.084, 0.005, mat('#65d6c5', { rough: 0.4 }), 32), 0, 0.004, 0),
+    );
+  },
   rug({ size = [2, 1.4], color = '#3b4a66' }) {
     const g = group(
       at(box(size[0], 0.016, size[1], mat(color, { rough: 1 }), { r: 0.006 }), 0, 0, 0),
@@ -550,6 +557,7 @@ export const FURNITURE_TYPES = Object.keys(builders);
 export function footprint(item) {
   const w = item.width;
   switch (item.type) {
+    case 'speaker': return [0.18, 0.18];
     case 'rug': return item.size || [2, 1.4];
     case 'sofa': return [w || 2.2, 0.95];
     case 'armchair': return [0.92, 0.88];
@@ -591,6 +599,7 @@ export const BASE_Y = { microwave: 0.9, closetRod: 1.75 };
 export function buildFurniture(items) {
   const root = new THREE.Group();
   root.userData.tvs = [];
+  root.userData.speakers = [];
   for (const [index, item] of items.entries()) {
     const make = builders[item.type];
     if (!make || !Array.isArray(item.pos)) {
@@ -601,6 +610,13 @@ export function buildFurniture(items) {
     if (g.userData.screen) root.userData.tvs.push({ index, item, group: g, screen: g.userData.screen, box: new THREE.Box3().setFromObject(g) });
     g.position.set(item.pos[0], item.y ?? BASE_Y[item.type] ?? 0, item.pos[1]);
     g.rotation.y = THREE.MathUtils.degToRad(item.rot || 0);
+    if (item.type === 'speaker') {
+      const hit = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.26, 0.28), new THREE.MeshBasicMaterial({ visible: false }));
+      hit.position.y = 0.1;
+      hit.userData = { kind: 'speaker', id: item.device || 'spotify' };
+      g.add(hit);
+      root.userData.speakers.push(hit);
+    }
     const flat = g.userData.flat;
     g.traverse((o) => {
       if (o.isMesh) { o.castShadow = !flat; o.receiveShadow = true; }

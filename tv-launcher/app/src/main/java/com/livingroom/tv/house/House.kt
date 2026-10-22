@@ -50,6 +50,7 @@ data class Scene(
     val icon: String,
     val lights: Map<String, JSONObject>,
     val acs: Map<String, JSONObject>,
+    val tvs: Map<String, JSONObject> = emptyMap(),
 )
 
 data class LightState(val on: Boolean, val brightness: Float, val temp: Int?, val color: String?)
@@ -263,6 +264,16 @@ class HouseRepository(private val prefs: Prefs) {
             if (patch.length() > 0) setAc(ac, patch, byScene = true)
         }
         _scene.value = scene.id
+        for ((id, action) in scene.tvs) {
+            val app = action.optString("app").takeIf { it.isNotBlank() } ?: continue
+            scope.launch(Dispatchers.IO) {
+                runCatching {
+                    val reply = JSONObject(post("/api/tv/${java.net.URLEncoder.encode(id, "UTF-8")}",
+                        JSONObject().put("action", "open").put("app", app).put("name", action.optString("name", app))))
+                    reply.optString("error").takeIf { it.isNotBlank() }?.let { _errors.tryEmit(it) }
+                }.onFailure { _errors.tryEmit("The TV app could not be opened.") }
+            }
+        }
     }
 
     private fun sanitize(light: HouseLight, p: JSONObject): JSONObject {
@@ -436,6 +447,7 @@ class HouseRepository(private val prefs: Prefs) {
                     icon = s.optString("icon"),
                     lights = s.optJSONObject("lights").children(),
                     acs = s.optJSONObject("acs").children(),
+                    tvs = s.optJSONObject("tvs").children(),
                 )
             }
             return House(plan.optString("name", "Home"), lights, acs, scenes, rooms)

@@ -65,7 +65,7 @@ function need(cond, msg) {
  */
 export function normalizeScenes(list) {
   return list.filter((s) => typeof s?.id === 'string' && s.id).map((s) => ({
-    id: s.id, name: s.name || s.id, icon: s.icon || 'sun', lights: s.lights || {}, acs: s.acs || {},
+    id: s.id, name: s.name || s.id, icon: s.icon || 'sun', lights: s.lights || {}, acs: s.acs || {}, tvs: s.tvs || {},
   }));
 }
 

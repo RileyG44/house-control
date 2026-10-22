@@ -39,7 +39,7 @@ struct ACFeatures: Equatable, Sendable {
 
 /// A tile of the card: a lamp, an AC or a TV, by its name in `tileOrder`.
 struct Tile: Identifiable, Equatable {
-    enum Kind { case light, ac, tv }
+    enum Kind { case light, ac, tv, speaker }
     var kind: Kind
     var id: String          // "studio.door", "studio.ac", "tv:79519fff"
     var deviceID: String    // the lamp's, the AC's or the TV's own id
@@ -61,6 +61,7 @@ struct Toast: Equatable, Identifiable {
 final class HomeStore {
     let hub: HubClient
     let tv: TVStore
+    let spotify: SpotifyStore
     private(set) var plan: Plan
     /// Bumped when the model itself changes (not only the order of tiles or rooms).
     private(set) var modelRev = 0
@@ -80,6 +81,7 @@ final class HomeStore {
 
     @ObservationIgnored private var outbox: [String: Outbox] = [:]
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    @ObservationIgnored private var saveVersion = 0
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     @ObservationIgnored private var planTask: Task<Void, Never>?
     /// Whether the plan shown came from the hub in this session (only such a plan is saved back,
@@ -96,6 +98,7 @@ final class HomeStore {
     init(hub: HubClient) {
         self.hub = hub
         self.tv = TVStore(hub: hub)
+        self.spotify = SpotifyStore(hub: hub)
         let cached = (try? Data(contentsOf: Self.cacheURL)).flatMap { try? Plan(data: $0) }
         plan = cached ?? Plan.bundled()
         adoptPlan(plan, first: true)
@@ -209,7 +212,10 @@ final class HomeStore {
         let acs = plan.acs.filter { $0.room == room }.map { Tile(kind: .ac, id: $0.id, deviceID: $0.id, room: room) }
         let tvs = tvTiles.filter { $0.room == room }
         let lamps = plan.lights.filter { $0.room == room }.map { Tile(kind: .light, id: $0.id, deviceID: $0.id, room: room) }
-        let plain = acs + tvs + lamps
+        let speakers = plan.furniture.filter { $0.type == "speaker" && plan.roomAt($0.pos) == room }
+            .map { Tile(kind: .speaker, id: "speaker:\($0.device ?? "spotify")", deviceID: $0.device ?? "spotify", room: room) }
+        let uniqueSpeakers = speakers.reduce(into: [Tile]()) { out, tile in if !out.contains(where: { $0.id == tile.id }) { out.append(tile) } }
+        let plain = acs + tvs + uniqueSpeakers + lamps
         let rank = Dictionary(tileOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
         return plain.enumerated().sorted { a, b in
             let ra = rank[a.element.id] ?? Int.max, rb = rank[b.element.id] ?? Int.max
@@ -252,29 +258,35 @@ final class HomeStore {
 
     /// Saves the plan with the new order 0.7 s after the last move (savePlan, like the web panel).
     private func saveSoon() {
+        saveVersion += 1
+        let version = saveVersion
         saveTask?.cancel()
         saveTask = Task {
             try? await Task.sleep(for: .milliseconds(700))
             guard !Task.isCancelled else { return }
             if !planFresh {
                 guard let next = try? await hub.plan() else {
+                    guard version == saveVersion else { return }
                     show("The change wasn’t saved: the hub can’t be reached", error: true)
                     saveTask = nil
                     return
                 }
+                guard !Task.isCancelled, version == saveVersion else { return }
                 planFresh = true
                 adoptPlan(next, first: false)   // keeps the order shown here (a save is under way)
             }
             let config = plan.saving(tileOrder: tileOrder, roomOrder: roomOrder, scenes: localScenes)
             do {
                 _ = try await hub.post("api/call", .object(["type": .string("savePlan"), "config": config, "client": .string(hub.clientID)]))
+                guard !Task.isCancelled, version == saveVersion else { return }
                 if let saved = try? Plan(json: config) { plan = saved }
                 localScenes = nil
             } catch {
+                guard !Task.isCancelled, version == saveVersion else { return }
                 show("The change wasn’t saved: \(error.localizedDescription)", error: true)
                 Haptics.error()
             }
-            saveTask = nil
+            if version == saveVersion { saveTask = nil }
         }
     }
 
@@ -352,6 +364,10 @@ final class HomeStore {
             for (k, v) in s.acs[a.id]?.object ?? [:] { patch[k] = v }
             if !patch.isEmpty { writeAC(a.id, patch, remote: false) }
         }
+        for (deviceID, action) in s.tvs {
+            guard let app = action["app"]?.string, !app.isEmpty else { continue }
+            Task { await tv.act(deviceID, ["action": .string("open"), "app": .string(app), "name": action["name"] ?? .string(app)]) }
+        }
         scene = id
     }
 
@@ -385,7 +401,7 @@ final class HomeStore {
     /// Saves a new scene (`id` nil) or changes one; `capture`: take what the lamps (and the AC,
     /// with `includeAC`) do now, otherwise keep what the scene already sets.
     @discardableResult
-    func saveScene(id: String?, name: String, icon: String, capture: Bool, includeAC: Bool) -> String {
+    func saveScene(id: String?, name: String, icon: String, capture: Bool, includeAC: Bool, tvs: [String: JSON] = [:]) -> String {
         var list = plan.scenesJSON
         let index = id.flatMap { i in list.firstIndex { $0["id"]?.string == i } }
         var entry: [String: JSON] = index.flatMap { list[$0].object } ?? [:]
@@ -393,6 +409,7 @@ final class HomeStore {
         entry["id"] = .string(sceneID)
         entry["name"] = .string(name.isEmpty ? "Scene" : name)
         entry["icon"] = .string(icon)
+        entry["tvs"] = tvs.isEmpty ? nil : .object(tvs)
         if capture || index == nil {
             entry["lights"] = captureLights()
             entry["acs"] = includeAC && !plan.acs.isEmpty ? captureACs() : nil
@@ -410,6 +427,13 @@ final class HomeStore {
     func deleteScene(_ id: String) {
         setScenes(plan.scenesJSON.filter { $0["id"]?.string != id })
         if scene == id { scene = nil }
+    }
+
+    func reorderScenes(_ ids: [String]) {
+        let entries = plan.scenesJSON
+        let byID = Dictionary(entries.compactMap { entry in entry["id"]?.string.map { ($0, entry) } }, uniquingKeysWith: { first, _ in first })
+        guard Set(ids) == Set(byID.keys), ids.count == byID.count else { return }
+        setScenes(ids.compactMap { byID[$0] })
     }
 
     private func setScenes(_ list: [JSON]) {

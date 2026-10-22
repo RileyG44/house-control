@@ -12,7 +12,7 @@ struct HomeScreen: View {
         GeometryReader { geo in
             let _ = CardMetrics.update(size: geo.size, insets: geo.safeAreaInsets)
             ZStack(alignment: .top) {
-                Color.stage.ignoresSafeArea()
+                LauncherField().ignoresSafeArea()
                 StageView(size: CGSize(width: geo.size.width, height: geo.size.height + geo.safeAreaInsets.top + geo.safeAreaInsets.bottom),
                           safeTop: geo.safeAreaInsets.top)
                     .ignoresSafeArea()
@@ -26,6 +26,8 @@ struct HomeScreen: View {
                 .presentationDetents([.rest, .expanded], selection: $card.detent)
                 .presentationBackgroundInteraction(.enabled(upThrough: .expanded))
                 .presentationDragIndicator(.visible)
+                .presentationCornerRadius(36)
+                .presentationBackground { LauncherField(card: true) }
                 .interactiveDismissDisabled()
                 .sensoryFeedback(.selection, trigger: card.detent)
                 .onChange(of: card.detent) { card.detentChanged() }

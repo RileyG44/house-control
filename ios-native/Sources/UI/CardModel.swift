@@ -55,6 +55,7 @@ enum Route: Hashable {
     case light(String)
     case ac(String)
     case tv(String)
+    case speaker(String)
     case scene(String?)      // nil: a new one
     case settings
 }
@@ -110,7 +111,7 @@ final class CardModel {
         switch path.last {
         case .tv?: detent = .expanded
         case .light?, .ac?: detent = .rest
-        case .settings?, .scene?: detent = .expanded
+        case .settings?, .scene?, .speaker?: detent = .expanded
         case nil: detent = homeDetent
         }
     }

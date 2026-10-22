@@ -126,6 +126,9 @@ struct StageView: View {
             guard !id.isEmpty else { return }
             Haptics.light()
             card.open(.tv(id))
+        case .speaker(let id):
+            Haptics.light()
+            card.open(.speaker(id))
         }
     }
 

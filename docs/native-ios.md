@@ -260,8 +260,8 @@ What is where:
   search).
 - `Sources/Scene/`: the RealityKit model built from the plan once per plan (house, all 30 furniture
   builders, merged into one mesh per material), lamps with their glow and a real light each (RealityKit's
-  eight, the moon included), the AC's LED, flap and a wash of the mode's colour (the moving air streaks of
-  the web are a soft translucent fan here), the TV's picture drawn from the app logos (`ImageRenderer`)
+  eight, the moon included), the AC’s LED, flap and moving airflow streaks (fan speed and swing follow the unit,
+  and low vents skim above the floor), the TV's picture drawn from the app logos (`ImageRenderer`)
   with a 0.3 s cross-fade, image-based light blended between the dark and light looks, the camera rig of
   world.js (orbit, pinch, room / AC focus, the 0.7 s fly to 0.9 m in front of the TV with the near plane
   pushed past what stands between). The card's progress scales and moves the full-screen `RealityView`

@@ -10,17 +10,17 @@ struct TileBackground: View {
 
     var body: some View {
         let light = scheme == .light
-        RoundedRectangle(cornerRadius: 20, style: .continuous)
+        RoundedRectangle(cornerRadius: 26, style: .continuous)
             .fill(on ? Color.onBase : Color.tile)
             .overlay {
                 if on {
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
                         .fill(RadialGradient(colors: [tint.opacity((light ? 0.22 : 0.26) + level * 0.16), tint.opacity(light ? 0.07 : 0.04)],
                                              center: UnitPoint(x: 0.1, y: 0.5), startRadius: 4, endRadius: 190))
                 }
             }
             .overlay {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
                     .strokeBorder(on ? tint.opacity(light ? 0.46 : 0.28) : Color.line, lineWidth: 1)
             }
             .shadow(color: on && light ? tint.opacity(0.18) : .clear, radius: 10, y: 4)
@@ -33,7 +33,7 @@ struct Bubble: View {
     var tint: Color
     var body: some View {
         Image(systemName: symbol)
-            .font(.system(size: 17, weight: .semibold))
+            .font(.system(size: 18, weight: .regular))
             .foregroundStyle(on ? Color(hex: "#241503") : Color.ink)
             .frame(width: 40, height: 40)
             .background(Circle().fill(on ? tint : Color.fill))
@@ -59,7 +59,7 @@ struct LightTile: View {
             Bubble(symbol: lampSymbol(cfg.type, plug: cfg.capabilities.isEmpty), on: s.on, tint: tint)
             VStack(alignment: .leading, spacing: 2) {
                 Text(cfg.name)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.house(16))
                     .foregroundStyle(Color.ink)
                     .lineLimit(1)
                 Text(status)
@@ -77,11 +77,11 @@ struct LightTile: View {
                 TileBackground(on: s.on, tint: tint, level: s.brightness)
                 // The level as a fill across the tile (stronger while sliding).
                 if cfg.dimmable && s.on {
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
                         .fill(tint.opacity(slide != nil ? 0.26 : 0.1))
                         .frame(width: max(0, width * level))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
                 }
             }
         }
@@ -96,7 +96,7 @@ struct LightTile: View {
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = max(40, $0) }
-        .contentShape(RoundedRectangle(cornerRadius: 20))
+        .contentShape(RoundedRectangle(cornerRadius: 26))
         .onTapGesture(perform: toggle)
         .gesture(SlideGesture(onBegin: {
             guard cfg.dimmable else { return }
@@ -131,7 +131,7 @@ struct LightTile: View {
     }
 }
 
-/// The AC's tile: a tap switches it, a slide sideways sets the temperature (a degree every 24 pt,
+/// The AC's tile: a tap opens its controls, a slide sideways sets the temperature (a degree every 24 pt,
 /// shown big while sliding); held and let go it opens the AC's page.
 struct ACTile: View {
     let cfg: ACConfig
@@ -145,7 +145,7 @@ struct ACTile: View {
         HStack(spacing: 10) {
             Bubble(symbol: modeSymbols[s.mode] ?? "air.conditioner.horizontal", on: s.on, tint: tint)
             VStack(alignment: .leading, spacing: 2) {
-                Text(cfg.name).font(.subheadline.weight(.semibold)).foregroundStyle(Color.ink).lineLimit(1)
+                Text(cfg.name).font(.house(16)).foregroundStyle(Color.ink).lineLimit(1)
                 Text("\(s.on ? modeNames[s.mode] ?? s.mode : "Off") · Room \(Int(s.roomTemp.rounded()))°")
                     .font(.footnote).foregroundStyle(Color.muted).lineLimit(1)
             }
@@ -155,7 +155,7 @@ struct ACTile: View {
                     .accessibilityLabel("Cooler")
                     .opacity(slide == nil ? 1 : 0)
                 Text("\(slide?.value ?? s.target)°")
-                    .font(slide != nil ? .system(size: 30, weight: .bold, design: .rounded) : .title3.weight(.semibold))
+                    .font(slide != nil ? .system(size: 30, weight: .bold, design: .rounded) : .house(24, weight: .light))
                     .monospacedDigit()
                     .contentTransition(.numericText(value: Double(slide?.value ?? s.target)))
                     .frame(minWidth: 44)
@@ -175,11 +175,11 @@ struct ACTile: View {
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(TileBackground(on: s.on, tint: tint))
-        .contentShape(RoundedRectangle(cornerRadius: 20))
+        .contentShape(RoundedRectangle(cornerRadius: 26))
         .onTapGesture {
             guard TileGuard.allowsTap else { return }
-            Haptics.medium()
-            store.setAC(cfg.id, ["on": .bool(!s.on)])
+            Haptics.light()
+            onOpen()
         }
         .gesture(SlideGesture(onBegin: {
             TileGuard.lifted = true
@@ -231,6 +231,8 @@ struct TVTile: View {
     let tile: Tile
     var onOpen: () -> Void
     @Environment(HomeStore.self) private var store
+    @State private var width: CGFloat = 340
+    @State private var slide: (start: Int, value: Int, max: Int)?
 
     var body: some View {
         let tv = store.tv
@@ -251,7 +253,7 @@ struct TVTile: View {
                 Bubble(symbol: "tv", on: on, tint: tint)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(d?.name ?? "TV").font(.subheadline.weight(.semibold)).foregroundStyle(Color.ink).lineLimit(1)
+                Text(d?.name ?? "TV").font(.house(16)).foregroundStyle(Color.ink).lineLimit(1)
                 Text(title.map { "\(status) · \($0)" } ?? status)
                     .font(.footnote).foregroundStyle(Color.muted).lineLimit(1)
             }
@@ -270,9 +272,45 @@ struct TVTile: View {
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(TileBackground(on: on, tint: tint))
-        .contentShape(RoundedRectangle(cornerRadius: 20))
-        .onTapGesture { if TileGuard.allowsTap { power() } }
+        .contentShape(RoundedRectangle(cornerRadius: 26))
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = max(40, $0) }
+        .onTapGesture { if TileGuard.allowsTap { Haptics.light(); onOpen() } }
+        .overlay(alignment: .bottomLeading) {
+            if on, let v = slide?.value ?? d?.volume {
+                Capsule().fill(tint.opacity(0.7))
+                    .frame(width: max(0, (width - 28) * CGFloat(v) / CGFloat(max(1, d?.volumeMax ?? 100))), height: 3)
+                    .padding(.horizontal, 14).padding(.bottom, 6)
+            }
+        }
+        .overlay(alignment: .trailing) {
+            if let slide {
+                Text("\(Int((Double(slide.value) / Double(slide.max) * 100).rounded()))%")
+                    .font(.title2.weight(.light)).monospacedDigit()
+                    .padding(12).background(.regularMaterial, in: Capsule()).padding(.trailing, 54)
+                    .allowsHitTesting(false)
+            }
+        }
+        .gesture(SlideGesture(onBegin: {
+            guard let d = tv.device(tile.deviceID), d.on, d.online, let v = d.volume else { return }
+            TileGuard.lifted = true
+            slide = (v, v, max(1, d.volumeMax ?? 100))
+        }, onChange: { dx in
+            guard let sl = slide else { return }
+            let value = min(sl.max, max(0, sl.start + Int((Double(dx / width) * Double(sl.max)).rounded())))
+            guard value != sl.value else { return }
+            Haptics.tick()
+            slide?.value = value
+            tv.setVolume(tile.deviceID, level: value)
+        }, onEnd: {
+            if slide != nil { TileGuard.lifted = false; TileGuard.droppedAt = Date() }
+            slide = nil
+        }))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { onOpen() }
         .accessibilityAction(named: "Remote") { onOpen() }
+        .accessibilityAdjustableAction { dir in
+            if d?.on == true { tv.act(tile.deviceID, action: dir == .increment ? "volup" : "voldown") }
+        }
     }
 
     private func power() {

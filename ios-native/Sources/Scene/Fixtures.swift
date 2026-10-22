@@ -6,7 +6,7 @@ import simd
 
 /// Names that a tap in the model resolves to: "pick:light:<id>", "pick:ac:<id>", "pick:tv:<id>".
 enum Pick: Equatable {
-    case light(String), ac(String), tv(String)
+    case light(String), ac(String), tv(String), speaker(String)
 
     init?(name: String) {
         let parts = name.split(separator: ":", maxSplits: 2).map(String.init)
@@ -15,6 +15,7 @@ enum Pick: Equatable {
         case "light": self = .light(parts[2])
         case "ac": self = .ac(parts[2])
         case "tv": self = .tv(parts[2])
+        case "speaker": self = .speaker(parts[2])
         default: return nil
         }
     }
@@ -195,14 +196,17 @@ final class LampUnit {
 // MARK: - the air conditioner
 
 /// A wall-mounted AC: its LED, its flap and a soft wash of the mode's colour when it runs
-/// (web/src/three/ac.js; the moving streaks of air are left out).
+/// (web/src/three/ac.js), with moving streaks that follow fan speed and swing.
 @MainActor
 final class ACUnit {
     let cfg: ACConfig
     let root = Entity()
     private let flapPivot = Entity()
     private var led: ModelEntity?
-    private var air: ModelEntity?
+    private let air = Entity()
+    private var streaks: [ModelEntity] = []
+    private var flowPhase: Float = 0
+    private var fan = "auto"
     private let wash = Entity()
     private var power: Float = 0
     private var goal: Float = 0
@@ -236,22 +240,17 @@ final class ACUnit {
         flapPivot.position = SIMD3(0, -0.145, 0.03)
         for e in f.entities() { e.components.set(ImageBasedLightReceiverComponent(imageBasedLight: ibl)); flapPivot.addChild(e) }
         body.addChild(flapPivot)
-        // The air: a faint fan of the mode's colour spreading down from the flap.
-        var g = Geo()
-        let reach: Float = 1.6
-        g.positions = [SIMD3(-0.4, 0, 0), SIMD3(0.4, 0, 0), SIMD3(1.0, -reach * 0.55, reach * 0.85), SIMD3(-1.0, -reach * 0.55, reach * 0.85)]
-        g.normals = Array(repeating: SIMD3(0, 1, 0), count: 4)
-        g.uvs = [[0, 0], [1, 0], [1, 1], [0, 1]]
-        g.indices = [0, 1, 2, 0, 2, 3]
-        var batch = MeshBatch()
-        batch.add(positions: g.positions, normals: g.normals, uvs: g.uvs, indices: g.indices, transform: matrix_identity_float4x4)
-        if let mesh = try? batch.resource() {
-            let e = ModelEntity(mesh: mesh, materials: [UnlitMaterial(color: .clear)])
-            e.position = SIMD3(0, -0.17, 0.15)
-            e.isEnabled = false
-            body.addChild(e)
-            air = e
+        // Reuse a small pool of meshes. Updating transforms avoids allocating or uploading a
+        // new mesh every frame, and the air reads from either side of the cut-away model.
+        let streakMesh = MeshResource.generateBox(size: SIMD3(0.012, 0.006, 1))
+        air.position = SIMD3(0, -0.17, 0.15)
+        air.isEnabled = false
+        for _ in 0..<48 {
+            let streak = ModelEntity(mesh: streakMesh, materials: [UnlitMaterial(color: .clear)])
+            air.addChild(streak)
+            streaks.append(streak)
         }
+        body.addChild(air)
         root.addChild(body)
         wash.position = SIMD3(0, -0.5, 0.75)
         var c = PointLightComponent(color: .white, intensity: 0, attenuationRadius: 3.4)
@@ -265,6 +264,7 @@ final class ACUnit {
         goal = s.on ? 1 : 0
         goalColor = RGB(hex: modeColors[s.mode] ?? "#5db2ff")
         swing = s.swing
+        fan = s.fan
         if instant { power = goal; color = goalColor }
     }
 
@@ -287,16 +287,30 @@ final class ACUnit {
                 m.emissiveIntensity = power * 3
                 led.model?.materials = [m]
             }
-            if let air {
-                var m = UnlitMaterial(color: UIColor(rgb: color))
-                m.blending = .transparent(opacity: 1.0)
-                m.faceCulling = .none
-                air.model?.materials = [m]
-            }
+            var material = UnlitMaterial(color: UIColor(rgb: color))
+            material.blending = .transparent(opacity: 0.7)
+            for streak in streaks { streak.model?.materials = [material] }
         }
-        if let air {
-            air.isEnabled = power > 0.01
-            if power > 0.01 { air.components.set(OpacityComponent(opacity: (0.1 + 0.05 * sin(clock * 2.2)) * power)) }
+        air.isEnabled = power > 0.01
+        if air.isEnabled {
+            flowPhase = (flowPhase + dt * Airflow.speed(fan)).truncatingRemainder(dividingBy: 1)
+            let floor = 0.025 - (Float(cfg.y) + air.position.y)
+            for (i, streak) in streaks.enumerated() {
+                let seed = (Float(i) * 0.618034).truncatingRemainder(dividingBy: 1)
+                let t = (flowPhase + seed).truncatingRemainder(dividingBy: 1)
+                let lane = Float(i % 13) / 6 - 1
+                let a = Airflow.point(max(0, t - 0.045), lane: lane, angle: angle, time: clock, phase: seed * 9, floor: floor)
+                let b = Airflow.point(t, lane: lane, angle: angle, time: clock, phase: seed * 9, floor: floor)
+                let delta = b - a
+                let length = simd_length(delta)
+                streak.isEnabled = length > 0.0001
+                if streak.isEnabled {
+                    streak.position = (a + b) / 2
+                    streak.orientation = simd_quatf(from: SIMD3(0, 0, 1), to: delta / length)
+                    streak.scale = SIMD3(1, 1, length)
+                    streak.components.set(OpacityComponent(opacity: sin(t * .pi) * power))
+                }
+            }
         }
         if hasLight, var c = wash.components[PointLightComponent.self] {
             c.color = UIColor(rgb: color)

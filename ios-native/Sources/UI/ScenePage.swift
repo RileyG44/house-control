@@ -12,6 +12,7 @@ struct ScenePage: View {
     @State private var capture = true
     @State private var loaded = false
     @State private var confirmDelete = false
+    @State private var tvActions: [String: JSON] = [:]
     @FocusState private var naming: Bool
 
     private var existing: SceneConfig? { id.flatMap { i in store.plan.scenes.first { $0.id == i } } }
@@ -31,8 +32,8 @@ struct ScenePage: View {
                             Image(systemName: sceneSymbol(i))
                                 .font(.system(size: 18, weight: .medium))
                                 .frame(maxWidth: .infinity, minHeight: 40)
-                                .foregroundStyle(icon == i ? Color.white : Color.ink)
-                                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(icon == i ? Color.accentColor : Color.fill))
+                                .foregroundStyle(icon == i ? Color.stage : Color.ink)
+                                .background(Circle().fill(icon == i ? Color.ink : Color.fill))
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(i)
@@ -73,6 +74,27 @@ struct ScenePage: View {
                     }
                 }
             }
+            if !store.tvTiles.isEmpty || !tvActions.isEmpty {
+                Section {
+                    ForEach(Array(Set(store.tvTiles.map(\.deviceID) + Array(tvActions.keys))).sorted(), id: \.self) { deviceID in
+                        Picker(store.tv.device(deviceID)?.name ?? "TV", selection: Binding(
+                            get: { tvActions[deviceID]?["app"]?.string ?? "" },
+                            set: { appID in
+                                if appID.isEmpty { tvActions[deviceID] = nil }
+                                else {
+                                    let name = TVCatalog.apps.first { $0.id == appID }?.name ?? appID
+                                    tvActions[deviceID] = .object(["app": .string(appID), "name": .string(name)])
+                                }
+                            })) {
+                            Text("Leave unchanged").tag("")
+                            ForEach(TVCatalog.apps, id: \.id) { app in Text(app.name).tag(app.id) }
+                            if let app = tvActions[deviceID]?["app"]?.string, !TVCatalog.apps.contains(where: { $0.id == app }) {
+                                Text(tvActions[deviceID]?["name"]?.string ?? app).tag(app)
+                            }
+                        }
+                    }
+                } header: { Text("TV apps") } footer: { Text("Opens the selected app when you use this preset.") }
+            }
             if let id {
                 Section {
                     Button("Delete scene", role: .destructive) { confirmDelete = true }
@@ -92,10 +114,11 @@ struct ScenePage: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Save", systemImage: "checkmark") {
                     Haptics.success()
-                    store.saveScene(id: id, name: name.trimmingCharacters(in: .whitespaces), icon: icon, capture: capture, includeAC: includeAC)
+                    store.saveScene(id: id, name: name.trimmingCharacters(in: .whitespaces), icon: icon, capture: capture, includeAC: includeAC, tvs: tvActions)
                     card.path = []
                 }
                 .buttonStyle(.glassProminent)
+                .foregroundStyle(Color.stage)
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
@@ -107,6 +130,7 @@ struct ScenePage: View {
                 icon = sceneIcons.contains(s.icon) ? s.icon : "sparkles"
                 includeAC = !s.acs.isEmpty
                 capture = false
+                tvActions = s.tvs
             } else {
                 naming = true
             }

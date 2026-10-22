@@ -96,7 +96,7 @@ export function createWorld(canvas, config, store, { onHover, onPick, background
   // Every TV piece shows the real TV it is linked to (tv/client.js), or stays dark.
   const tvs = furniture.userData.tvs.map((piece) => new TvUnit(piece, { anisotropy: renderer.capabilities.getMaxAnisotropy() }));
   const hitTargets = [...[...lights.values()].map((u) => u.hit), ...[...acs.values()].map((u) => u.hit),
-    ...tvs.map((u) => u.hit), ...house.floors];
+    ...tvs.map((u) => u.hit), ...furniture.userData.speakers, ...house.floors];
 
   // Night-time ambience: enough to read the model with every lamp off (or daylight, `setTheme`).
   const hemi = new THREE.HemisphereLight(0x8ea6ff, 0x0b0e17, 0.42);
