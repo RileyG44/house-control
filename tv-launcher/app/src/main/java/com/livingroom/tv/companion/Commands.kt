@@ -20,6 +20,7 @@ import kotlin.math.abs
 /** Phone → TV commands. Each one is an intent ("open Netflix"), never a scripted chain of key presses. */
 object Commands {
     private val main = Handler(Looper.getMainLooper())
+    private const val NETFLIX = "com.netflix.ninja"
 
     fun run(context: Context, cmd: JSONObject): JSONObject {
         val ok = when (cmd.optString("type")) {
@@ -113,6 +114,12 @@ object Commands {
         if (url.isBlank() || pkg.isBlank()) return false
         val uri = runCatching { Uri.parse(url) }.getOrNull()?.takeIf { it.scheme == "https" || it.scheme == "http" } ?: return false
         val intent = Intent(Intent.ACTION_VIEW, uri).setPackage(pkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (pkg == NETFLIX) {
+            // What Netflix's own Android TV links carry (JustWatch's deeplinkURL, and ~/tv-remote):
+            // without source=30 a title link can land on the catalog instead of the title. Fixed
+            // values, never extras taken from a link.
+            intent.putExtra("source", "30").addFlags(Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+        }
         if (intent.resolveActivity(context.packageManager) == null) return false
         ProfilePicker.arm(pkg, launched = true)
         return runCatching { context.startActivity(intent) }.isSuccess
