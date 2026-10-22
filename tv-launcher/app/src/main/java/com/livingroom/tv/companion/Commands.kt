@@ -34,6 +34,8 @@ object Commands {
             "seek" -> cmd.has("positionMs") && onMain { MediaWatcher.seekTo(cmd.optLong("positionMs")) }
             "launch" -> onMain { Graph.apps.launch(cmd.optString("pkg")) }
             "open" -> onMain { open(context, cmd.optString("url"), cmd.optString("pkg")) }
+            // One of the apps' own recommendations this launcher read from the TV provider.
+            "recommendation" -> onMain { Graph.recommendations.open(context, cmd.optString("id")) }
             "resume" -> {
                 val entry = Graph.history.entries.value.firstOrNull { it.id == cmd.optString("id") }
                 entry != null && onMain { Graph.apps.launch(entry.pkg) }
@@ -101,12 +103,13 @@ object Commands {
         if (awake(context)) RemoteInputService.sleep() else showHome(context)
 
     /**
-     * Opens [url] (a title's page, from House Control's search) in the app [pkg] and nowhere
-     * else. The hub checks the link belongs to that app before it asks. False when the app has
-     * nothing that opens it. Started like [com.livingroom.tv.apps.AppsRepository.launch]: the
-     * accessibility service lets the launcher start activities while it is in the background.
+     * Opens [url] (a title's page, from House Control's search or the Home catalog rows) in the
+     * app [pkg] and nowhere else. The hub checks the link belongs to that app before it asks.
+     * False when the app has nothing that opens it. Started like
+     * [com.livingroom.tv.apps.AppsRepository.launch]: the accessibility service lets the launcher
+     * start activities while it is in the background. Call on the main thread.
      */
-    private fun open(context: Context, url: String, pkg: String): Boolean {
+    fun open(context: Context, url: String, pkg: String): Boolean {
         if (url.isBlank() || pkg.isBlank()) return false
         val uri = runCatching { Uri.parse(url) }.getOrNull()?.takeIf { it.scheme == "https" || it.scheme == "http" } ?: return false
         val intent = Intent(Intent.ACTION_VIEW, uri).setPackage(pkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

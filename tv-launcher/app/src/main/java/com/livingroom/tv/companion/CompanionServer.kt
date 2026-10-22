@@ -16,9 +16,9 @@ import java.net.NetworkInterface
 /**
  * The launcher's API on port 8686, for House Control's hub and its iPhone app.
  * GET /api/state   long-poll for TV state (?since=rev)
- * POST /api/cmd    {type: key|primary|media|seek|launch|open|resume|text|submit|volume|mute|power|wake|sleep}
+ * POST /api/cmd    {type: key|primary|media|seek|launch|open|resume|recommendation|text|submit|volume|mute|power|wake|sleep}
  * POST /api/wallpaper        raw image bytes (JPEG/PNG/HEIC); /api/wallpaper/clear removes it
- * POST /api/settings         {name?, profile?, location?: {lat, lon, place?, country?} | null}
+ * POST /api/settings         {name?, profile?, hub?: "http://host:port", location?: {lat, lon, place?, country?} | null}
  * Every /api call must carry the pairing token (?k= or X-LR-Key).
  *
  * The iPhone app pairs without the QR code:
@@ -95,12 +95,19 @@ class CompanionServer(
                 hub.ownerName.value = prefs.ownerName
             }
             if (body.has("profile")) prefs.profile = body.optString("profile")
+            // Where the streaming catalog comes from: read again from there at once.
+            val hubOk = !body.has("hub") || Prefs.cleanHubUrl(body.optString("hub")) != null
+            if (body.has("hub") && hubOk) {
+                prefs.hubUrl = body.optString("hub")
+                Graph.catalog.refreshSoon()
+            }
             if (body.has("location")) {
                 prefs.location = body.optJSONObject("location")
                 Graph.weather.refreshSoon(Graph.scope)
             }
             hub.bump()
-            json(JSONObject().put("ok", true))
+            if (hubOk) json(JSONObject().put("ok", true))
+            else json(JSONObject().put("ok", false).put("error", "hub"), Response.Status.BAD_REQUEST)
         }
         "/api/cmd" -> {
             val files = HashMap<String, String>()

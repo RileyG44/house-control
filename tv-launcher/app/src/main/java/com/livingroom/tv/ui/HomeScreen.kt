@@ -25,7 +25,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -72,6 +74,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.livingroom.tv.Graph
 import com.livingroom.tv.apps.TvApp
+import com.livingroom.tv.catalog.CatalogTile
 import com.livingroom.tv.companion.FocusInfo
 import com.livingroom.tv.history.HistoryStore
 import com.livingroom.tv.history.WatchEntry
@@ -80,6 +83,8 @@ import kotlinx.coroutines.delay
 sealed interface Focus {
     data class Title(val entry: WatchEntry) : Focus
     data class App(val app: TvApp) : Focus
+    /** A title in one of the streaming catalog's rows ([row] is the row's name). */
+    data class Tile(val tile: CatalogTile, val row: String) : Focus
     data object Other : Focus
 }
 
@@ -96,6 +101,12 @@ fun HomeRoot() {
     val continueItems = remember(entries) { HistoryStore.continueList(entries) }
     var overlay by remember { mutableStateOf<Overlay?>(null) }
     var focus by remember { mutableStateOf<Focus>(Focus.Other) }
+    val catalog by Graph.catalog.catalog.collectAsState()
+    val hiddenTitles by Graph.catalog.hidden.collectAsState()
+    val shelves = remember(catalog, hiddenTitles) { shelvesOf(catalog, hiddenTitles) }
+    // Hold OK on a poster: its menu, and the poster to come back to when it closes.
+    var menuFor by remember { mutableStateOf<CatalogTile?>(null) }
+    var lastPoster by remember { mutableStateOf<FocusRequester?>(null) }
 
     // Keep the focused title's progress live as history updates.
     val liveFocus = (focus as? Focus.Title)?.let { f ->
@@ -104,6 +115,9 @@ fun HomeRoot() {
 
     LaunchedEffect(liveFocus) { Graph.hub.focus.value = liveFocus.toInfo() }
     BackHandler(enabled = overlay != null) { overlay = null }
+    LaunchedEffect(menuFor) {
+        if (menuFor == null) lastPoster?.let { delay(80); runCatching { it.requestFocus() } }
+    }
 
     val wallpaper by Graph.wallpaper.image.collectAsState()
     Box(Modifier.fillMaxSize().background(Palette.Bg)) {
@@ -114,23 +128,33 @@ fun HomeRoot() {
                 continueItems = continueItems,
                 pinned = pinned,
                 entries = entries,
+                shelves = shelves,
                 focus = liveFocus,
                 onFocus = { focus = it },
+                onPoster = { lastPoster = it },
+                onMenu = { menuFor = it },
                 onOverlay = { overlay = it },
             )
             Overlay.AllApps -> AllAppsOverlay(allApps)
             Overlay.Pair -> PairOverlay(onClose = { overlay = null })
         }
+        menuFor?.let { TileMenu(it, onClose = { menuFor = null }) }
     }
 }
+
+/** How tall the rows under the hero are: Continue and Apps fit, the catalog rows scroll up into it. */
+private val RowsHeight = 292.dp
 
 @Composable
 private fun HomeContent(
     continueItems: List<WatchEntry>,
     pinned: List<TvApp>,
     entries: List<WatchEntry>,
+    shelves: List<Shelf>,
     focus: Focus,
     onFocus: (Focus) -> Unit,
+    onPoster: (FocusRequester) -> Unit,
+    onMenu: (CatalogTile) -> Unit,
     onOverlay: (Overlay) -> Unit,
 ) {
     val context = LocalContext.current
@@ -156,8 +180,14 @@ private fun HomeContent(
         GlancePanel(Modifier.align(Alignment.TopEnd).padding(top = 62.dp, end = 50.dp))
         Hero(focus, entries, Modifier.align(Alignment.TopStart))
 
-        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(bottom = 18.dp)) {
-            if (continueItems.isNotEmpty()) {
+        // Continue and Apps sit at the bottom as before; the catalog rows (one per app's Popular,
+        // Trending and New, after For you) follow, and scroll up as focus moves down to them.
+        LazyColumn(
+            modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth().height(RowsHeight),
+            verticalArrangement = Arrangement.Bottom,
+            contentPadding = PaddingValues(bottom = 18.dp),
+        ) {
+            if (continueItems.isNotEmpty()) item(key = "continue") { Column {
                 RowLabel("Continue")
                 LazyRow(
                     modifier = Modifier.fillMaxWidth().focusRestorer(),
@@ -179,8 +209,8 @@ private fun HomeContent(
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-            }
-            LazyRow(
+            } }
+            item(key = "apps") { LazyRow(
                 modifier = Modifier.fillMaxWidth().focusRestorer(),
                 contentPadding = PaddingValues(horizontal = 48.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(11.dp),
@@ -202,6 +232,17 @@ private fun HomeContent(
                         onClick = { onOverlay(Overlay.AllApps) },
                     )
                 }
+            } }
+            items(shelves, key = { it.key }) { shelf ->
+                ShelfRow(
+                    shelf = shelf,
+                    onFocus = { tile, requester ->
+                        onFocus(Focus.Tile(tile, shelf.title))
+                        onPoster(requester)
+                    },
+                    onMenu = onMenu,
+                    edges = { first, last -> Modifier.rowEdges(first, last) },
+                )
             }
         }
     }
@@ -248,6 +289,8 @@ private fun Wallpaper(bitmap: android.graphics.Bitmap) {
 private fun Focus.backdropKey(): String = when (this) {
     is Focus.Title -> "t:" + entry.id
     is Focus.App -> "a:" + app.pkg
+    // The app (for the glow while the picture loads) and the backdrop's address.
+    is Focus.Tile -> "c:" + tile.pkg.orEmpty() + "\n" + tile.backdrop.orEmpty()
     Focus.Other -> "none"
 }
 
@@ -272,6 +315,10 @@ private fun Backdrop(focus: Focus) {
                 }
             }
             key.startsWith("a:") -> AppGlow(Graph.apps.find(key.removePrefix("a:"))?.color)
+            key.startsWith("c:") -> {
+                val pkg = key.removePrefix("c:").substringBefore("\n")
+                TileBackdrop(key.substringAfter("\n").ifEmpty { null }) { AppGlow(Graph.apps.find(pkg)?.color) }
+            }
             else -> Box(Modifier.fillMaxSize())
         }
     }
@@ -299,6 +346,7 @@ private fun Hero(focus: Focus, entries: List<WatchEntry>, modifier: Modifier) {
         when (focus) {
             is Focus.Title -> TitleHero(focus.entry)
             is Focus.App -> AppHero(focus.app, entries.filter { it.pkg == focus.app.pkg }.take(3))
+            is Focus.Tile -> TileHero(focus.tile, focus.row)
             Focus.Other -> Unit
         }
     }
@@ -534,6 +582,7 @@ private fun Modifier.rowEdges(first: Boolean, last: Boolean): Modifier = onPrevi
 private fun Focus.toInfo(): FocusInfo? = when (this) {
     is Focus.Title -> FocusInfo("continue", entry.title, entry.subtitle, entry.pkg, entry.progress, entry.remainingMin, entry.id)
     is Focus.App -> FocusInfo("app", app.label, null, app.pkg, -1f, -1, null)
+    is Focus.Tile -> FocusInfo("title", tile.title, tile.facts.ifEmpty { null }, tile.pkg, -1f, -1, null)
     Focus.Other -> null
 }
 

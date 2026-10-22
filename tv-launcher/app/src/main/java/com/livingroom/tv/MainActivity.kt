@@ -19,6 +19,8 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         Graph.hub.homeVisible.value = true
         if (Graph.apps.all.value.isEmpty()) Graph.scope.launch(Dispatchers.IO) { Graph.apps.refresh() }
+        Graph.catalog.refreshIfOld()
+        Graph.recommendations.refreshSoon(Graph.scope)
     }
 
     override fun onPause() {

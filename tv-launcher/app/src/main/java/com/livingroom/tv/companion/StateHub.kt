@@ -18,7 +18,7 @@ import org.json.JSONObject
 
 /** What the Home screen has focused, mirrored to the phone's card. */
 data class FocusInfo(
-    val kind: String, // "continue" | "app"
+    val kind: String, // "continue" | "app" | "title" (a streaming catalog title)
     val title: String,
     val subtitle: String?,
     val pkg: String?,
@@ -53,6 +53,7 @@ class StateHub {
         scope.launch {
             merge(
                 Graph.apps.pinned, Graph.history.entries, MediaWatcher.now, MediaWatcher.granted, Graph.wallpaper.image,
+                Graph.recommendations.items,
                 homeVisible, foreground, focus, textField, keysEnabled,
             ).collect { bump() }
         }
@@ -146,6 +147,16 @@ class StateHub {
                     .put("title", e.title).put("subtitle", e.subtitle ?: "")
                     .put("progress", e.progress.toDouble()).put("remainingMin", e.remainingMin)
                     .put("art", if (e.artFile != null) "art/h/${e.id}" else "banner/${e.pkg}"))
+            }
+        })
+
+        // The apps' own picks from the TV provider (catalog/Recommendations.kt); empty when it says no.
+        o.put("recommendations", JSONArray().apply {
+            Graph.recommendations.items.value.take(50).forEach { r ->
+                put(JSONObject()
+                    .put("id", r.id).put("pkg", r.pkg).put("app", apps.label(r.pkg) ?: "")
+                    .put("title", r.title).put("poster", r.poster ?: "").put("intentUri", r.intentUri)
+                    .put("source", r.source))
             }
         })
         return o

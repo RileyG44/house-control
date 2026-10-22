@@ -2,7 +2,11 @@ package com.livingroom.tv
 
 import android.app.Application
 import android.content.Context
+import android.net.Uri
 import com.livingroom.tv.apps.AppsRepository
+import com.livingroom.tv.catalog.ArtCache
+import com.livingroom.tv.catalog.CatalogRepository
+import com.livingroom.tv.catalog.TvRecommendations
 import com.livingroom.tv.companion.Advertiser
 import com.livingroom.tv.companion.CompanionServer
 import com.livingroom.tv.companion.Pairing
@@ -44,6 +48,12 @@ object Graph {
         private set
     lateinit var wallpaper: WallpaperStore
         private set
+    lateinit var catalog: CatalogRepository
+        private set
+    lateinit var art: ArtCache
+        private set
+    lateinit var recommendations: TvRecommendations
+        private set
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -56,6 +66,9 @@ object Graph {
         history = HistoryStore(app)
         weather = WeatherRepository(prefs)
         wallpaper = WallpaperStore(app)
+        catalog = CatalogRepository(app, prefs)
+        art = ArtCache(app)
+        recommendations = TvRecommendations(app)
         hub = StateHub()
         hub.ownerName.value = prefs.ownerName
         server = CompanionServer(app, prefs, hub, Pairing(prefs))
@@ -68,6 +81,8 @@ object Graph {
         apps.watchPackageChanges()
         hub.start(app, scope)
         weather.start(scope)
+        catalog.start(scope)
+        recommendations.start(scope)
         server.startSafely()
         advertiser.start()
     }
@@ -119,4 +134,32 @@ class Prefs(context: Context) {
         set(value) = sp.edit().putString("profile", value.trim().ifBlank { null }).apply()
 
     val tvName: String get() = sp.getString("tvName", null) ?: "Living Room"
+
+    /**
+     * House Control's hub (its panel, and the streaming catalog for the Home rows): set by the
+     * hub when it pairs (/api/settings {"hub"}), else the Dell's. Only an http(s) address with
+     * no path is kept.
+     */
+    var hubUrl: String
+        get() = sp.getString("hubUrl", null) ?: DEFAULT_HUB
+        set(value) = sp.edit().putString("hubUrl", cleanHubUrl(value)).apply()
+
+    /** Catalog titles hidden from Home with a long press (their JustWatch ids). */
+    var hiddenTitles: Set<String>
+        get() = sp.getStringSet("hiddenTitles", null)?.toSet() ?: emptySet()
+        set(value) = sp.edit().putStringSet("hiddenTitles", value.toSet()).apply()
+
+    companion object {
+        /** House Control's hub on the Dell server. */
+        const val DEFAULT_HUB = "http://192.168.0.127:8766"
+
+        /** "http://192.168.0.127:8766/" as "http://192.168.0.127:8766"; null for anything else. */
+        fun cleanHubUrl(value: String?): String? {
+            val uri = runCatching { Uri.parse(value?.trim().orEmpty()) }.getOrNull() ?: return null
+            if (uri.scheme != "http" && uri.scheme != "https") return null
+            if (uri.host.isNullOrBlank() || !uri.userInfo.isNullOrEmpty()) return null
+            if (!uri.path.isNullOrEmpty() && uri.path != "/") return null
+            return "${uri.scheme}://${uri.encodedAuthority}"
+        }
+    }
 }

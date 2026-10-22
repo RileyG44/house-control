@@ -94,13 +94,10 @@ fun AllAppsOverlay(apps: List<TvApp>) {
     }
 }
 
-/** House Control's panel on the Dell hub. The QR code opens it on the phone. */
-private const val HOUSE_CONTROL_URL = "http://192.168.0.127:8766"
-
-/** Points the phone at House Control, whose remote drives this TV. */
+/** Points the phone at House Control, whose remote drives this TV: the QR code opens the panel of the hub it pairs with (the Dell's by default). */
 @Composable
 fun PairOverlay(onClose: () -> Unit) {
-    val url = HOUSE_CONTROL_URL
+    val url = remember { Graph.prefs.hubUrl }
     val qr = remember(url) { qrBitmap(url, 480).asImageBitmap() }
     val done = remember { FocusRequester() }
     LaunchedEffect(Unit) {
