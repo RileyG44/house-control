@@ -1,0 +1,25 @@
+# House Control camera.
+#
+# go2rtc pulls the camera's local RTSP stream and serves the page in ./www on
+# 127.0.0.1:1984. setup.sh starts it at login and puts it on the tailnet.
+
+log:
+  level: info
+
+api:
+  listen: "127.0.0.1:1984"
+  static_dir: ./www
+
+rtsp:
+  listen: "127.0.0.1:8554"
+
+webrtc:
+  # WebRTC media goes straight between the browser and this Mac. Over Tailscale
+  # that is the 100.x address of the Mac, which go2rtc finds on its own.
+  listen: ":8555"
+
+streams:
+  # The Wyze Cam Pan, once wz_mini_hacks is on it: the camera's own go2rtc
+  # publishes its 1080p channel as /1080p. If the camera's DHCP lease moves,
+  # change the address here (or reserve one for it on the router).
+  camera: rtsp://192.168.0.136:8554/1080p

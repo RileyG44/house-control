@@ -47,3 +47,6 @@ widgets/.build/
 
 # Windows app
 windows/dist/
+
+# Camera: the downloaded go2rtc binary
+camera/bin/
