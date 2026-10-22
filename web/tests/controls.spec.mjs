@@ -114,6 +114,7 @@ test('launcher styling stays round and readable in both appearances', async ({ p
     await page.reload();
     await expect(page.locator('.tile.tv')).toBeVisible();
     await page.waitForFunction(() => Boolean(window.__house?.world) && document.querySelector('canvas').width > 100);
+    await expect(page.locator('.stage canvas')).toHaveCSS('opacity', '1');
     await page.evaluate(async () => {
       await document.fonts.ready;
       window.__house.world.resize();
