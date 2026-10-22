@@ -171,4 +171,46 @@ partly-cloudy look.
 
 ## Status
 
-- Spec written 2026-10-21. Not built yet.
+- Spec written 2026-10-21. Built 2026-10-22: hub, web panel and native app.
+- **Hub**: `hub/weather.py` reads Open-Meteo every 10 min (2 min after a failure, at once when the
+  plan's site changes), serves `GET /api/weather` and sends a `weather` event when the reading
+  changes (and to every panel that connects). `hub/plan.py` keeps `site` when the hub remakes its
+  plan. Tests: `hub/tests/test_weather.py`, Open-Meteo faked.
+- **Web**: `web/src/sky/sun.js`, `web/src/sky/weather.js`, `web/src/three/sky.js`,
+  `web/src/three/landscape.js`, wired in `world.js`; `config.js` passes `site` through, the editor's
+  import and the agent's plan edits keep it. Ambient frames at 20 fps, weather at 30 fps, one frame
+  every 30 s with reduced motion, none while hidden. Screenshots (phone and desktop, every kind,
+  day and night) in the project files under `house-control/landscape/`.
+- **Native**: `Model/SunMoon.swift`, `Model/Weather.swift`, `Scene/Sky.swift`,
+  `Scene/Landscape.swift`; `Plan.swift` decodes `site`; `HubClient` passes the `weather` event on
+  and `HomeStore` reads `/api/weather` from the hub in use. Written without a Swift toolchain at
+  hand: it has not been compiled or run yet (build it with `scripts/build-ios-native.sh`).
+
+Limits:
+
+- The camera looks down on the model (52°, a narrow lens), so the sky itself is hardly ever in view:
+  the weather reads through the light, the lake (which mirrors the sky, clouds, stars and the
+  lightning), cloud shadows, wet ground and puddles, the rain or snow and the fog.
+- The light never comes in lower than 20° (sun) or 30° (moon), so the rooms stay readable at
+  sunrise and sunset; the sun's real direction still sets the glow, the glitter on the lake and
+  the colours.
+- `skytime` is the house's local time when the reading's sunrise gives its UTC offset, or the
+  device is in the house's time zone; otherwise it falls back to the longitude's (Moses Lake: UTC−8,
+  so in summer an hour off).
+- With the shore 7 m out, the default framing shows the lake only along the top of the picture.
+- Native: no rain rings on the water, no hail, no cloud shadows or puddles, and no lightning bolt
+  (flashes only); the fog is drawn ring by ring (each ring of the land and lake gives way to the
+  fog's colour by its distance). The season's colours are taken when the model is built.
+
+Where it differs from the spec:
+
+- An opaque stage (the phone layout and the native app) gets the sky dome behind everything; the
+  transparent glass panel gets none, and the land fades out between 20 and 28 m.
+- Lightning is a flash of the whole stage and, on the web, a bolt drawn into the sky (seen in the
+  lake and on the dome), not a 3D bolt over the lake (it would be out of frame).
+- Rain and snow fall in a 32 × 15 m volume round the house, hidden inside the footprint below the
+  roof line (web) or kept to four boxes round the footprint (native).
+- Fog also lays a light haze over the model, so the house sits in it rather than on top of it.
+- The Mac app's `hubRequest` now allows `api/weather` (`core/Sources/HouseCore/LocalHub.swift`), so
+  the menu bar panel gets the weather from the Mac's hub.
+- The island demo keeps its plinth (`outdoors: false`), whatever its plan says.
