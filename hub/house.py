@@ -108,7 +108,8 @@ class Hub:
                            launcher=launcher_for(conf))
         # Rows of titles for each streaming app the TV has (catalog.py), from JustWatch.
         self.streaming = catalogs.Catalog(conf, apps=lambda: catalogs.installed_apps(self.tv),
-                                        recent=lambda: catalogs.continuing(self.tv))
+                                          recent=lambda: catalogs.continuing(self.tv),
+                                          picks=lambda: catalogs.recommended(self.tv))
         self._tasks: list[asyncio.Task] = []
         self._ac_due = 0.0
         # Another hub that keeps the same plan (the home server and a backup): see _sync_peer.

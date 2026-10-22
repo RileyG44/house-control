@@ -35,6 +35,15 @@ PICTURE = b"\xff\xd8\xff\xe0" + b"j" * 996
 # The launcher's Continue: an episode of a Netflix show, with its picture.
 WATCHING = {"id": "0a1b2c3d4e5f6071", "pkg": "com.netflix.ninja", "app": "Netflix", "title": "Chapter Seven: The Bathtub",
             "subtitle": "Stranger Things · S1 E7", "progress": 0.42, "remainingMin": 31, "art": "art/h/0a1b2c3d4e5f6071"}
+# The apps' own picks, as the launcher reads them from the TV provider.
+PICKS = [
+    {"id": "11aa22bb33cc44dd", "pkg": "com.netflix.ninja", "app": "Netflix", "title": "Top Pick: Dark",
+     "poster": "https://occ.nflxso.net/dark.jpg", "intentUri": "https://www.netflix.com/title/80100172", "source": "preview"},
+    {"id": "55ee66ff77aa88bb", "pkg": "com.spotify.tv.android", "app": "Spotify", "title": "Daily Mix 1",
+     "poster": "https://i.scdn.co/x.jpg", "intentUri": "spotify:playlist:1", "source": "preview"},
+    {"id": "99cc00dd11ee22ff", "pkg": "com.hulu.livingroomplus", "app": "Hulu", "title": "Keep watching: The Bear",
+     "poster": "content://com.hulu.provider/art/1", "intentUri": "https://www.hulu.com/watch/1", "source": "watchNext"},
+]
 
 
 def which(variables: dict) -> str | None:
@@ -127,6 +136,11 @@ def test_continue_and_what_the_clients_get():
     assert (t["app"], t["poster"], t["progress"], t["link"]) == ("netflix", "/api/tv/art/h/0a1b2c3d4e5f6071", 0.42, None)
     assert catalog.continue_tile({**WATCHING, "art": "banner/com.netflix.ninja"})["poster"] is None
     assert catalog.continue_tile({**WATCHING, "id": "../x"}) is None
+    r = catalog.recommendation_tile(PICKS[0])
+    assert (r["id"], r["kind"], r["app"], r["poster"], r["recommendation"]) == \
+        ("r:11aa22bb33cc44dd", "recommendation", "netflix", "https://occ.nflxso.net/dark.jpg", "11aa22bb33cc44dd")
+    assert catalog.recommendation_tile(PICKS[2])["poster"] is None  # only the TV can read a content:// picture
+    assert catalog.recommendation_tile({**PICKS[0], "id": "x y"}) is None
     assert catalog.seed_query(WATCHING) == "Stranger Things"
     assert catalog.seed_query({"title": "Dune: Part Two", "subtitle": "2024"}) == "Dune: Part Two"
     whole = catalog.for_client({"forYou": [t], "apps": [{"rows": [{"items": [{"poster": "/api/tv/img/poster/1/x", "link": "/api/tv/x"}]}]}]},
@@ -335,6 +349,7 @@ def test_catalog_through_the_launcher(tmp_path, monkeypatch):
         jw, asked, _ = await fake_justwatch(monkeypatch)
         fake = FakeLauncher(hold=5.0)
         fake.state["continue"] = [WATCHING]
+        fake.state["recommendations"] = PICKS
         fake, lr, server, state, sent, hub, client = await hub_with_launcher(tmp_path, monkeypatch, fake)
         origin = f"http://{client.host}:{client.port}"
         try:
@@ -345,6 +360,11 @@ def test_catalog_through_the_launcher(tmp_path, monkeypatch):
             assert {which(a) for a in asked if a["kind"] == "popular"} == {"nfx", "hlu", None}
             mine = out["forYou"][0]
             assert mine["kind"] == "continue" and mine["poster"] == origin + "/api/tv/art/h/0a1b2c3d4e5f6071"
+            # Then the apps' own picks, in the TV's streaming apps only, before the similar titles.
+            assert [t["id"] for t in out["forYou"][1:4]] == ["r:11aa22bb33cc44dd", "r:99cc00dd11ee22ff", "ts72073"]
+            r = await client.post(f"/api/tv/{TV_ID}", json={"action": "recommendation", "id": "99cc00dd11ee22ff"})
+            assert r.status == 200 and fake.sent[-1] == {"type": "recommendation", "id": "99cc00dd11ee22ff"}
+            assert (await client.post(f"/api/tv/{TV_ID}", json={"action": "recommendation", "id": "0a1b2c3d4e5f6071"})).status == 404
             pic = await client.get("/api/tv/art/h/0a1b2c3d4e5f6071")
             assert pic.status == 200 and await pic.read() == ART
             assert (await client.get("/api/tv/art/h/ffff")).status == 404

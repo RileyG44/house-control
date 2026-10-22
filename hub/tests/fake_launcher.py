@@ -102,8 +102,9 @@ class FakeLauncher:
                 t["volume"] = max(0, min(t["volume"] + int(cmd.get("delta", 0)), t["volumeMax"]))
         elif kind == "mute":
             t["muted"] = not t["muted"]
-        elif kind == "resume":
-            entry = next((e for e in self.state.get("continue") or [] if e.get("id") == cmd.get("id")), None)
+        elif kind in ("resume", "recommendation"):
+            listed = self.state.get("continue" if kind == "resume" else "recommendations") or []
+            entry = next((e for e in listed if e.get("id") == cmd.get("id")), None)
             if not entry:
                 return False
             t["foreground"] = {"pkg": entry["pkg"], "label": APPS.get(entry["pkg"], "")}

@@ -12,7 +12,9 @@ runtime, rating, age}: `link` is the title's web page in that app and `tvLink` J
 Android TV deep link, both checked against the app (tv.validate_link); either plays it through
 POST /api/tv/{id} {"action": "play", …}. The pictures are the hub's own addresses, made whole
 for each client (`for_client`). "For you" tiles that come from the launcher's Continue have
-kind "continue", `progress`, and `resume` (POST /api/tv/{id} {"action": "resume", "id": …}).
+kind "continue", `progress`, and `resume` (POST /api/tv/{id} {"action": "resume", "id": …});
+the apps' own picks that the launcher read from the TV provider have kind "recommendation" and
+`recommendation` (POST /api/tv/{id} {"action": "recommendation", "id": …}).
 
 **Only Riley's services.** An app gets rows only when the TV has it (the launcher's `apps` while
 the hub is paired with it, else every app in tv.APPS), and a title only shows under an app where
@@ -26,7 +28,9 @@ short names (nfx, hlu, mxx), and those change when a service renames, so they ar
 `packages` list once a day and matched to tv.APPS by their technical names; SHORT_NAMES is only
 the fallback. A row that fails, or comes back empty, is just left out.
 
-**For you** is the launcher's Continue first, then titles similar to the latest of them
+**For you** is the launcher's Continue first, then the apps' own recommendations when the
+launcher can read them from the TV provider (its `recommendations`; Watch Next and preview
+channels, in the TV's apps only), then titles similar to the latest Continue titles
 (`similarTitlesV2` of the JustWatch title found by a search in that app), in the TV's apps, then
 each app's popular titles in turn.
 
@@ -250,6 +254,23 @@ def continue_tile(entry: dict) -> dict | None:
     }
 
 
+def recommendation_tile(entry: dict) -> dict | None:
+    """One of the apps' own picks (the launcher's /api/state `recommendations`) as a "For you"
+    tile. Its poster is kept only when it is a web address (a content:// one only the TV reads)."""
+    if not isinstance(entry, dict):
+        return None
+    rid, pkg, title = entry.get("id"), entry.get("pkg"), entry.get("title")
+    if not isinstance(rid, str) or not _HISTORY_ID.match(rid) or not isinstance(pkg, str) or not isinstance(title, str) or not title:
+        return None
+    poster = entry.get("poster")
+    poster = poster if isinstance(poster, str) and poster.startswith(("https://", "http://")) and len(poster) < 2048 else None
+    return {
+        "id": f"r:{rid}", "title": title, "year": None, "kind": "recommendation", "poster": poster, "backdrop": None,
+        "app": (app_of(pkg) or {}).get("id"), "pkg": pkg, "link": None, "tvLink": None, "blurb": None,
+        "runtime": None, "rating": None, "age": None, "genres": [], "recommendation": rid,
+    }
+
+
 def seed_query(entry: dict) -> str:
     """What to look for in JustWatch for a Continue title: the show, for an episode
     ("Stranger Things · S1 E7" names it), else the title."""
@@ -284,17 +305,26 @@ def continuing(tv) -> list[dict]:
     return [e for e in listed if isinstance(e, dict)] if isinstance(listed, list) else []
 
 
+def recommended(tv) -> list[dict]:
+    """The apps' own picks the launcher read from the TV provider (often none)."""
+    listed = (tv.lr_state or {}).get("recommendations") if tv.launcher else None
+    return [e for e in listed if isinstance(e, dict)] if isinstance(listed, list) else []
+
+
 # ---------- the catalog ----------
 
 class Catalog:
     """The rows, "For you", a title's details and the pictures. `apps()` names the TV's
-    streaming apps (installed_apps), `recent()` its Continue (continuing)."""
+    streaming apps (installed_apps), `recent()` its Continue (continuing), `picks()` the apps'
+    own recommendations (recommended)."""
 
-    def __init__(self, conf: Path, apps: Callable[[], list[str]], recent: Callable[[], list[dict]] = list):
+    def __init__(self, conf: Path, apps: Callable[[], list[str]], recent: Callable[[], list[dict]] = list,
+                 picks: Callable[[], list[dict]] = list):
         self.file = conf / "catalog-cache.json"
         self.art = conf / "catalog-art"
         self.apps = apps
         self.recent = recent
+        self.picks = picks
         self.http: aiohttp.ClientSession | None = None
         self._rows: dict[str, dict] = {}       # "netflix:popular:0" -> {"at", "items"}
         self._similar: dict[str, dict] = {}    # "netflix|stranger things|netflix,hulu" -> {"at", "items"}
@@ -502,9 +532,12 @@ class Catalog:
         return items
 
     async def for_you(self, names: list[str], popular: dict[str, list[dict]]) -> list[dict]:
-        """Continue, then titles similar to its latest (in the TV's apps), then each app's popular ones in turn."""
+        """Continue, the apps' own picks, then titles similar to the latest Continue titles (in
+        the TV's apps), then each app's popular ones in turn."""
         recent = self.recent()
         out = [t for t in (continue_tile(e) for e in recent[:8]) if t]
+        packages = {APPS[n][0] for n in names}
+        out += [t for t in (recommendation_tile(e) for e in self.picks()) if t and t["pkg"] in packages][:20]
         seen: set[str] = set()
         picked: list[dict] = []
 

@@ -139,6 +139,7 @@ LAUNCHER_NO = {
     "search": "Nothing on the TV takes text right now", "volume": "The TV's volume only goes up and down from here",
     "open": "The TV couldn't open that app", "play-title": "That app on the TV can't open this title",
     "resume": "The TV couldn't pick that up again",
+    "recommendation": "The TV couldn't open that",
 }
 _HISTORY_ID = re.compile(r"^[0-9a-f]{1,32}$")
 
@@ -873,8 +874,8 @@ class TvRemote:
         action = body["action"]
         if action in ("seek", "skip"):
             return await self._seek(tv_id, dev, body)
-        if action == "resume":
-            return await self._resume(tv_id, body)
+        if action in ("resume", "recommendation"):
+            return await self._pick_up(tv_id, action, body)
         # "play" is also the remote's play key: with an app it is a search result to play.
         titled = action == "open" or (action == "play" and "app" in body)
         # `out` is the action as tv-remote takes it, `commands` as the launcher does (None: only tv-remote can).
@@ -922,26 +923,28 @@ class TvRemote:
             log.warning("TV %s %s: %s", tv_id, action, result.get("error"))
         return result, status
 
-    async def _resume(self, tv_id: str, body: dict) -> tuple[dict, int]:
+    async def _pick_up(self, tv_id: str, action: str, body: dict) -> tuple[dict, int]:
         """`{"action": "resume", "id": …}`: a title in the launcher's Continue, picked up again in
-        its app. Without the launcher, tv-remote opens that app."""
+        its app; `{"action": "recommendation", "id": …}`: one of the apps' own picks that the
+        launcher read from the TV provider, opened by the launcher in its app. Only what the
+        launcher listed itself can be asked for. Without the launcher, tv-remote opens the app."""
         hid = body.get("id")
         if not isinstance(hid, str) or not _HISTORY_ID.match(hid):
-            return {"error": "Say which title to pick up again"}, 400
-        entry = next((e for e in (self.lr_state or {}).get("continue") or []
-                      if isinstance(e, dict) and e.get("id") == hid), None)
+            return {"error": "Say which title to open"}, 400
+        listed = (self.lr_state or {}).get("continue" if action == "resume" else "recommendations") or []
+        entry = next((e for e in listed if isinstance(e, dict) and e.get("id") == hid), None)
         pkg = entry.get("pkg") if entry and isinstance(entry.get("pkg"), str) else None
         if not pkg:
-            return {"error": "That isn't in the TV's Continue any more"}, 404
+            return {"error": "The TV doesn't list that any more"}, 404
         await self._awake(tv_id)
         name = BY_PACKAGE.get(pkg)
         out = {"action": "launch", "url": APP_LINKS.get(name, pkg) if name else pkg}
-        result, status = await self._deliver(tv_id, "resume", out, [{"type": "resume", "id": hid}])
+        result, status = await self._deliver(tv_id, action, out, [{"type": action, "id": hid}])
         if status == 200:
-            log.info("TV %s resume %s (%s)", tv_id, hid, self.route)
+            log.info("TV %s %s %s (%s)", tv_id, action, hid, self.route)
             self.kick()
         else:
-            log.warning("TV %s resume: %s", tv_id, result.get("error"))
+            log.warning("TV %s %s: %s", tv_id, action, result.get("error"))
         return result, status
 
     async def _seek(self, tv_id: str, dev: dict, body: dict) -> tuple[dict, int]:
