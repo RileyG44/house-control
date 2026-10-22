@@ -119,6 +119,8 @@ class Spotify:
         self._cache = None
         self._cache_at = 0.0
         self._bridge_url = None
+        self._bridge_retry_at = 0.0
+        self._bridge_retry_urls = ()
         self._rate_until = 0.0
 
     def bridge_urls(self) -> list[str]:
@@ -234,6 +236,9 @@ class Spotify:
         # Read-only discovery may try each address. A command uses just the chosen address:
         # if its answer is lost, forwarding it again could skip a second track or start music twice.
         urls = self.bridge_urls()
+        configured = tuple(urls)
+        if not body and self.is_mac and configured == self._bridge_retry_urls and time.monotonic() < self._bridge_retry_at:
+            return unavailable("The Spotify hub is temporarily unavailable. Try again shortly."), 503
         if self._bridge_url in urls:
             urls = [self._bridge_url, *[u for u in urls if u != self._bridge_url]]
         if body and self._bridge_url:
@@ -250,10 +255,15 @@ class Spotify:
                         return result, response.status
                     if response.status == 200 and result.get("backend") in {"mac", "connect"}:
                         self._bridge_url = url
+                        self._bridge_retry_at = 0.0
                         return result, 200
             except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
                 if body:
-                    raise SpotifyError("The Mac did not answer. Check Spotify before trying the action again.")
+                    raise SpotifyError("The Spotify hub did not answer. Check Spotify before trying the action again.")
+        if self.is_mac:
+            # Keep local Mac controls responsive while the preferred Dell is offline.
+            self._bridge_retry_urls = configured
+            self._bridge_retry_at = time.monotonic() + 30
         return unavailable("Spotify is not connected. Open it on the Mac, or connect your account.", canOpen=False), 200
 
     async def playlists(self, *, local_only=False, offset=0):

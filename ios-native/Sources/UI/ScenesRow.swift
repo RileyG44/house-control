@@ -19,7 +19,7 @@ struct ScenesRow: View {
     var body: some View {
         let scenes = store.plan.scenes
         let keys = order ?? scenes.map(\.id)
-        let byID = Dictionary(uniqueKeysWithValues: scenes.map { ($0.id, $0) })
+        let byID = Dictionary(scenes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let shown = keys.compactMap { byID[$0] }
         ScrollViewReader { reader in
             ScrollView(.horizontal) {

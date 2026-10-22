@@ -35,6 +35,10 @@ To specify a different bridge, set `HOUSE_SPOTIFY_URLS` (comma-separated hub add
 or `~/.house-hub/spotify.json` with `{"bridge_urls": ["http://192.168.0.188:8766"]}`.
 Each receiving bridge request is local-only, so peers never forward a command in a loop.
 An unanswered playback command is never retried on a second address.
+When a Mac prefers its peer and discovery fails, it waits 30 seconds before trying that
+same set of addresses again. Its local Spotify controls stay responsive during this
+cooldown; discovery then resumes automatically. Changing the configured peer addresses
+allows an immediate new probe.
 
 This adapter controls the Spotify application. Choose the output in Spotify itself.
 Spotify’s scripting dictionary does not expose an output picker; to select an Echo

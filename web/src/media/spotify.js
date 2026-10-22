@@ -80,14 +80,20 @@ export function createSpotifyRemote() {
   const output = h('select.scene-input', { 'aria-label': 'Spotify output' });
   const outputHint = h('p.spotify-output-hint');
   const playlists = h('div.spotify-playlists');
-  const libraryNote = h('p.spotify-output-hint', { role: 'status' });
+  const libraryNote = h('p.spotify-output-hint.spotify-library-note', { role: 'status' });
   const more = h('button.pill', { hidden: true, onclick: () => loadPlaylists(false) }, 'More playlists');
   const open = h('button.pill', { onclick: () => spotify.act({ action: 'open' }) }, 'Open Spotify on Mac');
   const refresh = h('button.pill', { onclick: () => { spotify.refresh(); if (spotify.state.canTransfer) loadPlaylists(true); } }, 'Refresh');
-  let libraryLoaded = false, libraryReading = false, libraryNext = null, stopped = false, chosenOutput = '';
+  let libraryLoaded = false, libraryReading = false, libraryNext = null, libraryError = '', stopped = false, chosenOutput = '';
+  function updateLibraryNote(s = spotify.state) {
+    libraryNote.textContent = !s.available ? s.error || 'Spotify is temporarily unavailable. Try Refresh.'
+      : !s.canTransfer ? 'Connect your Spotify account to choose playlists and your Echo here.'
+      : libraryReading ? 'Loading your playlists…'
+      : libraryError || (playlists.children.length ? 'Choose a playlist to play on the selected speaker.' : 'No playlists found in this Spotify account.');
+  }
   async function loadPlaylists(reset) {
     if (libraryReading || stopped) return;
-    libraryReading = true; more.disabled = true; libraryNote.textContent = 'Loading your playlists…';
+    libraryReading = true; libraryError = ''; more.disabled = true; updateLibraryNote();
     try {
       const result = await request(null, `api/spotify/playlists?offset=${reset ? 0 : libraryNext ?? 0}`);
       if (stopped) return;
@@ -100,9 +106,15 @@ export function createSpotifyRemote() {
         } }, h('span', h('b', item.name), h('small', item.owner || 'Spotify playlist')), icon('play', 18)));
       }
       libraryLoaded = true; libraryNext = result.next; more.hidden = libraryNext == null;
-      libraryNote.textContent = playlists.children.length ? 'Choose a playlist to play on the selected speaker.' : 'No playlists found in this Spotify account.';
-    } catch (error) { if (!stopped) libraryNote.textContent = error.message; }
-    finally { libraryReading = false; more.disabled = false; }
+    } catch (error) { if (!stopped) libraryError = error.message; }
+    finally {
+      libraryReading = false;
+      if (!stopped) {
+        updateLibraryNote();
+        more.disabled = !spotify.state.available || !spotify.state.canTransfer;
+        for (const button of playlists.querySelectorAll('button')) button.disabled = more.disabled;
+      }
+    }
   }
   let seekDragging = false, volumeDragging = false, pendingVolume = null, sendingVolume = false;
   seek.addEventListener('input', () => { seekDragging = true; times.textContent = `${clock(Number(seek.value))} / ${clock(spotify.state.track?.duration)}`; });
@@ -151,7 +163,8 @@ export function createSpotifyRemote() {
     }
     if (chosenOutput && !opts.some((d) => d.id === chosenOutput)) chosenOutput = '';
     output.value = chosenOutput || s.device || ''; output.disabled = !s.canTransfer || !s.available;
-    outputHint.textContent = s.canTransfer ? 'Choose your Echo or another available Spotify Connect speaker.'
+    outputHint.textContent = !s.available ? s.error || 'Spotify is temporarily unavailable. Try Refresh.'
+      : s.canTransfer ? 'Choose your Echo or another available Spotify Connect speaker.'
       : 'Choose the speaker in Spotify on your Mac. Connect your Spotify account to choose outputs here.';
     open.hidden = !s.canOpen;
     for (const button of playlists.querySelectorAll('button')) button.disabled = !s.available || !s.canTransfer;
@@ -159,9 +172,8 @@ export function createSpotifyRemote() {
     if (s.canTransfer && s.available && !libraryLoaded && !libraryReading) {
       // One library read per opening, rather than on every three-second player poll.
       libraryLoaded = true; loadPlaylists(true);
-    } else if (!s.canTransfer && !libraryReading) {
-      libraryNote.textContent = 'Connect your Spotify account to choose playlists and your Echo here.';
     }
+    updateLibraryNote(s);
   });
   return { el, stop() { stopped = true; unsubscribe(); } };
 }

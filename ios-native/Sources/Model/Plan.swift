@@ -247,8 +247,10 @@ struct Plan: Sendable {
                             min: a["min"]?.int ?? lo, max: a["max"]?.int ?? hi)
         }
 
+        // Shared or hand-edited plans can repeat an ID. Only the first preset is selectable.
+        var sceneIDs = Set<String>()
         scenes = (o["scenes"]?.array ?? []).compactMap { s in
-            guard let id = s["id"]?.string else { return nil }
+            guard let id = s["id"]?.string, !id.isEmpty, sceneIDs.insert(id).inserted else { return nil }
             var lights: [String: LightPatch] = [:]
             for (k, v) in s["lights"]?.object ?? [:] { lights[k] = LightPatch(json: v) }
             return SceneConfig(id: id, name: s["name"]?.string ?? id, icon: s["icon"]?.string ?? "sun",

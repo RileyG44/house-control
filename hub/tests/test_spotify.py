@@ -2,6 +2,7 @@ import asyncio
 import json
 import stat
 import time
+from types import SimpleNamespace
 
 import aiohttp
 import pytest
@@ -187,6 +188,42 @@ def test_mac_can_prefer_the_dell_connect_account_without_forwarding_local_reques
             assert (await service.act({"action": "pause"}, local_only=True))[1] == 200
             assert local == [None, {"action": "pause"}]
             assert len(seen) == 2
+        await server.close()
+    run(check())
+
+
+def test_offline_dell_probes_back_off_while_mac_controls_keep_working(tmp_path, monkeypatch):
+    async def check():
+        probes, local = [], []
+        clock = [100.0]
+        monkeypatch.setattr(spotify, "time", SimpleNamespace(monotonic=lambda: clock[0], time=time.time))
+        async def offline(request):
+            probes.append(request.path)
+            return web.json_response({"error": "Offline"}, status=503)
+        app = web.Application()
+        app.router.add_get("/{address}/api/spotify", offline)
+        server = TestServer(app)
+        await server.start_server()
+        urls = [str(server.make_url("/lan")), str(server.make_url("/tailscale"))]
+        spotify.save_config(tmp_path / "spotify.json", {"prefer_peer": True})
+        service = spotify.Spotify(tmp_path, urls)
+        service.is_mac = True
+        async def mac(body=None):
+            local.append(body)
+            return {"available": True, "backend": "mac"}
+        monkeypatch.setattr(service, "_mac", mac)
+        async with aiohttp.ClientSession() as http:
+            service.http = http
+            assert (await service.state(fresh=True))["backend"] == "mac"
+            assert probes == ["/lan/api/spotify", "/tailscale/api/spotify"]
+            clock[0] += 5
+            assert (await service.state(fresh=True))["backend"] == "mac"
+            assert (await service.act({"action": "next"}))[1] == 200
+            assert local[-1] == {"action": "next"}
+            assert len(probes) == 2  # Neither polling nor a command probes the offline Dell again.
+            clock[0] += 26
+            assert (await service.state(fresh=True))["backend"] == "mac"
+            assert len(probes) == 4  # Discovery resumes when the cooldown expires.
         await server.close()
     run(check())
 

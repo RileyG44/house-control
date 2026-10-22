@@ -117,6 +117,24 @@ test('speaker opens Spotify, controls playback and chooses an actual output', as
   await page.screenshot({ path: `test-results/spotify-${test.info().project.name}.png` });
 });
 
+for (const error of ['Spotify is busy. Try again in a moment.', 'Spotify cannot be reached.']) {
+  test(`Spotify keeps playlists and restores its hint after: ${error}`, async ({ page }) => {
+    await page.locator('.tile.speaker').click();
+    const playlist = page.getByRole('button', { name: /Evening mix/ });
+    await expect(playlist).toBeVisible();
+    const fail = (route) => route.fulfill({ json: { available: false, backend: 'none', canTransfer: false, error } });
+    await page.route('**/api/spotify', fail);
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await expect(page.locator('.spotify-library-note')).toHaveText(error);
+    await expect(playlist).toBeVisible();
+    await expect(playlist).toBeDisabled();
+    await page.unroute('**/api/spotify', fail);
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await expect(page.locator('.spotify-library-note')).toHaveText('Choose a playlist to play on the selected speaker.');
+    await expect(playlist).toBeEnabled();
+  });
+}
+
 test('removing a preset TV app persists through reload and leaves the TV unchanged', async ({ page, request }) => {
   await page.locator('.scene[data-key="movie"]').click({ button: 'right' });
   await page.getByText('Edit', { exact: true }).click();

@@ -32,13 +32,14 @@ the paired TV launcher directly on Wi-Fi; app launches still use the hub’s che
 
 ## Validation
 
-- **Hub:** 118 tests passed on the Dell in `/tmp/house-controls-check`, using copied sources,
+- **Hub:** 119 tests passed on the Dell in `/tmp/house-controls-check`, using copied sources,
   fake services and a separate pytest install. This did not replace the running hub.
-- **Browser:** 15 acceptance checks passed across phone and desktop; three copies of
+- **Browser:** 19 acceptance checks passed across phone and desktop; three copies of
   platform-specific touch/hover/island checks are intentionally skipped. Checks include actual browser touch
   events, power-safe TV swipes, persistent preset order/deletion, combined preset actions,
   clearing a saved TV action, the Mac island's AC route, speaker picking/hover anchors,
-  Spotify transport/output/playlist selection, pagination and screenshots in both appearances. No page errors.
+  Spotify transport/output/playlist selection, pagination, outage/recovery messaging and
+  screenshots in both appearances. No page errors.
 - **Native iPhone:** generic iOS device build succeeds with Xcode. Build number 5.
 - **Mac:** native shell builds; the shared core XCTest suite passes (58 tests, 2 environment
   skips). The custom asset handler serves the bundled font with its correct MIME type.
@@ -47,7 +48,7 @@ the paired TV launcher directly on Wi-Fi; app launches still use the hub’s che
 
 The Mac’s full hub run has the same three environment-dependent failures seen in the prior
 launcher session: two need additional 127.0.0.x loopback addresses on macOS and one picks up
-the real Mac editor’s saved plan. All 118 pass on Linux with the saved plan isolated.
+the real Mac editor’s saved plan. All 119 pass on Linux with the saved plan isolated.
 
 The iPhone was unavailable and no simulator runtime is installed on this Mac. Physical
 phone visual/touch QA remains pending. Spotify Connect’s live Echo transfer needs the
@@ -67,3 +68,13 @@ speakers have anchored hover feedback; the native speaker tile polls while the a
 is present; and native preset chips occupy real `HStack` layout positions for edge scrolling.
 Selecting an output also preserves paused playback. The iPhone drag/airflow visual checks
 still need a physical device; the layout fix is not a claim of on-device testing.
+
+The second review covered `da479a0`, confirmed every first-round fix, and found no merge
+blockers. Its three remaining findings are fixed for the final review: native plan loading
+deduplicates preset IDs and the row's dictionary tolerates duplicates; a failed preferred
+peer discovery pauses for 30 seconds so polling and local Mac commands do not keep probing
+an offline Dell; and both remotes retain cached playlists during an outage, display its
+error, and restore their normal hint after recovery. The hub test advances a fake clock to
+check cooldown and re-probing without sleeping; browser tests cover busy and unreachable
+states through recovery in both layouts. Peer timeout wording no longer assumes the Mac
+is the remote host.

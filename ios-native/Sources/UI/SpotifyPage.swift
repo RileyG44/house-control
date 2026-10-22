@@ -28,6 +28,7 @@ struct SpotifyPage: View {
     @State private var seek: Double?
     @State private var volume: Double?
     @State private var chosenOutput = ""
+    @State private var libraryRequested = false
 
     var body: some View {
         let player = store.spotify
@@ -92,7 +93,8 @@ struct SpotifyPage: View {
                         ForEach(state.outputs) { output in Text(output.name).tag(output.id) }
                     }
                     .disabled(!state.canTransfer || !state.available)
-                    Text(state.canTransfer ? "Choose your Echo or another Spotify Connect output."
+                    Text(!state.available ? (state.error.isEmpty ? "Spotify is temporarily unavailable. Try Refresh." : state.error)
+                         : state.canTransfer ? "Choose your Echo or another Spotify Connect output."
                          : "Choose the speaker in Spotify on your Mac. Connect your Spotify account to choose outputs here.")
                         .font(.footnote).foregroundStyle(Color.muted)
                     if state.canOpen {
@@ -103,10 +105,14 @@ struct SpotifyPage: View {
                 .background(Color.fill, in: RoundedRectangle(cornerRadius: 26))
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Your playlists").font(.house(20)).foregroundStyle(Color.ink)
-                    if !state.canTransfer {
+                    if !state.available {
+                        Text(state.error.isEmpty ? "Spotify is temporarily unavailable. Try Refresh." : state.error)
+                            .font(.subheadline).foregroundStyle(Color.muted)
+                    } else if !state.canTransfer {
                         Text("Connect your Spotify account to choose playlists and your Echo here.")
                             .font(.subheadline).foregroundStyle(Color.muted)
-                    } else {
+                    }
+                    if state.canTransfer || (!state.available && !player.playlists.isEmpty) {
                         if !player.playlistError.isEmpty {
                             Text(player.playlistError).font(.subheadline).foregroundStyle(Color.muted)
                         }
@@ -126,11 +132,11 @@ struct SpotifyPage: View {
                                 }
                                 .padding(16).background(Color.fill, in: RoundedRectangle(cornerRadius: 24))
                             }
-                            .buttonStyle(.plain).disabled(!state.available)
+                            .buttonStyle(.plain).disabled(!state.available || !state.canTransfer)
                             .accessibilityLabel("Play \(playlist.name)")
                         }
                         if player.loadingPlaylists { ProgressView("Loading your playlists…") }
-                        else if player.playlists.isEmpty && player.playlistError.isEmpty {
+                        else if state.available && player.playlists.isEmpty && player.playlistError.isEmpty {
                             Text("No playlists found in this Spotify account.").font(.subheadline).foregroundStyle(Color.muted)
                         }
                         if player.nextPlaylistOffset != nil {
@@ -147,7 +153,9 @@ struct SpotifyPage: View {
             Task { await player.refresh(); if player.state.canTransfer { await player.loadPlaylists() } }
         } } }
         .task { await player.refresh() }
-        .task(id: state.canTransfer) { if state.canTransfer { await player.loadPlaylists() } }
+        .task(id: state.canTransfer) {
+            if state.canTransfer && !libraryRequested { libraryRequested = true; await player.loadPlaylists() }
+        }
     }
 
     private func transport(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
