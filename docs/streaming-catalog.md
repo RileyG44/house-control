@@ -1,6 +1,10 @@
 # Streaming catalog
 
-Design, October 22, 2026. Riley asked for House Control to be "as integrated with the streaming apps as possible", with a catalog of recommended tiles for each app instead of just a search bar.
+Design, October 22, 2026. **Status** (same day): build-order steps 2–4 are written, step 4 for
+the iPhone app only (see "What was built" at the end). The hub's part has tests; the launcher
+and the iPhone app have not been compiled, and nothing has been tried on the TV or the phone.
+
+Riley asked for House Control to be "as integrated with the streaming apps as possible", with a catalog of recommended tiles for each app instead of just a search bar.
 
 ## What Riley sees
 
@@ -50,3 +54,52 @@ Design, October 22, 2026. Riley asked for House Control to be "as integrated wit
 - Whether Google TV lets a non-default launcher read the apps' preview channels. This decides whether the "for Riley" rows are possible without the Home takeover.
 - How strictly JustWatch rate-limits. A 6-hour cache and about 3 sorts × 6 apps ≈ 18 queries per refresh should be fine.
 - Netflix deep links on Android TV open the title page but don't always auto-play. That's acceptable, because the title page is one OK press from playing.
+
+## What was built
+
+October 22, 2026, not yet deployed to the hubs, installed on the TV or built in Xcode.
+
+- **Device probe (step 1), from the coordinator.** On this Google TV,
+  `com.android.providers.tv.permission.READ_EPG_DATA` is a normal permission: declaring it is
+  enough. `content query` from the adb shell returned nothing for `preview_program` and
+  `watch_next_program`, so whether an app (the launcher, not the default Home) can read other
+  apps' programs is still unknown.
+- **Hub** (`hub/catalog.py`, routes in `house.py`, tests in `hub/tests/test_catalog.py` against
+  `justwatch_catalog.json`). The API above, plus: tiles also carry `pkg`, `age` and `genres`;
+  rows carry `label` ("Popular", "Trending", "New"); the row titles are "Popular on Netflix",
+  "Trending on Netflix" and "New on Netflix". Pictures are `/api/tv/img/{poster|backdrop}/{n}/{slug}`
+  (JustWatch's s332 posters and s1440 backdrops, as JPEG), kept on disk up to 200 MB.
+  - JustWatch's package filter takes its **short names** (`nfx`, `hlu`, `mxx`), not the
+    technical names in `tv.APPS`, and those change when a service renames (Paramount+ went from
+    `pmp` to `ppp`/`ppe`, HBO Max from `hbm` to `mxx`). So the hub reads JustWatch's own
+    `packages` list once a day and matches it to `tv.APPS` by technical name; `SHORT_NAMES` is
+    the fallback.
+  - **New** is `newTitles` (what JustWatch says each app added on a day), one request with seven
+    aliased days; a new season stands for its show. `popularTitles` has no "date added" sort
+    (its `sortBy` is `PopularTitlesSorting`: POPULAR, TRENDING).
+  - **For you**: Continue (from the launcher's state), then the apps' own picks when the
+    launcher can read them (below), then `similarTitlesV2` (on `node(id:)`, filtered to the TV's
+    apps) of up to three Continue titles, each found by a title search in its app (the show, for
+    an episode), then the apps' popular titles in turn.
+  - Continue titles play with `{"action": "resume", "id"}`, the apps' own picks with
+    `{"action": "recommendation", "id"}`; both are passed to the launcher only for ids it listed.
+  - **Unverified against the real JustWatch**: the field and argument names follow JustWatch's
+    own web queries as other open-source clients use them in 2026 (`popularTitles(sortBy:,
+    offset:)`, `newTitles(date:, filter:, first:)`, `similarTitlesV2`, `packages(country:,
+    platform:)`, `content { runtime ageCertification scoring { imdbScore } genres {
+    translation } backdrops }`). If one is wrong, only the rows that use it are left out.
+- **Launcher** (`catalog/Catalog.kt`, `catalog/Recommendations.kt`, `ui/CatalogRows.kt`):
+  For you and each app's rows under Apps, the hero for a focused poster, OK through
+  `Commands.open`, Hold OK for Open / Open the app / Hide from Home, a ~40 MB picture cache. The
+  hub's address is `Prefs.hubUrl` (pushed at pairing, or `/api/settings {"hub"}`; the Dell's by
+  default). The TV provider reader declares READ_EPG_DATA, reads Watch Next, preview programs
+  and channels every 30 minutes with every query guarded, logs what it finds (tag
+  `LivingRoomRecs`), and puts up to 50 into `/api/state` as `recommendations: [{id, pkg, app,
+  title, poster, intentUri, source}]`; `{"type": "recommendation", "id"}` opens one, kept to its
+  package. Empty, nothing else changes.
+- **iPhone app** (`UI/TV/TVBrowse.swift`, models in `Model/TVModel.swift`, calls in `TVStore`):
+  Browse above Search on the TV remote page, with the chips, a three-column poster grid (an
+  app's Popular / Trending / New picked under the chips, More for the next page) and the title
+  sheet with Play on TV and where it's included.
+- **Not yet:** the web panel's Browse, and step 5 (which link shapes start playback, per app).
+

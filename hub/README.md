@@ -142,9 +142,17 @@ report over Cast, `adb` paired with the TV (`adb devices` lists it) gives the ti
 Without either, the remote simply shows no "now playing".
 
 `GET /api/tv` is the TV's state, `POST /api/tv/<id>` with `{"action": …}` drives it (only the
-remote's own keys, `volume`, `text`, `search`, `open` an app, `play` a checked link, and `seek`
+remote's own keys, `volume`, `text`, `search`, `open` an app, `play` a checked link, `resume` a
+title in the launcher's Continue, `recommendation` to open one of the apps' own picks, and `seek`
 to a position or `skip` by a few seconds), and `GET /api/tv/search?q=…` searches the catalog.
 See [docs/tv-remote.md](../docs/tv-remote.md) and [docs/tile-reorder-now-playing.md](../docs/tile-reorder-now-playing.md).
+
+The streaming catalog (`catalog.py`, [docs/streaming-catalog.md](../docs/streaming-catalog.md)):
+`GET /api/tv/catalog` gives rows of posters for each of the TV's apps (Popular, Trending, New)
+and For you, `GET /api/tv/catalog/<app>?row=…&page=n` more of one row, and `GET
+/api/tv/title/<id>` one title with the TV's apps it's included in. It comes from JustWatch,
+kept 6 hours in `~/.house-hub/catalog-cache.json`; posters come through `/api/tv/img/…` and
+stay in `~/.house-hub/catalog-art` (at most 200 MB).
 
 ### A second hub that keeps the same plan
 
