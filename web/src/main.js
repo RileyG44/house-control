@@ -138,6 +138,7 @@ function saveScenes(m, scenes) {
   m.raw.scenes = scenes.map((s) => {
     const out = { ...before.get(s.id), ...s };
     if (!s.acs) delete out.acs;
+    if (!s.tvs) delete out.tvs;
     return out;
   });
   if (isNative) publishWidgets(m.config, m.store);
@@ -304,12 +305,16 @@ function mountHome(raw, { first = false, editing: underEditor = false, grown = f
       store.source = null;
     }
   };
-  incoming.openDevice = (id) => {
+  function openDevice(id) {
     if (store.acCfg.has(id)) panel.openSheet({ kind: 'ac', id });
     else if (store.lightCfg.has(id)) panel.openSheet({ kind: 'light', id });
+    else if (id?.startsWith('speaker:') && config.furniture.some((f) => f.type === 'speaker' && `speaker:${f.device || 'spotify'}` === id)) {
+      panel.openSheet({ kind: 'speaker', id: id.slice('speaker:'.length) });
+    }
     else if (config.rooms.some((r) => r.id === id)) { panel.closeSheet(); panel.selectRoom(id); }
     else openTvWhenKnown(id);
-  };
+  }
+  incoming.openDevice = openDevice;
   // A TV is known once the TV has answered (it may be linked to the plan automatically).
   function openTvWhenKnown(id) {
     if (!id || panel.openTv(id) || tv.ready) return;
@@ -391,9 +396,7 @@ function mountHome(raw, { first = false, editing: underEditor = false, grown = f
   if (room && room !== 'all' && config.rooms.some((r) => r.id === room)) panel.selectRoom(room);
   if (first) {
     const opened = window.__HOUSE_BOOT__?.openDevice || new URLSearchParams(location.search).get('device');
-    if (store.acCfg.has(opened)) panel.openSheet({ kind: 'ac', id: opened });
-    else if (store.lightCfg.has(opened)) panel.openSheet({ kind: 'light', id: opened });
-    else openTvWhenKnown(opened);
+    openDevice(opened);
     if (!isNative) show();
     post('ready', { summary: store.summary() });
   } else if (!underEditor) {

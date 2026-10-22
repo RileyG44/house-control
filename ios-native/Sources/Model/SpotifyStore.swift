@@ -6,6 +6,13 @@ struct SpotifyOutput: Identifiable {
     var name: String
 }
 
+struct SpotifyPlaylist: Identifiable {
+    var id: String
+    var uri: String
+    var name: String
+    var owner: String
+}
+
 struct SpotifyState {
     var available = false
     var playing = false
@@ -51,6 +58,10 @@ struct SpotifyState {
 final class SpotifyStore {
     let hub: HubClient
     private(set) var state = SpotifyState()
+    private(set) var playlists: [SpotifyPlaylist] = []
+    private(set) var nextPlaylistOffset: Int?
+    private(set) var loadingPlaylists = false
+    private(set) var playlistError = ""
     @ObservationIgnored private var reading = false
     @ObservationIgnored private var tail: Task<Void, Never>?
     @ObservationIgnored private var pendingVolume: Double?
@@ -71,6 +82,27 @@ final class SpotifyStore {
             await refresh()
             do { try await Task.sleep(for: .seconds(3)) } catch { return }
         }
+    }
+
+    func loadPlaylists(reset: Bool = true) async {
+        guard !loadingPlaylists, reset || nextPlaylistOffset != nil else { return }
+        loadingPlaylists = true; playlistError = ""
+        defer { loadingPlaylists = false }
+        do {
+            let offset = reset ? 0 : nextPlaylistOffset ?? 0
+            let json = try await hub.get("api/spotify/playlists?offset=\(offset)", checkError: false)
+            guard json["available"]?.bool == true else {
+                playlistError = json["error"]?.string ?? "Connect your Spotify account to choose playlists here."
+                return
+            }
+            let items = (json["items"]?.array ?? []).compactMap { item -> SpotifyPlaylist? in
+                guard let id = item["id"]?.string, let uri = item["uri"]?.string else { return nil }
+                return SpotifyPlaylist(id: id, uri: uri, name: item["name"]?.string ?? "Playlist", owner: item["owner"]?.string ?? "")
+            }
+            if reset { playlists = items }
+            else { playlists += items.filter { item in !playlists.contains { $0.id == item.id } } }
+            nextPlaylistOffset = json["next"]?.int
+        } catch { playlistError = "Your playlists cannot reach Spotify. Try Refresh." }
     }
 
     func perform(_ action: String, fields: [String: JSON] = [:]) {

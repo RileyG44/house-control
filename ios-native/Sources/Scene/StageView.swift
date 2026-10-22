@@ -40,7 +40,12 @@ struct StageView: View {
                 }
             }
         }
-        .gesture(SpatialTapGesture().targetedToAnyEntity().onEnded { value in pick(value.entity) })
+        .gesture(SpatialTapGesture().targetedToAnyEntity().onEnded { value in
+            // A tabletop speaker can share a lamp's oversized interaction box.
+            let speaker = value.hitTest(point: value.location, in: .local, query: .all, mask: .all)
+                .first { $0.entity.name.hasPrefix("pick:speaker:") }
+            pick(speaker?.entity ?? value.entity)
+        })
         .simultaneousGesture(SpatialTapGesture().onEnded { _ in backgroundTap() })
         .simultaneousGesture(orbit)
         .simultaneousGesture(magnify)

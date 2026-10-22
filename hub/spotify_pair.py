@@ -24,10 +24,10 @@ from aiohttp import web
 from spotify import TOKEN, read_config, save_config
 
 REDIRECT = "http://127.0.0.1:8767/callback"
-SCOPES = "user-read-playback-state user-modify-playback-state"
+SCOPES = "user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative"
 
 
-async def pair(client_id: str, conf: Path):
+async def pair(client_id: str, conf: Path, *, no_browser=False):
     verifier = secrets.token_urlsafe(64)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
     state = secrets.token_urlsafe(32)
@@ -54,7 +54,10 @@ async def pair(client_id: str, conf: Path):
             "client_id": client_id, "response_type": "code", "redirect_uri": REDIRECT,
             "scope": SCOPES, "code_challenge_method": "S256", "code_challenge": challenge, "state": state})
         print("Opening Spotify sign-in. This request expires in five minutes.")
-        webbrowser.open(url)
+        if no_browser:
+            print("Open this Spotify sign-in URL in your browser:\n" + url, flush=True)
+        else:
+            webbrowser.open(url)
         auth_code = await asyncio.wait_for(code, 300)
         async with aiohttp.ClientSession() as http:
             async with http.post(TOKEN, data={"client_id": client_id, "grant_type": "authorization_code",
@@ -76,10 +79,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--client-id", required=True, help="Public client ID from your Spotify developer app")
     parser.add_argument("--conf", type=Path, default=Path(os.environ.get("HOUSE_HUB_DIR", Path.home() / ".house-hub")))
+    parser.add_argument("--no-browser", action="store_true", help="Print the sign-in URL for a headless hub with an SSH loopback tunnel")
     args = parser.parse_args()
     if len(args.client_id) != 32 or not all(c in "0123456789abcdefABCDEF" for c in args.client_id):
         parser.error("The public Spotify client ID should be 32 hexadecimal characters")
     try:
-        asyncio.run(pair(args.client_id, args.conf))
+        asyncio.run(pair(args.client_id, args.conf, no_browser=args.no_browser))
     except (RuntimeError, asyncio.TimeoutError, aiohttp.ClientError) as error:
         raise SystemExit(str(error) or "Spotify sign-in timed out. Run the command again to retry.")

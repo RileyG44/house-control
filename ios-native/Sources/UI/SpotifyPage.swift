@@ -27,10 +27,12 @@ struct SpotifyPage: View {
     @Environment(HomeStore.self) private var store
     @State private var seek: Double?
     @State private var volume: Double?
+    @State private var chosenOutput = ""
 
     var body: some View {
         let player = store.spotify
         let state = player.state
+        let output = state.outputs.contains { $0.id == chosenOutput } ? chosenOutput : state.device
         ScrollView {
             VStack(spacing: 22) {
                 if !state.error.isEmpty {
@@ -82,7 +84,8 @@ struct SpotifyPage: View {
                 .disabled(!state.available || state.volume == nil || !state.volumeSupported)
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Playing on").font(.subheadline).foregroundStyle(Color.muted)
-                    Picker("Speaker", selection: Binding(get: { state.device }, set: { id in
+                    Picker("Speaker", selection: Binding(get: { output }, set: { id in
+                        chosenOutput = id
                         if !id.isEmpty { player.perform("transfer", fields: ["device": .string(id)]) }
                     })) {
                         Text(state.outputs.isEmpty ? "No speakers available" : "Choose a speaker").tag("")
@@ -98,12 +101,53 @@ struct SpotifyPage: View {
                 }
                 .padding(18).frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.fill, in: RoundedRectangle(cornerRadius: 26))
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Your playlists").font(.house(20)).foregroundStyle(Color.ink)
+                    if !state.canTransfer {
+                        Text("Connect your Spotify account to choose playlists and your Echo here.")
+                            .font(.subheadline).foregroundStyle(Color.muted)
+                    } else {
+                        if !player.playlistError.isEmpty {
+                            Text(player.playlistError).font(.subheadline).foregroundStyle(Color.muted)
+                        }
+                        ForEach(player.playlists) { playlist in
+                            Button {
+                                var fields: [String: JSON] = ["uri": .string(playlist.uri)]
+                                if !output.isEmpty { fields["device"] = .string(output) }
+                                Haptics.light(); player.perform("play", fields: fields)
+                            } label: {
+                                HStack(spacing: 14) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(playlist.name).font(.house(17)).foregroundStyle(Color.ink)
+                                        Text(playlist.owner.isEmpty ? "Spotify playlist" : playlist.owner).font(.footnote).foregroundStyle(Color.muted)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "play.fill").foregroundStyle(Color.ink)
+                                }
+                                .padding(16).background(Color.fill, in: RoundedRectangle(cornerRadius: 24))
+                            }
+                            .buttonStyle(.plain).disabled(!state.available)
+                            .accessibilityLabel("Play \(playlist.name)")
+                        }
+                        if player.loadingPlaylists { ProgressView("Loading your playlists…") }
+                        else if player.playlists.isEmpty && player.playlistError.isEmpty {
+                            Text("No playlists found in this Spotify account.").font(.subheadline).foregroundStyle(Color.muted)
+                        }
+                        if player.nextPlaylistOffset != nil {
+                            Button("More playlists") { Task { await player.loadPlaylists(reset: false) } }
+                                .buttonStyle(.glass).disabled(player.loadingPlaylists || !state.available)
+                        }
+                    }
+                }
             }
             .padding(24).padding(.bottom, 30)
         }
         .navigationTitle("Spotify").navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Refresh", systemImage: "arrow.clockwise") { Task { await player.refresh() } } } }
-        .task { await player.follow() }
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Refresh", systemImage: "arrow.clockwise") {
+            Task { await player.refresh(); if player.state.canTransfer { await player.loadPlaylists() } }
+        } } }
+        .task { await player.refresh() }
+        .task(id: state.canTransfer) { if state.canTransfer { await player.loadPlaylists() } }
     }
 
     private func transport(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {

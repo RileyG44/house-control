@@ -16,7 +16,7 @@ def run(coro):
     return asyncio.run(coro)
 
 
-async def api_server():
+async def api_server(command_status=204, command_body=None, command_type=None):
     sent = []
     devices = [{"id": "echo", "name": "Studio Echo", "type": "Speaker", "is_active": True, "volume_percent": 32},
                {"id": "restricted", "name": "Unavailable output", "is_restricted": True}]
@@ -31,11 +31,15 @@ async def api_server():
         sent.append((request.method, request.path, dict(request.query), body))
         if request.method == "GET" and request.path.endswith("/devices"):
             return web.json_response({"devices": devices})
+        if request.method == "GET" and request.path.endswith("/playlists"):
+            return web.json_response({"items": [{"id": "37i9dQZF1DXcBWIGoYBM5M", "name": "Evening mix",
+                                      "owner": {"display_name": "Riley"}}, None],
+                                      "next": "https://api.spotify.com/v1/me/playlists?offset=50" if request.query.get("offset") == "0" else None})
         if request.method == "GET":
             return web.json_response({"is_playing": True, "progress_ms": 12000, "device": devices[0],
                                       "item": {"id": "track", "name": "Evening", "duration_ms": 200000,
                                                "artists": [{"name": "A musician"}], "album": {"name": "Studio", "images": []}}})
-        return web.Response(status=204)
+        return web.Response(status=command_status, text=command_body, content_type=command_type)
 
     app = web.Application()
     app.router.add_post("/token", token)
@@ -83,12 +87,15 @@ def test_connect_controls_real_available_devices_and_limits(tmp_path, monkeypatc
             service.http = http
             assert (await service.act({"action": "transfer", "device": "echo"}))[1] == 200
             assert sent[-1][1] == "/v1/me/player"
-            assert sent[-1][3] == {"device_ids": ["echo"], "play": True}
+            assert sent[-1][3] == {"device_ids": ["echo"]}  # Keep paused playback paused when changing output.
             assert (await service.act({"action": "transfer", "device": "restricted"}))[1] == 409
             assert (await service.act({"action": "volume", "level": 999}))[1] == 200
             assert sent[-1][2] == {"volume_percent": "100"}
             assert (await service.act({"action": "seek", "position": 18.5}))[1] == 200
             assert sent[-1][2] == {"position_ms": "18500"}
+            assert (await service.act({"action": "play", "uri": "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M", "device": "echo"}))[1] == 200
+            assert sent[-1] == ("PUT", "/v1/me/player/play", {"device_id": "echo"},
+                                {"context_uri": "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"})
             for action, method in [("next", "POST"), ("previous", "POST"), ("play", "PUT"), ("pause", "PUT")]:
                 assert (await service.act({"action": action}))[1] == 200
                 assert sent[-1][:2] == (method, "/v1/me/player/" + action)
@@ -96,8 +103,117 @@ def test_connect_controls_real_available_devices_and_limits(tmp_path, monkeypatc
     run(check())
 
 
+def test_playlists_are_paged_separately_from_the_player_poll(tmp_path, monkeypatch):
+    async def check():
+        server, sent = await api_server()
+        monkeypatch.setattr(spotify, "API", str(server.make_url("/v1")))
+        spotify.save_config(tmp_path / "spotify.json", {"refresh_token": "refresh", "access_token": "new-access",
+                                                       "expires_at": time.time() + 3600})
+        service = spotify.Spotify(tmp_path)
+        async with aiohttp.ClientSession() as http:
+            service.http = http
+            answer, code = await service.playlists()
+            assert code == 200 and answer["available"]
+            assert answer["items"] == [{"id": "37i9dQZF1DXcBWIGoYBM5M", "uri": "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M",
+                                         "name": "Evening mix", "owner": "Riley"}]
+            assert answer["next"] == 50
+            assert sent[-1][2] == {"limit": "50", "offset": "0"}
+            assert (await service.playlists(offset=50))[0]["next"] is None
+            await service.state()
+            assert len([call for call in sent if call[1].endswith("/playlists")]) == 2
+            assert (await service.playlists(offset=-1))[1] == 400
+        await server.close()
+    run(check())
+
+
+@pytest.mark.parametrize("status", [200, 403])
+def test_playlist_bridge_is_local_only_and_keeps_setup_errors(tmp_path, status):
+    async def check():
+        seen = []
+        async def library(request):
+            seen.append(dict(request.query))
+            if status == 403:
+                return web.json_response({"error": "Connect Spotify again to read playlists."}, status=403)
+            return web.json_response({"available": True, "backend": "connect", "items": [], "next": None})
+        app = web.Application()
+        app.router.add_get("/api/spotify/playlists", library)
+        server = TestServer(app)
+        await server.start_server()
+        service = spotify.Spotify(tmp_path, [str(server.make_url("/")).rstrip("/")])
+        service.is_mac = False
+        async with aiohttp.ClientSession() as http:
+            service.http = http
+            answer, code = await service.playlists(offset=50)
+            assert code == status
+            if status == 200:
+                assert answer["available"]
+            else:
+                assert "Connect Spotify again" in answer["error"]
+            assert seen == [{"local": "1", "offset": "50"}]
+            assert not (await service.playlists(local_only=True))[0]["available"]
+            assert len(seen) == 1
+        await server.close()
+    run(check())
+
+
+def test_mac_can_prefer_the_dell_connect_account_without_forwarding_local_requests(tmp_path, monkeypatch):
+    async def check():
+        seen = []
+        async def player(request):
+            seen.append((request.method, dict(request.query)))
+            if request.method == "POST":
+                assert (await request.json())["action"] == "next"
+                return web.json_response({"ok": True})
+            return web.json_response({"available": True, "backend": "connect", "devices": []})
+        app = web.Application()
+        app.router.add_route("*", "/api/spotify", player)
+        server = TestServer(app)
+        await server.start_server()
+        spotify.save_config(tmp_path / "spotify.json", {"prefer_peer": True})
+        service = spotify.Spotify(tmp_path, [str(server.make_url("/")).rstrip("/")])
+        service.is_mac = True
+        local = []
+        async def mac(body=None):
+            local.append(body)
+            return {"available": True, "backend": "mac"}
+        monkeypatch.setattr(service, "_mac", mac)
+        async with aiohttp.ClientSession() as http:
+            service.http = http
+            assert (await service.state())["backend"] == "connect"
+            assert (await service.act({"action": "next"}))[1] == 200
+            assert local == []
+            assert seen == [("GET", {"local": "1"}), ("POST", {"local": "1"})]
+            assert (await service.state(local_only=True))["backend"] == "mac"
+            assert (await service.act({"action": "pause"}, local_only=True))[1] == 200
+            assert local == [None, {"action": "pause"}]
+            assert len(seen) == 2
+        await server.close()
+    run(check())
+
+
+@pytest.mark.parametrize("status,body,content_type", [(200, None, None), (202, None, None),
+                         (202, "Accepted", "text/plain"), (200, '{"accepted":true}', "application/json"),
+                         (202, "", "application/json")])
+def test_successful_player_commands_do_not_require_a_json_body(tmp_path, monkeypatch, status, body, content_type):
+    async def check():
+        server, sent = await api_server(status, body, content_type)
+        monkeypatch.setattr(spotify, "API", str(server.make_url("/v1")))
+        spotify.save_config(tmp_path / "spotify.json", {"refresh_token": "refresh", "access_token": "new-access",
+                                                       "expires_at": time.time() + 3600})
+        service = spotify.Spotify(tmp_path)
+        async with aiohttp.ClientSession() as http:
+            service.http = http
+            answer, code = await service.act({"action": "next"})
+            assert code == 200 and answer == {"ok": True}
+            assert [entry[:2] for entry in sent] == [("POST", "/v1/me/player/next")]
+        await server.close()
+    run(check())
+
+
 @pytest.mark.parametrize("body", [None, [], {"action": []}, {"action": "shell"}, {"action": "volume", "level": "1;do evil"},
                                  {"action": "seek", "position": float("nan")}, {"action": "volume", "level": True},
+                                 {"action": "play", "uri": "https://foreign.example"}, {"action": "play", "uri": None},
+                                 {"action": "play", "device": ""},
                                  {"action": "transfer", "device": ""}])
 def test_invalid_actions_never_reach_a_player(body):
     with pytest.raises(spotify.SpotifyError) as error:
@@ -179,6 +295,9 @@ def test_hub_routes_enforce_origin_and_do_not_start_discovery(tmp_path):
         await client.start_server()
         try:
             assert (await client.get("/api/spotify?local=1")).status == 200
+            assert (await client.get("/api/spotify/playlists?local=1")).status == 200
+            assert (await client.get("/api/spotify/playlists?offset=bad")).status == 400
+            assert (await client.get("/api/spotify/playlists?offset=100001")).status == 400
             assert (await client.post("/api/spotify", json={"action": "next"}, headers={"Origin": "https://foreign.example"})).status == 403
             assert (await client.post("/api/spotify", json={"action": "bad"})).status == 400
             assert (await client.post("/api/spotify", data="bad")).status == 400

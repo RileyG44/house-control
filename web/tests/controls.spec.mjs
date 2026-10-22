@@ -102,7 +102,73 @@ test('speaker opens Spotify, controls playback and chooses an actual output', as
   await expect.poll(async () => (await data(request)).sent.some((s) => s.route === 'spotify' && s.action === 'transfer' && s.device === 'mac')).toBe(true);
   await page.getByRole('button', { name: 'Next track', exact: true }).click();
   await expect.poll(async () => (await data(request)).sent.some((s) => s.route === 'spotify' && s.action === 'next')).toBe(true);
+  await page.getByLabel('Spotify output', { exact: true }).selectOption('echo');
+  await page.getByRole('button', { name: /Evening mix/ }).click();
+  await expect.poll(async () => (await data(request)).sent.some((s) => s.route === 'spotify' && s.action === 'play'
+    && s.uri === 'spotify:playlist:37i9dQZF1DXcBWIGoYBM5M' && s.device === 'echo')).toBe(true);
+  await page.waitForTimeout(3200);
+  expect((await data(request)).sent.filter((s) => s.route === 'playlists')).toHaveLength(1);
+  await page.getByRole('button', { name: 'More playlists', exact: true }).click();
+  await expect(page.getByRole('button', { name: /Morning mix/ })).toBeVisible();
+  expect((await data(request)).sent.filter((s) => s.route === 'playlists').map((s) => s.offset)).toEqual(['0', '50']);
+  await page.getByRole('button', { name: /Morning mix/ }).click();
+  await expect.poll(async () => (await data(request)).sent.some((s) => s.route === 'spotify' && s.action === 'play'
+    && s.uri === 'spotify:playlist:37i9dQZF1DX0XUsuxWHRQd' && s.device === 'echo')).toBe(true);
   await page.screenshot({ path: `test-results/spotify-${test.info().project.name}.png` });
+});
+
+test('removing a preset TV app persists through reload and leaves the TV unchanged', async ({ page, request }) => {
+  await page.locator('.scene[data-key="movie"]').click({ button: 'right' });
+  await page.getByText('Edit', { exact: true }).click();
+  await page.getByLabel('Studio TV app', { exact: true }).selectOption('');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(async () => (await data(request)).plan.scenes.find((s) => s.id === 'movie')?.tvs ?? null).toBe(null);
+  await page.reload();
+  await page.locator('.scene[data-key="movie"]').click();
+  await expect.poll(async () => (await data(request)).sent.some((s) => s.kind === 'ac' && s.patch?.target === 72)).toBe(true);
+  const sent = (await data(request)).sent;
+  expect(sent.some((s) => s.kind === 'light' && s.patch?.brightness === 0.2)).toBe(true);
+  expect(sent.some((s) => s.route === 'tv')).toBe(false);
+  await page.locator('.scene[data-key="movie"]').click({ button: 'right' });
+  await page.getByText('Edit', { exact: true }).click();
+  await expect(page.getByLabel('Studio TV app', { exact: true })).toHaveValue('');
+});
+
+test('the 3D speaker has a finite hover anchor and opens its remote', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'Desktop hover');
+  await page.getByRole('button', { name: 'Show the home', exact: true }).click();
+  await expect(page.locator('.stage canvas')).toHaveCSS('opacity', '1');
+  await page.waitForTimeout(500);
+  const point = await page.evaluate(() => {
+    window.__house.world.settle();
+    const p = window.__house.world.screenAnchor({ kind: 'speaker', id: 'spotify' });
+    const r = document.querySelector('.stage canvas').getBoundingClientRect();
+    return { x: r.x + p.x, y: r.y + p.y };
+  });
+  expect(Number.isFinite(point.x) && Number.isFinite(point.y)).toBe(true);
+  await page.mouse.move(point.x, point.y);
+  await expect(page.locator('.tooltip.show')).toContainText('Studio speaker');
+  const position = await page.locator('.tooltip').evaluate((e) => ({ x: parseFloat(e.style.left), y: parseFloat(e.style.top) }));
+  expect(Number.isFinite(position.x) && Number.isFinite(position.y)).toBe(true);
+  await page.mouse.click(point.x, point.y);
+  await expect(page.locator('.sheet-name')).toHaveText('Spotify');
+});
+
+test('the desktop island opens AC controls without toggling power', async ({ page, request, isMobile }) => {
+  test.skip(isMobile, 'Desktop island');
+  await page.goto('/?mode=island&expanded=1');
+  await expect(page.locator('.isle')).toHaveAttribute('data-state', 'expanded');
+  await page.waitForFunction(() => Boolean(window.__house?.world));
+  await page.waitForTimeout(800);
+  const point = await page.evaluate(() => {
+    window.__house.world.settle();
+    const p = window.__house.world.screenAnchor({ kind: 'ac', id: 'studio.ac' });
+    const r = document.querySelector('.isle-stage canvas').getBoundingClientRect();
+    return { x: r.x + p.x, y: r.y + p.y };
+  });
+  await page.mouse.click(point.x, point.y);
+  await expect(page.locator('.sheet-name')).toContainText('AC');
+  expect((await data(request)).sent.some((s) => s.kind === 'ac')).toBe(false);
 });
 
 test('launcher styling stays round and readable in both appearances', async ({ page }) => {

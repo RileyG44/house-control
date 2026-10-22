@@ -3,6 +3,8 @@ import SwiftUI
 /// What the sheet holds: the home page, and the light, AC and TV pages pushed inside it.
 struct ControlsCard: View {
     @Environment(CardModel.self) private var card
+    @Environment(HomeStore.self) private var store
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         @Bindable var card = card
@@ -23,6 +25,11 @@ struct ControlsCard: View {
             SheetProbe { card.sheetMoved(top: $0) }
                 .frame(height: 1)
                 .allowsHitTesting(false)
+        }
+        .task(id: scenePhase == .active && store.plan.furniture.contains { $0.type == "speaker" }) {
+            if scenePhase == .active && store.plan.furniture.contains(where: { $0.type == "speaker" }) {
+                await store.spotify.follow()
+            }
         }
     }
 }

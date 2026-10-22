@@ -726,6 +726,14 @@ def make_app(hub: Hub) -> web.Application:
         result, status = await hub.spotify.act(body, local_only=request.query.get("local") == "1")
         return web.json_response(result, status=status)
 
+    async def spotify_playlists(request):
+        try:
+            offset = int(request.query.get("offset", "0"))
+        except ValueError:
+            return web.json_response({"error": "Send a numeric playlist offset."}, status=400)
+        result, status = await hub.spotify.playlists(local_only=request.query.get("local") == "1", offset=offset)
+        return web.json_response(result, status=status, headers={"Cache-Control": "no-store"})
+
     async def tv_state(request):
         return web.json_response(tv_for_client(await hub.tv.current(), client_origin(request)),
                                  headers={"Cache-Control": "no-store"})
@@ -878,6 +886,7 @@ def make_app(hub: Hub) -> web.Application:
     app.router.add_get("/api/tv", tv_state)
     app.router.add_get("/api/spotify", spotify_state)
     app.router.add_post("/api/spotify", spotify_action)
+    app.router.add_get("/api/spotify/playlists", spotify_playlists)
     app.router.add_get("/api/tv/search", tv_search)
     app.router.add_get("/api/tv/art/now", tv_picture)
     app.router.add_get("/api/tv/banner/{pkg}", tv_picture)

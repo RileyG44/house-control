@@ -19,10 +19,13 @@ struct ScenesRow: View {
     var body: some View {
         let scenes = store.plan.scenes
         let keys = order ?? scenes.map(\.id)
+        let byID = Dictionary(uniqueKeysWithValues: scenes.map { ($0.id, $0) })
+        let shown = keys.compactMap { byID[$0] }
         ScrollViewReader { reader in
             ScrollView(.horizontal) {
-                ZStack(alignment: .topLeading) {
-                    ForEach(scenes) { scene in
+                // Real layout positions let ScrollViewReader find the next chip at an edge.
+                HStack(spacing: gap) {
+                    ForEach(shown) { scene in
                         let index = keys.firstIndex(of: scene.id) ?? 0
                         let active = store.scene == scene.id
                         let dragging = lifted == scene.id
@@ -39,7 +42,7 @@ struct ScenesRow: View {
                         .contentShape(Rectangle())
                         .scaleEffect(dragging ? 1.1 : 1)
                         .shadow(color: .black.opacity(dragging ? 0.25 : 0), radius: 12, y: 5)
-                        .offset(x: dragging ? finger - grab : CGFloat(index) * (width + gap))
+                        .offset(x: dragging ? finger - grab - CGFloat(index) * (width + gap) : 0)
                         .zIndex(dragging ? 10 : 0)
                         .id(scene.id)
                         .onTapGesture {
@@ -89,10 +92,9 @@ struct ScenesRow: View {
                         }
                         .foregroundStyle(Color.ink).frame(width: width, height: 80)
                     }
-                    .offset(x: CGFloat(scenes.count) * (width + gap))
                     .accessibilityLabel("New preset")
                 }
-                .frame(width: CGFloat(scenes.count + 1) * (width + gap) - gap, height: 80, alignment: .topLeading)
+                .frame(height: 80)
                 .coordinateSpace(.named("presets"))
             }
             .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.x } action: { _, x in scrollX = x }

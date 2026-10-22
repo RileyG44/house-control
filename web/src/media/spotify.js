@@ -9,21 +9,21 @@ let reading = null;
 let tail = Promise.resolve();
 const emit = () => listeners.forEach((fn) => fn(state));
 
-async function request(body) {
+async function request(body, path = 'api/spotify') {
   if (isNative) {
     let result;
     try {
-      result = await call('hubRequest', { method: body ? 'POST' : 'GET', path: 'api/spotify', ...(body ? { body } : {}) });
+      result = await call('hubRequest', { method: body ? 'POST' : 'GET', path, ...(body ? { body } : {}) });
     } catch (error) {
       // The shell rejects any reply with an `error`. A Spotify GET also carries its setup
       // state (including whether the Mac app can be opened), which the remote must keep.
-      if (!body && error.detail?.backend) return error.detail;
+      if (!body && path === 'api/spotify' && error.detail?.backend) return error.detail;
       throw error;
     }
     if (body && result.error) throw new Error(result.error);
     return result;
   }
-  const response = await fetch('./api/spotify', { method: body ? 'POST' : 'GET', cache: 'no-store',
+  const response = await fetch('./' + path, { method: body ? 'POST' : 'GET', cache: 'no-store',
     ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || 'Spotify cannot be reached');
@@ -79,8 +79,31 @@ export function createSpotifyRemote() {
   const volume = h('input.spotify-slider', { type: 'range', min: 0, max: 100, step: 1, value: 0, 'aria-label': 'Spotify volume' });
   const output = h('select.scene-input', { 'aria-label': 'Spotify output' });
   const outputHint = h('p.spotify-output-hint');
+  const playlists = h('div.spotify-playlists');
+  const libraryNote = h('p.spotify-output-hint', { role: 'status' });
+  const more = h('button.pill', { hidden: true, onclick: () => loadPlaylists(false) }, 'More playlists');
   const open = h('button.pill', { onclick: () => spotify.act({ action: 'open' }) }, 'Open Spotify on Mac');
-  const refresh = h('button.pill', { onclick: () => spotify.refresh() }, 'Refresh');
+  const refresh = h('button.pill', { onclick: () => { spotify.refresh(); if (spotify.state.canTransfer) loadPlaylists(true); } }, 'Refresh');
+  let libraryLoaded = false, libraryReading = false, libraryNext = null, stopped = false, chosenOutput = '';
+  async function loadPlaylists(reset) {
+    if (libraryReading || stopped) return;
+    libraryReading = true; more.disabled = true; libraryNote.textContent = 'Loading your playlists…';
+    try {
+      const result = await request(null, `api/spotify/playlists?offset=${reset ? 0 : libraryNext ?? 0}`);
+      if (stopped) return;
+      if (!result.available) throw new Error(result.error || 'Connect Spotify to browse your playlists.');
+      if (reset) playlists.replaceChildren();
+      for (const item of result.items || []) {
+        playlists.append(h('button.spotify-playlist', { onclick: () => {
+          const device = chosenOutput || spotify.state.device;
+          spotify.act({ action: 'play', uri: item.uri, ...(device ? { device } : {}) });
+        } }, h('span', h('b', item.name), h('small', item.owner || 'Spotify playlist')), icon('play', 18)));
+      }
+      libraryLoaded = true; libraryNext = result.next; more.hidden = libraryNext == null;
+      libraryNote.textContent = playlists.children.length ? 'Choose a playlist to play on the selected speaker.' : 'No playlists found in this Spotify account.';
+    } catch (error) { if (!stopped) libraryNote.textContent = error.message; }
+    finally { libraryReading = false; more.disabled = false; }
+  }
   let seekDragging = false, volumeDragging = false, pendingVolume = null, sendingVolume = false;
   seek.addEventListener('input', () => { seekDragging = true; times.textContent = `${clock(Number(seek.value))} / ${clock(spotify.state.track?.duration)}`; });
   seek.addEventListener('change', async () => { await spotify.act({ action: 'seek', position: Number(seek.value) }); seekDragging = false; });
@@ -95,12 +118,13 @@ export function createSpotifyRemote() {
     } finally { sendingVolume = false; volumeDragging = false; }
   }
   volume.addEventListener('input', () => { volumeDragging = true; pendingVolume = Number(volume.value); drainVolume(); });
-  output.addEventListener('change', () => { if (output.value) spotify.act({ action: 'transfer', device: output.value }); });
+  output.addEventListener('change', () => { chosenOutput = output.value; if (chosenOutput) spotify.act({ action: 'transfer', device: chosenOutput }); });
   const el = h('div.spotify-remote.sheet-scroll', note,
     h('div.spotify-cover', placeholder, artwork), title, artist,
     h('div.spotify-progress', seek, times), h('div.spotify-transport', previous, play, next),
     h('label.spotify-volume', icon('volume', 19), volume),
     h('div.field-label', 'Playing on'), output, outputHint,
+    h('div.field-label', 'Your playlists'), libraryNote, playlists, more,
     h('div.spotify-actions', open, refresh));
   const unsubscribe = spotify.subscribe((s) => {
     title.textContent = s.track?.title || 'Spotify'; artist.textContent = s.track?.artist || 'Your music, around the studio';
@@ -125,10 +149,19 @@ export function createSpotifyRemote() {
       output.replaceChildren(h('option', { value: '' }, opts.length ? 'Choose a speaker' : 'No speakers available'), ...opts.map((d) => h('option', { value: d.id }, d.name)));
       output.dataset.devices = key;
     }
-    output.value = s.device || ''; output.disabled = !s.canTransfer || !s.available;
+    if (chosenOutput && !opts.some((d) => d.id === chosenOutput)) chosenOutput = '';
+    output.value = chosenOutput || s.device || ''; output.disabled = !s.canTransfer || !s.available;
     outputHint.textContent = s.canTransfer ? 'Choose your Echo or another available Spotify Connect speaker.'
       : 'Choose the speaker in Spotify on your Mac. Connect your Spotify account to choose outputs here.';
     open.hidden = !s.canOpen;
+    for (const button of playlists.querySelectorAll('button')) button.disabled = !s.available || !s.canTransfer;
+    more.disabled = libraryReading || !s.available || !s.canTransfer;
+    if (s.canTransfer && s.available && !libraryLoaded && !libraryReading) {
+      // One library read per opening, rather than on every three-second player poll.
+      libraryLoaded = true; loadPlaylists(true);
+    } else if (!s.canTransfer && !libraryReading) {
+      libraryNote.textContent = 'Connect your Spotify account to choose playlists and your Echo here.';
+    }
   });
-  return { el, stop: unsubscribe };
+  return { el, stop() { stopped = true; unsubscribe(); } };
 }

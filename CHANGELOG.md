@@ -13,7 +13,7 @@ What changed in each release of House Control. The Mac app is on
 - Hold and drag presets to reorder them; edit or delete any preset, including the built-in ones.
   Presets can open a TV app alongside their lights and temperature settings, including on the TV launcher.
 - Add a speaker to the furniture library and the studio’s door-side bedside table. Selecting
-  it opens Spotify playback, seek and volume controls, with Spotify Connect output selection
+  it opens Spotify playback, seek and volume controls, with Spotify Connect playlist and output selection
   or a bridge to the signed-in Mac app. See [Spotify setup](docs/spotify.md).
 
 ## Unreleased

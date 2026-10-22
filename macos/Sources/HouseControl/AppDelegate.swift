@@ -423,6 +423,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "openAgent": openAgent()
         case "revealPlan": revealPlan()
         case "openEditor": openEditor()
+        case "openDevice":
+            if let device = message["device"] as? String {
+                if !panel.isVisible, let button = statusItem.button { panel.show(below: button) }
+                panel.host.call("openDevice", device)
+            }
         case "haptic":
             // A tile picked up, passing a place, settling (Force Touch trackpads).
             let pattern: NSHapticFeedbackManager.FeedbackPattern

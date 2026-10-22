@@ -11,6 +11,7 @@ import json
 import math
 import os
 import platform
+import re
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -64,7 +65,12 @@ def validate_action(body) -> dict:
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
             raise SpotifyError(f"Send a finite {key}", 400)
         out[key] = max(0, min(100 if action == "volume" else 24 * 3600, value))
-    if action == "transfer":
+    if action == "play" and "uri" in body:
+        uri = body["uri"]
+        if not isinstance(uri, str) or not re.fullmatch(r"spotify:playlist:[A-Za-z0-9]{22}", uri):
+            raise SpotifyError("Choose a Spotify playlist.", 400)
+        out["uri"] = uri
+    if action == "transfer" or (action == "play" and "device" in body):
         device = body.get("device")
         if not isinstance(device, str) or not device or len(device) > 256:
             raise SpotifyError("Choose a Spotify output", 400)
@@ -163,9 +169,19 @@ class Spotify:
                     raise SpotifyError("Open Spotify and choose a playback device first.", 409)
                 if response.status >= 400:
                     raise SpotifyError("Spotify could not complete that request.", response.status)
-                if response.status == 204:
+                if not 200 <= response.status < 300:
+                    raise SpotifyError("Spotify could not complete that request.", 502)
+                # A successful player command can be an empty 200/202 as well as 204.
+                # Its HTTP success is final: parsing a body must never invite a replay.
+                if method != "GET":
                     return {}
-                return await response.json()
+                body = await response.read()
+                if not body.strip() or not (response.content_type == "application/json" or response.content_type.endswith("+json")):
+                    return {}
+                try:
+                    return json.loads(body)
+                except ValueError as error:
+                    raise SpotifyError("Spotify returned an unreadable response.", 502) from error
 
     async def _connect_state(self):
         player = await self._api("GET", "/me/player")
@@ -191,6 +207,8 @@ class Spotify:
                 "volumeSupported": device.get("supports_volume", True)}
 
     async def _mac(self, body=None):
+        if body and ("uri" in body or ("device" in body and body["action"] == "play")):
+            raise SpotifyError("Connect your Spotify account to choose a playlist and speaker here.", 409)
         if body and body["action"] == "transfer":
             raise SpotifyError("Choose the speaker in Spotify on your Mac, or connect Spotify for an output picker.", 409)
         if body and body["action"] == "open":
@@ -212,17 +230,23 @@ class Spotify:
             raise SpotifyError(state.get("error", "Open Spotify on the Mac first."), 409)
         return state
 
-    async def _bridge(self, body=None):
+    async def _bridge(self, body=None, *, path="/api/spotify", params=None):
         # Read-only discovery may try each address. A command uses just the chosen address:
         # if its answer is lost, forwarding it again could skip a second track or start music twice.
-        urls = [self._bridge_url] if body and self._bridge_url else self.bridge_urls()
+        urls = self.bridge_urls()
+        if self._bridge_url in urls:
+            urls = [self._bridge_url, *[u for u in urls if u != self._bridge_url]]
+        if body and self._bridge_url:
+            urls = [self._bridge_url]
         for url in urls:
             try:
                 method = "POST" if body else "GET"
-                async with self.http.request(method, url + "/api/spotify?local=1", json=body,
+                async with self.http.request(method, url + path, params={"local": "1", **(params or {})}, json=body,
                                              timeout=TIMEOUT, allow_redirects=False) as response:
                     result = await response.json()
                     if body:
+                        return result, response.status
+                    if path == "/api/spotify/playlists" and response.status >= 400:
                         return result, response.status
                     if response.status == 200 and result.get("backend") in {"mac", "connect"}:
                         self._bridge_url = url
@@ -232,6 +256,31 @@ class Spotify:
                     raise SpotifyError("The Mac did not answer. Check Spotify before trying the action again.")
         return unavailable("Spotify is not connected. Open it on the Mac, or connect your account.", canOpen=False), 200
 
+    async def playlists(self, *, local_only=False, offset=0):
+        if not isinstance(offset, int) or not 0 <= offset <= 100000:
+            return {"error": "Send a playlist offset between 0 and 100000."}, 400
+        async with self._lock:
+            try:
+                cfg = read_config(self.path)
+                if cfg.get("refresh_token"):
+                    page = await self._api("GET", "/me/playlists", params={"limit": 50, "offset": offset})
+                    items = [{"id": p["id"], "uri": "spotify:playlist:" + p["id"],
+                              "name": p.get("name") or "Playlist", "owner": (p.get("owner") or {}).get("display_name") or ""}
+                             for p in page.get("items", []) if isinstance(p, dict) and isinstance(p.get("id"), str)
+                             and re.fullmatch(r"[A-Za-z0-9]{22}", p["id"])]
+                    return {"available": True, "backend": "connect", "items": items,
+                            "next": offset + 50 if page.get("next") and offset < 100000 else None}, 200
+                if not local_only and (not self.is_mac or cfg.get("prefer_peer")):
+                    return await self._bridge(path="/api/spotify/playlists", params={"offset": offset})
+                return unavailable("Connect your Spotify account to browse and play your playlists.",
+                                   backend="mac" if self.is_mac else "none"), 200
+            except (SpotifyError, aiohttp.ClientError, asyncio.TimeoutError, ValueError, OSError) as error:
+                status = error.status if isinstance(error, SpotifyError) else 503
+                message = str(error) if isinstance(error, SpotifyError) else "Spotify playlists cannot be reached."
+                if status == 403:
+                    message = "Connect Spotify again to allow House Control to read your playlists."
+                return {"error": message}, status
+
     async def state(self, *, local_only=False, fresh=False):
         async with self._lock:
             if not fresh and self._cache and self._cache[0] == local_only and time.monotonic() - self._cache_at < 2:
@@ -240,10 +289,13 @@ class Spotify:
                 cfg = read_config(self.path)
                 if cfg.get("refresh_token"):
                     state = await self._connect_state()
+                elif not local_only and (not self.is_mac or cfg.get("prefer_peer")):
+                    state, _ = await self._bridge()
+                    if self.is_mac and state.get("backend") == "none":
+                        self._bridge_url = None
+                        state = await self._mac()
                 elif self.is_mac:
                     state = await self._mac()
-                elif not local_only:
-                    state, _ = await self._bridge()
                 else:
                     state = unavailable("This hub has no local Spotify player.")
             except (SpotifyError, aiohttp.ClientError, asyncio.TimeoutError, ValueError, OSError) as error:
@@ -256,7 +308,8 @@ class Spotify:
         try:
             body = validate_action(body)
             # Select a peer before sending a mutation; only read operations may fail over.
-            if not self.is_mac and not read_config(self.path).get("refresh_token") and not local_only and not self._bridge_url:
+            cfg = read_config(self.path)
+            if not cfg.get("refresh_token") and not local_only and not self._bridge_url and (not self.is_mac or cfg.get("prefer_peer")):
                 await self.state(fresh=True)
             async with self._lock:
                 self._cache = None
@@ -267,9 +320,11 @@ class Spotify:
                         outputs = await self._api("GET", "/me/player/devices")
                         if not any(d.get("id") == body["device"] and not d.get("is_restricted") for d in outputs.get("devices", [])):
                             raise SpotifyError("That speaker is no longer available in Spotify.", 409)
-                        await self._api("PUT", "/me/player", data={"device_ids": [body["device"]], "play": True})
+                        await self._api("PUT", "/me/player", data={"device_ids": [body["device"]]})
                     elif action in {"play", "pause"}:
-                        await self._api("PUT", "/me/player/" + action)
+                        await self._api("PUT", "/me/player/" + action,
+                                        data={"context_uri": body["uri"]} if "uri" in body else None,
+                                        params={"device_id": body["device"]} if "device" in body else None)
                     elif action in {"next", "previous"}:
                         await self._api("POST", "/me/player/" + action)
                     elif action == "seek":
@@ -278,10 +333,10 @@ class Spotify:
                         await self._api("PUT", "/me/player/volume", params={"volume_percent": round(body["level"])})
                     else:
                         raise SpotifyError("Open Spotify on your playback device.", 409)
+                elif not local_only and self._bridge_url and (not self.is_mac or cfg.get("prefer_peer")):
+                    return await self._bridge(body)
                 elif self.is_mac:
                     await self._mac(body)
-                elif not local_only and self._bridge_url:
-                    return await self._bridge(body)
                 else:
                     raise SpotifyError("No Spotify player is connected.", 409)
             return {"ok": True}, 200

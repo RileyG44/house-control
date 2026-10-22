@@ -125,10 +125,20 @@ async def get_spotify(_):
     return web.json_response(spotify)
 
 
+async def get_playlists(request):
+    sent.append({"route": "playlists", "offset": request.query.get("offset", "0")})
+    first = request.query.get("offset", "0") == "0"
+    return web.json_response({"available": True, "backend": "connect", "items": [
+        {"id": "37i9dQZF1DXcBWIGoYBM5M" if first else "37i9dQZF1DX0XUsuxWHRQd",
+         "uri": "spotify:playlist:" + ("37i9dQZF1DXcBWIGoYBM5M" if first else "37i9dQZF1DX0XUsuxWHRQd"),
+         "name": "Evening mix" if first else "Morning mix", "owner": "Riley"}], "next": 50 if first else None})
+
+
 app = web.Application()
 app.add_routes([web.get("/", index), web.get("/api/events", events), web.post("/api/call", call),
                 web.get("/api/plan", get_plan), web.get("/api/tv", get_tv), web.post("/api/tv/{id}", tv_action),
                 web.get("/api/spotify", get_spotify), web.post("/api/spotify", spotify_action),
+                web.get("/api/spotify/playlists", get_playlists),
                 web.post("/test/reset", reset), web.get("/test/state", debug)])
 app.router.add_static("/", ROOT / "web/dist")
 if __name__ == "__main__":
