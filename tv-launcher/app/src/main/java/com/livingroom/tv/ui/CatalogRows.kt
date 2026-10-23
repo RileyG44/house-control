@@ -63,11 +63,11 @@ import kotlinx.coroutines.delay
 /** One row of posters below the apps: one app's Popular, Trending or New. */
 data class Shelf(val key: String, val title: String, val tiles: List<CatalogTile>)
 
-/** Width the posters are decoded at: 107 dp at density 2, and a little over. */
-private const val POSTER_PX = 230
+/** Width the posters are decoded at: 96 dp at density 2, and a little over. */
+private const val POSTER_PX = 210
 val PosterShape = RoundedCornerShape(18.dp)
-val PosterWidth = 107.dp
-val PosterHeight = 160.dp
+val PosterWidth = 96.dp
+val PosterHeight = 144.dp
 
 /** Today's picks for the Fresh row, without the hidden ones and the hub's own Continue copies. */
 fun freshPicks(catalog: Catalog?, hidden: Set<String>): List<CatalogTile> =
@@ -177,7 +177,7 @@ fun PosterTile(
         }
         // The caption keeps its height, so the row never jumps; it is only drawn under the focused poster.
         Column(
-            Modifier.padding(top = 18.dp).height(34.dp).wrapContentWidth(unbounded = true),
+            Modifier.padding(top = 14.dp).height(34.dp).wrapContentWidth(unbounded = true),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (focused) {

@@ -279,7 +279,7 @@ private fun acLine(a: AcState?): String = when {
     else -> "AC · ${a.mode.replaceFirstChar { it.uppercase() }}" + (a.roomTemp?.let { " · ${it.roundToInt()}° inside" } ?: "")
 }
 
-private fun sceneIcon(icon: String): ImageVector = when (icon) {
+internal fun sceneIcon(icon: String): ImageVector = when (icon) {
     "sun" -> Glyphs.Sun
     "sofa" -> Glyphs.Sofa
     "moon" -> Glyphs.Moon

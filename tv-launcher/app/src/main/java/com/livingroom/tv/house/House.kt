@@ -99,6 +99,7 @@ class HouseRepository(private val prefs: Prefs) {
 
     private lateinit var scope: CoroutineScope
     private val outbox = HashMap<String, Slot>()
+    private val planRefresh = PlanRefresh { android.os.SystemClock.elapsedRealtime() }
 
     private class Slot(var pending: JSONObject? = null, var before: JSONObject? = null)
 
@@ -107,7 +108,6 @@ class HouseRepository(private val prefs: Prefs) {
         scope.launch(Dispatchers.IO) {
             visible.collectLatest { shown ->
                 if (!shown) return@collectLatest
-                if (_house.value == null) runCatching { loadPlan() }.onFailure { Log.w(TAG, "No plan yet", it) }
                 follow()
             }
         }
@@ -119,6 +119,10 @@ class HouseRepository(private val prefs: Prefs) {
         val plan = JSONObject(get("/api/plan"))
         val limits = runCatching { acLimits(JSONObject(get("/api/devices"))) }.getOrDefault(emptyMap())
         _house.value = parsePlan(plan, limits)
+    }
+
+    private fun loadPlanIfNeeded() {
+        planRefresh.attempt { loadPlan() }?.onFailure { Log.w(TAG, "Plan refresh failed: ${it.message}") }
     }
 
     /** Each linked AC's range and unit, from /api/devices (the plan doesn't carry them). */
@@ -135,6 +139,9 @@ class HouseRepository(private val prefs: Prefs) {
     private suspend fun follow() {
         var wait = 2_000L
         while (kotlin.coroutines.coroutineContext.isActive) {
+            // Reconnects also catch plan changes missed while offline.
+            planRefresh.invalidate()
+            loadPlanIfNeeded()
             val ok = runCatching { stream() }.onFailure { Log.i(TAG, "Events: ${it.message}") }.isSuccess
             if (!kotlin.coroutines.coroutineContext.isActive) return
             delay(if (ok) 1_000L else wait)
@@ -148,11 +155,17 @@ class HouseRepository(private val prefs: Prefs) {
         conn.readTimeout = 45_000 // the hub writes a keep-alive every 20 s
         try {
             val reader = conn.inputStream.bufferedReader()
+            loadPlanIfNeeded()
             while (isActive) {
                 val line = reader.readLine() ?: break
+                // Includes keep-alives, so a healthy stream cannot leave a failed plan read stuck.
+                loadPlanIfNeeded()
                 if (!line.startsWith("data: ")) continue
                 val msg = runCatching { JSONObject(line.removePrefix("data: ")) }.getOrNull() ?: continue
-                if (msg.optBoolean("reload")) runCatching { loadPlan() }
+                if (msg.optBoolean("reload")) {
+                    planRefresh.invalidate()
+                    loadPlanIfNeeded()
+                }
                 if (msg.has("lights") || msg.has("acs") || msg.has("features")) merge(msg)
             }
         } finally {

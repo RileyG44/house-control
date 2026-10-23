@@ -97,7 +97,7 @@ sealed interface Focus {
     data object Other : Focus
 }
 
-private enum class Overlay { AllApps, Pair, Studio }
+private enum class Overlay { AllApps, Pair, Studio, Weather }
 
 private val CardShape = RoundedCornerShape(CardRadius)
 private val TileShape = RoundedCornerShape(16.dp)
@@ -120,6 +120,8 @@ fun HomeRoot() {
     var lastPoster by remember { mutableStateOf<FocusRequester?>(null) }
     val studio = remember { FocusRequester() }
     var backToStudio by remember { mutableStateOf(false) }
+    val weatherTile = remember { FocusRequester() }
+    var backToWeather by remember { mutableStateOf(false) }
 
     // Keep the focused title's progress live as history updates.
     val liveFocus = (focus as? Focus.Title)?.let { f ->
@@ -127,15 +129,20 @@ fun HomeRoot() {
     } ?: focus
 
     LaunchedEffect(liveFocus) { Graph.hub.focus.value = liveFocus.toInfo() }
-    BackHandler(enabled = overlay != null && overlay != Overlay.Studio) { overlay = null }
+    BackHandler(enabled = overlay != null && overlay != Overlay.Studio && overlay != Overlay.Weather) { overlay = null }
     LaunchedEffect(menuFor) {
         if (menuFor == null) lastPoster?.let { delay(80); runCatching { it.requestFocus() } }
     }
-    LaunchedEffect(overlay, backToStudio) {
+    LaunchedEffect(overlay, backToStudio, backToWeather) {
         if (overlay == null && backToStudio) {
             delay(80)
             runCatching { studio.requestFocus() }
             backToStudio = false
+        }
+        if (overlay == null && backToWeather) {
+            delay(80)
+            runCatching { weatherTile.requestFocus() }
+            backToWeather = false
         }
     }
 
@@ -148,7 +155,8 @@ fun HomeRoot() {
                 pinned = pinned,
                 shelves = shelves,
                 studio = studio,
-                focusFirst = !backToStudio,
+                weatherTile = weatherTile,
+                focusFirst = !backToStudio && !backToWeather,
                 onFocus = { focus = it },
                 onPoster = { lastPoster = it },
                 onMenu = { menuFor = it },
@@ -157,6 +165,7 @@ fun HomeRoot() {
             Overlay.AllApps -> AllAppsOverlay(allApps)
             Overlay.Pair -> PairOverlay(onClose = { overlay = null })
             Overlay.Studio -> StudioController(onClose = { overlay = null; backToStudio = true })
+            Overlay.Weather -> WeatherOverlay(onClose = { overlay = null; backToWeather = true })
         }
         menuFor?.let { TileMenu(it, onClose = { menuFor = null }) }
     }
@@ -184,6 +193,7 @@ private fun HomeContent(
     pinned: List<TvApp>,
     shelves: List<Shelf>,
     studio: FocusRequester,
+    weatherTile: FocusRequester,
     /** False when coming back from the studio, whose tile takes the focus again instead. */
     focusFirst: Boolean,
     onFocus: (Focus) -> Unit,
@@ -192,6 +202,9 @@ private fun HomeContent(
     onOverlay: (Overlay) -> Unit,
 ) {
     val context = LocalContext.current
+    val house by Graph.house.house.collectAsState()
+    val activeScene by Graph.house.scene.collectAsState()
+    val presets = house?.scenes.orEmpty()
     val first = remember { FocusRequester() }
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -203,21 +216,35 @@ private fun HomeContent(
             runCatching { first.requestFocus() }
         }
     }
+    LaunchedEffect(Unit) {
+        Graph.house.errors.collect { Toast.makeText(context, "The hub said: $it", Toast.LENGTH_SHORT).show() }
+    }
     // Back at the top rows, the greeting, clock and studio come back into view.
     val toTop: () -> Unit = { if (list.firstVisibleItemIndex != 0 || list.firstVisibleItemScrollOffset != 0) scope.launch { list.animateScrollToItem(0) } }
 
     CompositionLocalProvider(LocalBringIntoViewSpec provides JustEnough) {
         LazyColumn(state = list, modifier = Modifier.fillMaxSize()) {
             item(key = "top") {
-                Box(Modifier.fillMaxWidth().height(250.dp)) {
+                Box(Modifier.fillMaxWidth().height(246.dp)) {
                     HelloBlock(Modifier.padding(start = 48.dp, top = 34.dp))
-                    WeatherCard(Modifier.padding(start = 380.dp, top = 36.dp).size(170.dp, 200.dp))
+                    WeatherCard(Modifier.padding(start = 380.dp, top = 36.dp).size(170.dp, 200.dp).focusRequester(weatherTile),
+                        onFocus = { onFocus(Focus.Other); toTop() }, onClick = { onOverlay(Overlay.Weather) })
                     StudioTile(
                         modifier = Modifier.padding(start = 562.dp, top = 36.dp).size(350.dp, 200.dp).focusRequester(studio),
                         onFocus = { onFocus(Focus.Other); toTop() },
                         onClick = { onOverlay(Overlay.Studio) },
                     )
                 }
+            }
+            // The presets, one Up from the posters: Home opens on Fresh, so OK never runs one by accident.
+            if (presets.isNotEmpty()) item(key = "presets") {
+                HomePresets(
+                    scenes = presets,
+                    active = activeScene,
+                    onFocus = { onFocus(Focus.Other); toTop() },
+                    edges = { first, last -> Modifier.rowEdges(first, last) },
+                    onRun = { Graph.house.applyScene(it) },
+                )
             }
             if (hasFresh) item(key = "fresh") { Column {
                 Text("Fresh today", fontSize = 13.sp, color = Color.White.copy(alpha = .85f), modifier = Modifier.padding(start = 48.dp, top = 4.dp))
@@ -229,7 +256,7 @@ private fun HomeContent(
                 LazyRow(
                     state = freshRow,
                     modifier = Modifier.fillMaxWidth().focusRestorer(),
-                    contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 14.dp),
+                    contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(13.dp),
                 ) {
                     itemsIndexed(continueItems, key = { _, e -> "h:" + e.id }) { i, e ->
@@ -311,11 +338,11 @@ private fun ContinueCard(
     var focused by remember { mutableStateOf(false) }
     val art = historyArt(entry, 480)
     val app = Graph.apps.find(entry.pkg)
-    Column(Modifier.width(214.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.width(192.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
             onClick = onClick,
             onLongClick = onLongClick,
-            modifier = modifier.size(214.dp, 160.dp).onFocusChanged {
+            modifier = modifier.size(192.dp, PosterHeight).onFocusChanged {
                 focused = it.isFocused || it.hasFocus
                 if (focused) onFocus()
             },
@@ -328,7 +355,7 @@ private fun ContinueCard(
             ),
         ) {
             Column {
-                Box(Modifier.fillMaxWidth().height(118.dp).clip(RoundedCornerShape(topStart = CardRadius, topEnd = CardRadius))) {
+                Box(Modifier.fillMaxWidth().height(103.dp).clip(RoundedCornerShape(topStart = CardRadius, topEnd = CardRadius))) {
                     if (art != null) Image(art, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                     else BannerFill(app)
                 }
@@ -341,7 +368,7 @@ private fun ContinueCard(
             }
         }
         // Same caption height as the posters, so the row lines up.
-        Column(Modifier.padding(top = 18.dp).height(34.dp).wrapContentWidth(unbounded = true), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.padding(top = 14.dp).height(34.dp).wrapContentWidth(unbounded = true), horizontalAlignment = Alignment.CenterHorizontally) {
             if (focused) {
                 Text(listOfNotNull(app?.label, entry.subtitle?.takeIf { it != app?.label }).joinToString(" · "), fontSize = 10.sp, color = Color.White.copy(alpha = .55f), maxLines = 1)
                 if (entry.remainingMin >= 0) Text(remainingText(entry.remainingMin), fontSize = 10.sp, color = Color.White.copy(alpha = .55f))

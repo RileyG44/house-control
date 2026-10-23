@@ -6,6 +6,10 @@ import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.util.Log
 import com.livingroom.tv.Prefs
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -21,54 +25,6 @@ import java.nio.ByteBuffer
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-/** Today at home, as shown on the Home screen. Temperatures/wind are already in [units]. */
-data class Weather(
-    val place: String?,
-    val temp: Int,
-    val code: Int,
-    val isDay: Boolean,
-    val high: Int,
-    val low: Int,
-    val wind: Int,
-    val windMax: Int,
-    val rainChance: Int,
-    val sunrise: Long,
-    val sunset: Long,
-    val imperial: Boolean,
-    val updatedAt: Long,
-    /** Today's temperature hour by hour (local time, 0–23), in [units]. */
-    val hourly: List<Float> = emptyList(),
-) {
-    val condition: String get() = conditionFor(code)
-    val windUnit: String get() = if (imperial) "mph" else "km/h"
-
-    companion object {
-        fun conditionFor(code: Int): String = when (code) {
-            0 -> "Clear"
-            1 -> "Mostly clear"
-            2 -> "Partly cloudy"
-            3 -> "Cloudy"
-            45, 48 -> "Fog"
-            51, 53, 55 -> "Drizzle"
-            56, 57 -> "Freezing drizzle"
-            61 -> "Light rain"
-            63 -> "Rain"
-            65 -> "Heavy rain"
-            66, 67 -> "Freezing rain"
-            71 -> "Light snow"
-            73 -> "Snow"
-            75 -> "Heavy snow"
-            77 -> "Snow grains"
-            80, 81 -> "Showers"
-            82 -> "Heavy showers"
-            85, 86 -> "Snow showers"
-            95 -> "Thunderstorms"
-            96, 99 -> "Storms with hail"
-            else -> "—"
-        }
-    }
-}
-
 /**
  * Where the TV is (from its internet address, or set from the phone) and today's forecast from
  * Open-Meteo. No account, no key. Refreshes every 15 minutes.
@@ -76,53 +32,49 @@ data class Weather(
 class WeatherRepository(private val prefs: Prefs) {
     private val _weather = MutableStateFlow<Weather?>(null)
     val weather: StateFlow<Weather?> = _weather
+    private val lock = Mutex()
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing
 
     fun start(scope: CoroutineScope) {
         scope.launch(Dispatchers.IO) {
             while (true) {
-                val ok = runCatching { refresh() }
-                    .onFailure { Log.w(TAG, "Weather refresh failed", it) }
-                    .getOrDefault(false)
+                val ok = refreshSafely()
                 delay(if (ok) 15 * 60_000L else 2 * 60_000L)
             }
         }
     }
 
     fun refreshSoon(scope: CoroutineScope) {
-        scope.launch(Dispatchers.IO) { runCatching { refresh() } }
+        scope.launch(Dispatchers.IO) { refreshSafely() }
     }
 
-    private fun refresh(): Boolean {
-        val loc = location() ?: return false
-        val url = "https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}" +
-            "&current=temperature_2m,weather_code,wind_speed_10m,is_day" +
-            "&daily=sunrise,sunset,temperature_2m_max,temperature_2m_min,wind_speed_10m_max,precipitation_probability_max" +
-            "&hourly=temperature_2m" +
-            "&timezone=auto&timeformat=unixtime&forecast_days=1" +
-            if (loc.imperial) "&temperature_unit=fahrenheit&wind_speed_unit=mph" else ""
-        val o = JSONObject(get(url))
-        val current = o.getJSONObject("current")
-        val daily = o.getJSONObject("daily")
-        fun day(key: String) = daily.getJSONArray(key).optDouble(0, Double.NaN)
-        _weather.value = Weather(
-            place = loc.place,
-            temp = current.getDouble("temperature_2m").roundToInt(),
-            code = current.getInt("weather_code"),
-            isDay = current.optInt("is_day", 1) == 1,
-            high = day("temperature_2m_max").roundToInt(),
-            low = day("temperature_2m_min").roundToInt(),
-            wind = current.getDouble("wind_speed_10m").roundToInt(),
-            windMax = day("wind_speed_10m_max").roundToInt(),
-            rainChance = day("precipitation_probability_max").let { if (it.isNaN()) 0 else it.roundToInt() },
-            sunrise = daily.getJSONArray("sunrise").getLong(0) * 1000,
-            sunset = daily.getJSONArray("sunset").getLong(0) * 1000,
-            imperial = loc.imperial,
-            updatedAt = System.currentTimeMillis(),
-            hourly = o.optJSONObject("hourly")?.optJSONArray("temperature_2m")?.let { a ->
-                (0 until minOf(a.length(), 24)).map { a.optDouble(it, Double.NaN).toFloat() }.filter { !it.isNaN() }
-            }.orEmpty(),
-        )
-        return true
+    private suspend fun refreshSafely(): Boolean = lock.withLock {
+        _refreshing.value = true
+        try {
+            val loc = requireNotNull(location()) { "No weather location" }
+            val url = "https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}" +
+                "&current=temperature_2m,weather_code,wind_speed_10m,is_day,apparent_temperature,relative_humidity_2m" +
+                "&daily=weather_code,sunrise,sunset,temperature_2m_max,temperature_2m_min,wind_speed_10m_max,wind_gusts_10m_max,precipitation_probability_max" +
+                "&hourly=temperature_2m,weather_code,precipitation_probability,wind_speed_10m,is_day" +
+                "&timezone=auto&timeformat=unixtime&forecast_days=10" +
+                if (loc.imperial) "&temperature_unit=fahrenheit&wind_speed_unit=mph" else ""
+            val next = parseForecast(JSONObject(get(url)), loc.place, loc.imperial)
+            kotlin.coroutines.coroutineContext.ensureActive()
+            _weather.value = next
+            _error.value = null
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Weather refresh failed: ${e.message}")
+            _error.value = "Weather could not refresh. Showing the last available forecast."
+            false
+        } finally {
+            _refreshing.value = false
+        }
     }
 
     private data class Location(val lat: Double, val lon: Double, val place: String?, val imperial: Boolean)
@@ -152,7 +104,7 @@ class WeatherRepository(private val prefs: Prefs) {
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.connectTimeout = 6000
         conn.readTimeout = 8000
-        return conn.inputStream.use { it.readBytes().decodeToString() }
+        return try { conn.inputStream.use { it.readBytes().decodeToString() } } finally { conn.disconnect() }
     }
 
     private companion object {
