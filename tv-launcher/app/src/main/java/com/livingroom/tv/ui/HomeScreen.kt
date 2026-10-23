@@ -111,8 +111,8 @@ fun HomeRoot() {
     val pinned by Graph.apps.pinned.collectAsState()
     val allApps by Graph.apps.all.collectAsState()
     val entries by Graph.history.entries.collectAsState()
-    // What's being watched leads Fresh today: the three most recent, past the first few minutes.
-    val continueItems = remember(entries) { HistoryStore.continueList(entries).filter { it.progress < 0f || it.progress >= .03f }.take(3) }
+    // What's being watched gets its own row under the picks: the most recent, past the first few minutes.
+    val continueItems = remember(entries) { HistoryStore.continueList(entries).filter { it.progress < 0f || it.progress >= .03f }.take(12) }
     var overlay by remember { mutableStateOf<Overlay?>(null) }
     var focus by remember { mutableStateOf<Focus>(Focus.Other) }
     val catalog by Graph.catalog.catalog.collectAsState()
@@ -250,15 +250,14 @@ private fun HomeContent(
                     onRun = { Graph.house.applyScene(it) },
                 )
             }
-            if (hasFresh) item(key = "fresh") { Column {
+            // Row one: today's and tonight's picks, the first dozen as big cards, the rest as posters.
+            if (fresh.isNotEmpty()) item(key = "fresh") { Column {
                 Text("Fresh today", fontSize = 13.sp, color = Color.White.copy(alpha = .85f), modifier = Modifier.padding(start = 48.dp, top = 4.dp))
-                // What's being watched can arrive after the picks: the row starts at its start again then.
+                // New picks can arrive while Home is open: the row starts at its start again then.
                 val freshRow = rememberLazyListState()
-                // Today's and tonight's picks lead as big cards; what's being watched follows, small;
-                // then the rest of the picks as posters.
                 val featured = fresh.take(FEATURED_PICKS)
                 val more = fresh.drop(FEATURED_PICKS)
-                LaunchedEffect(continueItems.firstOrNull()?.id, fresh.firstOrNull()?.id) {
+                LaunchedEffect(fresh.firstOrNull()?.id) {
                     if (freshRow.firstVisibleItemIndex != 0) freshRow.scrollToItem(0)
                 }
                 LazyRow(
@@ -266,13 +265,12 @@ private fun HomeContent(
                     modifier = Modifier.fillMaxWidth().focusRestorer(),
                     contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(13.dp),
-                    verticalAlignment = Alignment.Bottom,
                 ) {
                     itemsIndexed(featured, key = { _, t -> "c:" + t.id }) { i, t ->
                         FeatureCard(
                             tile = t,
                             modifier = (if (i == 0) Modifier.focusRequester(first) else Modifier)
-                                .rowEdges(first = i == 0, last = continueItems.isEmpty() && more.isEmpty() && i == featured.lastIndex),
+                                .rowEdges(first = i == 0, last = more.isEmpty() && i == featured.lastIndex),
                             onFocus = { requester ->
                                 onFocus(Focus.Tile(t, "Fresh today"))
                                 onPoster(requester)
@@ -280,19 +278,6 @@ private fun HomeContent(
                             },
                             onClick = { openTile(context, t) },
                             onLongClick = { onMenu(t) },
-                        )
-                    }
-                    itemsIndexed(continueItems, key = { _, e -> "h:" + e.id }) { i, e ->
-                        ContinueCard(
-                            entry = e,
-                            modifier = (if (featured.isEmpty() && i == 0) Modifier.focusRequester(first) else Modifier)
-                                .rowEdges(first = featured.isEmpty() && i == 0, last = more.isEmpty() && i == continueItems.lastIndex),
-                            onFocus = { onFocus(Focus.Title(e)); toTop() },
-                            onClick = { Graph.apps.launch(e.pkg) },
-                            onLongClick = {
-                                Graph.history.remove(e.id)
-                                Toast.makeText(context, "Removed from Fresh today", Toast.LENGTH_SHORT).show()
-                            },
                         )
                     }
                     itemsIndexed(more, key = { _, t -> "c:" + t.id }) { i, t ->
@@ -302,10 +287,32 @@ private fun HomeContent(
                             onFocus = { requester ->
                                 onFocus(Focus.Tile(t, "Fresh today"))
                                 onPoster(requester)
-                                toTop()
                             },
                             onClick = { openTile(context, t) },
                             onLongClick = { onMenu(t) },
+                        )
+                    }
+                }
+            } }
+            // Row two: what this TV is in the middle of (YouTube and the rest), small.
+            if (continueItems.isNotEmpty()) item(key = "watching") { Column {
+                Text("Keep watching", fontSize = 13.sp, color = Color.White.copy(alpha = .85f), modifier = Modifier.padding(start = 48.dp))
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth().focusRestorer(),
+                    contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(13.dp),
+                ) {
+                    itemsIndexed(continueItems, key = { _, e -> "h:" + e.id }) { i, e ->
+                        ContinueCard(
+                            entry = e,
+                            modifier = (if (fresh.isEmpty() && i == 0) Modifier.focusRequester(first) else Modifier)
+                                .rowEdges(first = i == 0, last = i == continueItems.lastIndex),
+                            onFocus = { onFocus(Focus.Title(e)) },
+                            onClick = { Graph.apps.launch(e.pkg) },
+                            onLongClick = {
+                                Graph.history.remove(e.id)
+                                Toast.makeText(context, "Removed from Keep watching", Toast.LENGTH_SHORT).show()
+                            },
                         )
                     }
                 }
