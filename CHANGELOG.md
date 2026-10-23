@@ -7,6 +7,8 @@ What changed in each release of House Control. The Mac app is on
 
 - Match the iPhone and desktop controls to Living Room: Urbanist type, teal glass, circular
   icons, pill controls and softer card corners in light and dark appearances.
+- Keep the iPhone's 3D sky and surroundings full width when expanding the main menu; fit the
+  house above the card without shrinking the entire scene into a square.
 - Animate the native iPhone AC’s airflow, following fan speed and swing and staying above the floor.
 - Tapping AC or TV opens its controls; explicit power buttons switch them. Slide the TV tile
   sideways to change volume without opening its remote.
