@@ -235,6 +235,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     const out = { id: s.id, name: s.name, icon: s.icon, lights: s.lights };
     if (s.acs && Object.keys(s.acs).length) out.acs = s.acs;
     if (s.tvs && Object.keys(s.tvs).length) out.tvs = s.tvs;
+    if (s.spotify) out.spotify = s.spotify;
     return out;
   };
 
@@ -1099,6 +1100,55 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
       });
       return h('div.scene-tv-choice', h('label', tvName(deviceID)), select);
     });
+    // A playlist to start, and the speaker to start it on: from the account, once Spotify answers.
+    let music = existing?.spotify ? { ...existing.spotify } : null;
+    const playlistSelect = h('select.scene-input', { 'aria-label': 'Spotify playlist' });
+    const speakerSelect = h('select.scene-input', { 'aria-label': 'Spotify speaker' });
+    const musicNote = h('div.sheet-note.scene-music-note');
+    const musicBox = h('div.scene-tv-actions.scene-music', { hidden: true },
+      h('div.field-label', 'Spotify'),
+      h('div.scene-tv-choice', h('label', 'Playlist'), playlistSelect),
+      h('div.scene-tv-choice', h('label', 'Speaker'), speakerSelect), musicNote);
+    const fillMusic = (items, devices) => {
+      const lists = items.slice();
+      if (music && !lists.some((p) => p.uri === music.uri)) lists.unshift({ uri: music.uri, name: music.name });
+      playlistSelect.replaceChildren(h('option', { value: '' }, 'No music'), ...lists.map((p) => h('option', { value: p.uri }, p.name)));
+      playlistSelect.value = music?.uri || '';
+      const outs = devices.filter((d) => d.id && !d.restricted).map((d) => ({ id: d.id, name: d.name }));
+      if (music?.deviceName && !outs.some((d) => d.id === music.device || d.name === music.deviceName)) outs.push({ id: music.device || '', name: music.deviceName });
+      speakerSelect.replaceChildren(h('option', { value: '' }, 'Whatever is playing now'), ...outs.map((d) => h('option', { value: d.name }, d.name)));
+      speakerSelect.value = music?.deviceName || '';
+      speakerSelect.disabled = !music;
+      musicBox.hidden = false;
+      const pick = () => {
+        const list = lists.find((p) => p.uri === playlistSelect.value);
+        const out = outs.find((d) => d.name === speakerSelect.value);
+        music = list ? { uri: list.uri, name: list.name, ...(out ? { ...(out.id ? { device: out.id } : {}), deviceName: out.name } : {}) } : null;
+        speakerSelect.disabled = !music;
+        sync();
+      };
+      playlistSelect.onchange = pick;
+      speakerSelect.onchange = pick;
+    };
+    (async () => {
+      try {
+        const [page, now] = await Promise.all([spotify.playlists(0), spotify.refresh().then(() => spotify.state)]);
+        if (page.available === false || !now?.canTransfer) {
+          if (music) { fillMusic([], []); musicNote.textContent = 'Connect Spotify to change this.'; }
+          return;
+        }
+        let items = page.items || [];
+        for (let next = page.next; next != null && items.length < 200;) {
+          const more = await spotify.playlists(next);
+          items = items.concat(more.items || []);
+          next = more.next;
+        }
+        fillMusic(items, now.devices || []);
+        musicNote.textContent = 'The speaker has to be on and show up in Spotify when the scene runs.';
+      } catch {
+        if (music) { fillMusic([], []); musicNote.textContent = 'Spotify cannot be reached right now.'; }
+      }
+    })();
     const name = h('input.scene-input', {
       type: 'text', value: existing?.name || '', placeholder: 'Movie night, Reading, Dinner…', maxlength: 32,
       autocomplete: 'off', autocapitalize: 'words', enterkeyhint: 'done', spellcheck: false, 'aria-label': 'Scene name',
@@ -1138,6 +1188,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
           : a.on ? `the AC at ${a.target}° on ${MODE_LABEL[a.mode]}` : 'the AC off');
       }
       for (const [deviceID, action] of Object.entries(tvActions)) parts.push(`${action.name || action.app} on ${tvName(deviceID)}`);
+      if (music) parts.push(`${music.name} on ${music.deviceName || 'Spotify'}`);
       what.replaceChildren(icon('sparkles', 16), h('span', `Saves ${parts.join(' and ')}.`));
     }
 
@@ -1146,7 +1197,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
       if (!label) { name.classList.add('invalid'); name.focus(); haptic('error'); return; }
       const lights = retake ? captureLights() : existing.lights;
       const acs = !withAC ? {} : retake || !hadAC ? captureAcs() : existing.acs;
-      const scene = { ...existing, id: existing?.id || newSceneId(label), name: label, icon: iconName, lights, acs, tvs: tvActions };
+      const scene = { ...existing, id: existing?.id || newSceneId(label), name: label, icon: iconName, lights, acs, tvs: tvActions, spotify: music };
       haptic('success');
       commitScenes(existing ? config.scenes.map((x) => (x.id === existing.id ? scene : x)) : [...config.scenes, scene]);
       // Made from the lights as they are: that is the scene they are in now.
@@ -1163,7 +1214,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
           h('div.field-label', h('span', 'Icon')), h('div.scene-icons', iconButtons),
           acChip || retakeChip ? h('div.scene-toggles', retakeChip, acChip) : null,
           tvOptions.length ? h('div.scene-tv-actions', h('div.field-label', 'TV apps'), ...tvOptions) : null,
-          what, del),
+          musicBox, what, del),
       ],
       // On a phone the keyboard would cover the icons: there the name is tapped when wanted.
       opened() { if (!isPhone && !existing) setTimeout(() => name.focus({ preventScroll: true }), 60); },

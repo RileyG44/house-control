@@ -111,6 +111,8 @@ struct SceneConfig: Sendable, Identifiable {
     var lights: [String: LightPatch]
     var acs: [String: JSON]
     var tvs: [String: JSON]
+    /// A playlist the scene starts: {uri, name, device?, deviceName?} (web/src/config.js sceneSpotify).
+    var spotify: JSON? = nil
 }
 
 /// Where the home is (docs/landscape-weather.md): the real sun, moon and weather over it, and the
@@ -253,8 +255,9 @@ struct Plan: Sendable {
             guard let id = s["id"]?.string, !id.isEmpty, sceneIDs.insert(id).inserted else { return nil }
             var lights: [String: LightPatch] = [:]
             for (k, v) in s["lights"]?.object ?? [:] { lights[k] = LightPatch(json: v) }
+            let music = s["spotify"]?["uri"]?.string?.hasPrefix("spotify:playlist:") == true ? s["spotify"] : nil
             return SceneConfig(id: id, name: s["name"]?.string ?? id, icon: s["icon"]?.string ?? "sun",
-                               lights: lights, acs: s["acs"]?.object ?? [:], tvs: s["tvs"]?.object ?? [:])
+                               lights: lights, acs: s["acs"]?.object ?? [:], tvs: s["tvs"]?.object ?? [:], spotify: music)
         }
 
         var seen = Set<String>()

@@ -418,3 +418,23 @@ def test_mac_adapter_refuses_library_actions_without_launching_spotify(tmp_path,
             answer, status = await service.act(body, local_only=True)
             assert status == 409 and "library permissions" in answer["error"]
     run(check())
+
+
+def test_a_preset_plays_on_its_speaker_by_name_when_the_saved_id_has_changed(tmp_path, monkeypatch):
+    async def check():
+        server, sent = await api_server(command_status=202)
+        monkeypatch.setattr(spotify, "API", str(server.make_url("/v1")))
+        spotify.save_config(tmp_path / "spotify.json", {"refresh_token": "refresh", "access_token": "new-access",
+                            "expires_at": time.time() + 3600})
+        service = spotify.Spotify(tmp_path)
+        async with aiohttp.ClientSession() as http:
+            service.http = http
+            play = {"action": "play", "uri": "spotify:playlist:" + PLAYLIST_ID, "device": "an-old-id", "deviceName": "studio echo"}
+            assert (await service.act(play))[1] == 200
+            assert sent[-1][:3] == ("PUT", "/v1/me/player/play", {"device_id": "echo"})
+            gone = {**play, "deviceName": "Kitchen Echo"}
+            answer, code = await service.act(gone)
+            assert code == 409 and "Kitchen Echo" in answer["error"]
+            assert sent[-1][1] == "/v1/me/player/devices"  # nothing was played anywhere
+        await server.close()
+    run(check())

@@ -262,3 +262,36 @@ class Writer:
 
     def get_extra_info(self, name):
         return self.sock
+
+
+def test_a_bulb_s_report_says_whether_it_is_white_or_in_colour():
+    from aidot.device_client import DeviceStatusData
+    from aidot.models.device_client_model import DeviceAttr
+
+    status = DeviceStatusData()
+    status.update(DeviceAttr(OnOff=1, Dimming=10, CCT=2700))  # what a white bulb reports in full
+    assert status.house_mode == "white"
+    status.update(DeviceAttr(RGBW=0xFF00FF00))  # magenta
+    assert status.house_mode == "color" and status.rgbw == (255, 0, 255, 0)
+    status.update(DeviceAttr(Dimming=50))  # says nothing about the mode
+    assert status.house_mode == "color"
+    status.update(DeviceAttr(RGBW=0xFF00FF00, CCT=2700))  # both: no telling
+    assert status.house_mode == "color"
+
+
+def test_reading_a_bulb_uses_the_mode_it_reported_over_the_hub_s_memory(tmp_path):
+    from aidot.device_client import DeviceStatusData
+    from aidot.models.device_client_model import DeviceAttr
+
+    class Bulb:
+        status = DeviceStatusData()
+
+    lights = aidot_lan.AidotLanClient(tmp_path / "aidot.json", None)
+    bulb = Bulb()
+    bulb.status.online = True
+    lights.clients["door"] = bulb
+    bulb.status.update(DeviceAttr(OnOff=1, Dimming=10, RGBW=0xFF00FF00))
+    lights.modes["door"] = "white"  # e.g. the other hub last sent it a white temperature
+    assert lights.read("door")["color"] == "#ff00ff"
+    bulb.status.update(DeviceAttr(CCT=2700))
+    assert lights.read("door")["color"] is None and lights.read("door")["temp"] == 2700

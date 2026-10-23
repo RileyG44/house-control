@@ -139,6 +139,7 @@ function saveScenes(m, scenes) {
     const out = { ...before.get(s.id), ...s };
     if (!s.acs) delete out.acs;
     if (!s.tvs) delete out.tvs;
+    if (!s.spotify) delete out.spotify;
     return out;
   });
   if (isNative) publishWidgets(m.config, m.store);

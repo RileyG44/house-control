@@ -13,6 +13,7 @@ struct ScenePage: View {
     @State private var loaded = false
     @State private var confirmDelete = false
     @State private var tvActions: [String: JSON] = [:]
+    @State private var music: JSON?
     @FocusState private var naming: Bool
 
     private var existing: SceneConfig? { id.flatMap { i in store.plan.scenes.first { $0.id == i } } }
@@ -95,6 +96,47 @@ struct ScenePage: View {
                     }
                 } header: { Text("TV apps") } footer: { Text("Opens the selected app when you use this preset.") }
             }
+            if store.spotify.state.canTransfer || music != nil {
+                Section {
+                    Picker("Playlist", selection: Binding(
+                        get: { music?["uri"]?.string ?? "" },
+                        set: { uri in
+                            guard !uri.isEmpty else { music = nil; return }
+                            let name = store.spotify.playlists.first { $0.uri == uri }?.name ?? music?["name"]?.string ?? "Playlist"
+                            var next: [String: JSON] = ["uri": .string(uri), "name": .string(name)]
+                            if let d = music?["device"] { next["device"] = d }
+                            if let d = music?["deviceName"] { next["deviceName"] = d }
+                            music = .object(next)
+                        })) {
+                        Text("No music").tag("")
+                        ForEach(store.spotify.playlists) { p in Text(p.name).tag(p.uri) }
+                        if let uri = music?["uri"]?.string, !store.spotify.playlists.contains(where: { $0.uri == uri }) {
+                            Text(music?["name"]?.string ?? "Playlist").tag(uri)
+                        }
+                    }
+                    if music != nil {
+                        Picker("Speaker", selection: Binding(
+                            get: { music?["deviceName"]?.string ?? "" },
+                            set: { name in
+                                guard var next = music?.object else { return }
+                                if name.isEmpty { next["device"] = nil; next["deviceName"] = nil }
+                                else {
+                                    next["deviceName"] = .string(name)
+                                    next["device"] = store.spotify.state.outputs.first { $0.name == name }.map { .string($0.id) } ?? next["device"]
+                                }
+                                music = .object(next)
+                            })) {
+                            Text("Whatever is playing now").tag("")
+                            ForEach(store.spotify.state.outputs) { o in Text(o.name).tag(o.name) }
+                            if let name = music?["deviceName"]?.string, !store.spotify.state.outputs.contains(where: { $0.name == name }) {
+                                Text(name).tag(name)
+                            }
+                        }
+                    }
+                } header: { Text("Spotify") } footer: {
+                    Text("Starts the playlist when you use this preset. The speaker has to be on and show up in Spotify.")
+                }
+            }
             if let id {
                 Section {
                     Button("Delete scene", role: .destructive) { confirmDelete = true }
@@ -108,13 +150,24 @@ struct ScenePage: View {
             }
         }
         .scrollContentBackground(.hidden)
+        .task {
+            // The account's playlists and speakers, for the Spotify section.
+            await store.spotify.refresh()
+            guard store.spotify.state.canTransfer else { return }
+            if store.spotify.playlists.isEmpty { await store.spotify.loadPlaylists() }
+            while store.spotify.nextPlaylistOffset != nil, store.spotify.playlists.count < 200, !Task.isCancelled {
+                let before = store.spotify.playlists.count
+                await store.spotify.loadPlaylists(reset: false)
+                if store.spotify.playlists.count == before { break }
+            }
+        }
         .navigationTitle(id == nil ? "New scene" : "Edit scene")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Save", systemImage: "checkmark") {
                     Haptics.success()
-                    store.saveScene(id: id, name: name.trimmingCharacters(in: .whitespaces), icon: icon, capture: capture, includeAC: includeAC, tvs: tvActions)
+                    store.saveScene(id: id, name: name.trimmingCharacters(in: .whitespaces), icon: icon, capture: capture, includeAC: includeAC, tvs: tvActions, spotify: music)
                     card.path = []
                 }
                 .buttonStyle(.glassProminent)
@@ -131,6 +184,7 @@ struct ScenePage: View {
                 includeAC = !s.acs.isEmpty
                 capture = false
                 tvActions = s.tvs
+                music = s.spotify
             } else {
                 naming = true
             }

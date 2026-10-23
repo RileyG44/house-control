@@ -48,6 +48,8 @@ export const spotify = {
       .finally(() => { reading = null; schedule(); });
     return reading;
   },
+  /** One page (50) of the account's playlists: { available, items, next, error }. */
+  playlists(offset = 0) { return request(null, `api/spotify/playlists?offset=${offset}`); },
   act(body) {
     const work = tail.then(async () => {
       try {
