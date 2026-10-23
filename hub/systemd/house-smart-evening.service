@@ -1,0 +1,19 @@
+# Tonight's films for the TV's Fresh today row (smart_recs.py --evening), run by house-smart-evening.timer.
+# Install on the Dell: hub/README.md, "The TV's nightly picks".
+[Unit]
+Description=House Control: tonight's films for the TV
+After=network-online.target house-hub.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=riley
+Group=riley
+WorkingDirectory=/home/riley/house-control/hub
+Environment=HOUSE_HUB_DIR=/home/riley/.house-hub
+Environment=HOUSE_HUB_URL=http://127.0.0.1:8766
+# Codex lives in ~/.local/bin and keeps its sign-in in ~/.codex.
+Environment=PATH=/home/riley/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/riley/house-control/hub/.venv/bin/python /home/riley/house-control/hub/smart_recs.py --evening
+TimeoutStartSec=30min
+Nice=10

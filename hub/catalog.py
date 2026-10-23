@@ -79,6 +79,8 @@ SIMILAR_EACH = 8
 FOR_YOU_MAX = 30
 WATCHING_MAX = 6     # shows in Continue that lead For you as themselves
 SMART_FILE = "smart-recs.json"
+EVENING_FILE = "smart-evening.json"    # tonight's films (smart_recs.py --evening, 16:30)
+EVENING_FOR_S = 12 * 3600               # first in For you until it is this old
 ART_LIMIT = 200 * 1024 * 1024   # the picture cache on disk
 ART_ONE = 3 * 1024 * 1024       # a picture bigger than this isn't one
 ART_PROFILES = {"poster": "s332", "backdrop": "s1440"}
@@ -380,6 +382,8 @@ class Catalog:
         self._found: dict[str, tuple[float, dict | None]] = {}   # find()'s answers
         self.smart_file = conf / SMART_FILE
         self._smart: tuple[float, list[dict]] = (0.0, [])
+        self.evening_file = conf / EVENING_FILE
+        self._evening: tuple[float, list[dict]] = (0.0, [])
         self._busy: dict[str, asyncio.Future] = {}
         self._later: set[asyncio.Future] = set()
         self._gate: asyncio.Semaphore | None = None
@@ -621,24 +625,38 @@ class Catalog:
         self._dirty = True
         return found
 
-    def smart_picks(self) -> list[dict]:
-        """The nightly picks (smart_recs.py), read again when the file changes."""
+    @staticmethod
+    def _read_picks(path: Path, cached: tuple[float, list[dict]]) -> tuple[float, list[dict]]:
+        """A picks file (smart_recs.py), read again when it changes."""
         try:
-            stamp = self.smart_file.stat().st_mtime
+            stamp = path.stat().st_mtime
         except OSError:
-            return []
-        if stamp != self._smart[0]:
-            picks: list[dict] = []
-            with contextlib.suppress(OSError, ValueError):
-                data = json.loads(self.smart_file.read_text())
-                picks = [t for t in (data.get("picks") if isinstance(data, dict) else None) or []
-                         if isinstance(t, dict) and isinstance(t.get("id"), str) and _TITLE_ID.match(t["id"])
-                         and isinstance(t.get("title"), str) and isinstance(t.get("pkg"), str)]
-            self._smart = (stamp, picks)
+            return (0.0, [])
+        if stamp == cached[0]:
+            return cached
+        picks: list[dict] = []
+        with contextlib.suppress(OSError, ValueError):
+            data = json.loads(path.read_text())
+            picks = [t for t in (data.get("picks") if isinstance(data, dict) else None) or []
+                     if isinstance(t, dict) and isinstance(t.get("id"), str) and _TITLE_ID.match(t["id"])
+                     and isinstance(t.get("title"), str) and isinstance(t.get("pkg"), str)]
+        return (stamp, picks)
+
+    def smart_picks(self) -> list[dict]:
+        """The nightly picks (smart_recs.py)."""
+        self._smart = self._read_picks(self.smart_file, self._smart)
         return self._smart[1]
 
+    def evening_picks(self, now: float | None = None) -> list[dict]:
+        """Tonight's films (smart_recs.py --evening), while they are under 12 hours old."""
+        self._evening = self._read_picks(self.evening_file, self._evening)
+        if not self._evening[1] or (now or time.time()) - self._evening[0] > EVENING_FOR_S:
+            return []
+        return self._evening[1]
+
     async def for_you(self, names: list[str], popular: dict[str, list[dict]]) -> list[dict]:
-        """Continue; the shows in it as themselves; the nightly picks; the apps' own picks; then
+        """Continue; the shows in it as themselves; tonight's films (from 16:30, for 12 hours);
+        the nightly picks; the apps' own picks; then
         titles similar to the latest Continue titles (in the TV's apps), then each app's popular
         ones in turn."""
         recent = self.recent()
@@ -655,7 +673,7 @@ class Catalog:
             if t and t["id"] not in seen:
                 seen.add(t["id"])
                 lead.append(t)
-        for t in self.smart_picks():
+        for t in [*self.evening_picks(), *self.smart_picks()]:
             if t["pkg"] in packages and t["id"] not in seen:
                 seen.add(t["id"])
                 lead.append(t)

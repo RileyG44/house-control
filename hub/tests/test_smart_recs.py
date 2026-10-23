@@ -163,3 +163,22 @@ def test_a_bad_night_keeps_the_last_picks(tmp_path, monkeypatch):
         finally:
             await server.close()
     asyncio.run(go())
+
+
+def test_tonights_films_come_first_for_twelve_hours(tmp_path):
+    cat = catalog.Catalog(tmp_path, apps=lambda: ["Hulu"])
+    film = {"id": "tm100000", "title": "National Treasure", "pkg": "com.hulu.livingroomplus", "kind": "movie"}
+    path = tmp_path / catalog.EVENING_FILE
+    path.write_text(json.dumps({"generatedAt": "2026-10-23T16:30:00", "picks": [film, {"id": "../x"}], "recent": ["National Treasure"]}))
+    made = path.stat().st_mtime
+    assert [t["id"] for t in cat.evening_picks(now=made + 3600)] == ["tm100000"]
+    assert cat.evening_picks(now=made + 13 * 3600) == []
+
+
+def test_the_evening_asks_for_films_in_riley_s_taste_without_repeats(tmp_path):
+    (tmp_path / smart_recs.TASTE_FILE).write_text("Loves The Goonies and National Treasure.")
+    text = smart_recs.evening_prompt(["2026-10-22 · YouTube · Ice in the Cascades"], ["Hulu", "Disney+"],
+                                     smart_recs.taste(tmp_path), ["The Sandlot"], "Friday October 23")
+    assert "Loves The Goonies" in text and "- The Sandlot" in text and "feature films (no series)" in text
+    assert "Friday October 23" in text and "Ice in the Cascades" in text
+    assert smart_recs.taste(tmp_path / "nowhere") == "" and smart_recs.about("") == ""

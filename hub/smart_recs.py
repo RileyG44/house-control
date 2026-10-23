@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """The nightly picks for the TV's Fresh today row (docs/streaming-catalog.md).
 
-    .venv/bin/python smart_recs.py [--dry-run]
+    .venv/bin/python smart_recs.py [--evening] [--dry-run]
 
-Run at 03:00 on the Dell by house-smart-recs.timer (systemd/; hub/README.md has the install):
+Run at 03:00 on the Dell by house-smart-recs.timer (systemd/; hub/README.md has the install), and
+with --evening at 16:30 by house-smart-evening.timer: a dozen films for tonight, waiting on Home
+when Riley gets in from work (smart-evening.json, which For you puts first until it is 12 hours
+old). Both tell Codex what ~/.house-hub/taste.md says about Riley, when it is there (not in git).
 
 1. What the TV played in the last 90 days (~/.house-hub/watch-history.jsonl, history.py) and the
    streaming apps it has (the running hub's /api/tv/catalog).
@@ -49,6 +52,9 @@ HUB = os.environ.get("HOUSE_HUB_URL", "http://127.0.0.1:8766")
 DAYS = 90
 WANT = 25
 KEEP = 30
+EVENING_WANT = 16
+EVENING_KEEP = 12
+TASTE_FILE = "taste.md"
 CODEX_TIMEOUT = 15 * 60
 
 SCHEMA = {
@@ -110,12 +116,24 @@ def watched_lines(entries: list[dict], limit: int = 250) -> list[str]:
     return lines
 
 
-def prompt(lines: list[str], apps: list[str]) -> str:
+def taste(conf: Path) -> str:
+    """What Riley told us about their taste (taste.md in the hub's folder), if anything."""
+    try:
+        return (conf / TASTE_FILE).read_text().strip()[:6000]
+    except OSError:
+        return ""
+
+
+def about(text: str) -> str:
+    return f"\nAbout Riley, in their own words and from what they do:\n{text}\n" if text else ""
+
+
+def prompt(lines: list[str], apps: list[str], profile: str = "") -> str:
     history = "\n".join(f"- {line}" for line in lines) or "- (nothing recorded yet)"
     return f"""You choose what Riley might enjoy watching next on the living room TV.
 
 Their streaming services (US): {", ".join(apps)}.
-
+{about(profile)}
 What the TV played in the last {DAYS} days, most recent first (day · app · title · details):
 {history}
 
@@ -126,6 +144,32 @@ Suggest {WANT} films or series that:
 - lean towards recent and well regarded titles (at most a third from before 2016).
 
 Answer with JSON only, matching the schema: {{"picks": [{{"title", "year", "kind": "movie" or "show", "app_hint": the service you expect it on, exactly as named above, or null}}]}}.
+Use each title's usual English name and first release year. No explanations, no other text."""
+
+
+def evening_prompt(lines: list[str], apps: list[str], profile: str, recent: list[str], day: str) -> str:
+    """Tonight's films: the evening run's question."""
+    history = "\n".join(f"- {line}" for line in lines) or "- (nothing recorded yet)"
+    lately = "\n".join(f"- {t}" for t in recent) or "- (none yet)"
+    return f"""You pick tonight's movies for Riley: it is {day}, and these will be waiting on the living room TV
+when they get home from work.
+
+Their streaming services (US): {", ".join(apps)}.
+{about(profile)}
+What the TV played in the last {DAYS} days, most recent first (day · app · title · details):
+{history}
+
+Films already suggested on recent evenings (don't repeat them):
+{lately}
+
+Suggest {EVENING_WANT} feature films (no series) that:
+- are available to stream on one of those services in the US right now, included in the subscription (not rent or buy);
+- are none of the titles above;
+- make a good night in: crowd-pleasers, adventures, comedies and the odd great documentary, the kind of thing to put on after work;
+- lean on the films and eras Riley says they love (about half nostalgic picks in that vein, the rest newer or different), and suit the day of the week;
+- vary in tone and service, best first.
+
+Answer with JSON only, matching the schema: {{"picks": [{{"title", "year", "kind": "movie", "app_hint": the service you expect it on, exactly as named above, or null}}]}}.
 Use each title's usual English name and first release year. No explanations, no other text."""
 
 
@@ -238,30 +282,55 @@ def tv_apps(hub: str) -> list[str]:
     return names
 
 
-def write(conf: Path, tiles: list[dict], asked: int) -> Path:
-    path = conf / catalog.SMART_FILE
-    data = {"generatedAt": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "asked": asked, "picks": tiles}
+def evening_recent(conf: Path) -> list[str]:
+    """The films suggested on the last few evenings, newest first."""
+    with_errors = (OSError, ValueError, AttributeError, TypeError)
+    try:
+        data = json.loads((conf / catalog.EVENING_FILE).read_text())
+        return [t for t in data.get("recent") or [] if isinstance(t, str)][:60]
+    except with_errors:
+        return []
+
+
+def write(conf: Path, tiles: list[dict], asked: int, name: str = catalog.SMART_FILE, **extra) -> Path:
+    path = conf / name
+    data = {"generatedAt": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "asked": asked, "picks": tiles, **extra}
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(data, indent=1))
     tmp.replace(path)
     return path
 
 
-async def run(conf: Path, hub: str, codex: str, dry_run: bool) -> list[dict]:
+async def run(conf: Path, hub: str, codex: str, dry_run: bool, evening: bool = False) -> list[dict]:
     watched = WatchLog(conf).recent(DAYS)
     apps = tv_apps(hub)
     lines = watched_lines(watched)
-    log.info("%d titles watched in %d days; apps: %s", len(lines), DAYS, ", ".join(apps))
-    answer = await asyncio.to_thread(ask_codex, prompt(lines, apps), codex)
+    profile = taste(conf)
+    log.info("%d titles watched in %d days; apps: %s%s", len(lines), DAYS, ", ".join(apps),
+             "; with taste.md" if profile else "")
+    recent = evening_recent(conf) if evening else []
+    text = (evening_prompt(lines, apps, profile, recent, time.strftime("%A %B %-d")) if evening
+            else prompt(lines, apps, profile))
+    answer = await asyncio.to_thread(ask_codex, text, codex)
     picks = parse_picks(answer)
+    if evening:
+        picks = [{**p, "kind": "movie"} for p in picks if p["kind"] != "show"]
     with tempfile.TemporaryDirectory() as scratch:
         async with aiohttp.ClientSession() as http:
             tiles = await resolve(picks, apps, watched, http, Path(scratch))
+    if evening:
+        tiles = [t for t in tiles if t.get("kind") == "movie"][:EVENING_KEEP]
     if not tiles:
         raise PicksError(f"None of Codex's {len(picks)} titles is on the TV's apps")
     log.info("%d of %d picks are on the TV's apps", len(tiles), len(picks))
     if not dry_run:
-        log.info("Wrote %s", write(conf, tiles, len(picks)))
+        if evening:
+            fresh = [t["title"] for t in tiles]
+            path = write(conf, tiles, len(picks), catalog.EVENING_FILE,
+                         recent=fresh + [t for t in recent if t not in fresh][:60 - len(fresh)])
+        else:
+            path = write(conf, tiles, len(picks))
+        log.info("Wrote %s", path)
     return tiles
 
 
@@ -270,11 +339,12 @@ def main() -> int:
     ap.add_argument("--conf", type=Path, default=CONF)
     ap.add_argument("--hub", default=HUB)
     ap.add_argument("--codex", default="codex")
-    ap.add_argument("--dry-run", action="store_true", help="print the picks; leave smart-recs.json alone")
+    ap.add_argument("--evening", action="store_true", help="tonight's films (smart-evening.json)")
+    ap.add_argument("--dry-run", action="store_true", help="print the picks; leave the picks' file alone")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     try:
-        tiles = asyncio.run(run(args.conf, args.hub, args.codex, args.dry_run))
+        tiles = asyncio.run(run(args.conf, args.hub, args.codex, args.dry_run, args.evening))
     except PicksError as e:
         log.error("No new picks; the previous ones stay. %s", e)
         return 1

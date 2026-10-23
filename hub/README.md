@@ -172,6 +172,17 @@ journalctl -u house-smart-recs.service -n 30         # how the last run went
 
 `.venv/bin/python smart_recs.py --dry-run` prints the picks without keeping them.
 
+At 16:30, `house-smart-evening.timer` runs `smart_recs.py --evening`: a dozen films for tonight in
+`smart-evening.json`, which For you puts right after Continue until they are 12 hours old (it
+remembers the last few evenings' films so they don't repeat). Both runs give Codex
+`~/.house-hub/taste.md`, a free-form note on Riley's taste (favourite films and eras, interests);
+it lives only on the hub, not in git. Install it like the nightly timer:
+
+```sh
+sudo cp ~/house-control/hub/systemd/house-smart-evening.* /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now house-smart-evening.timer
+```
+
 ### A second hub that keeps the same plan
 
 Two hubs can stand in for each other: Riley's runs on the home server (dell-server) and, as a

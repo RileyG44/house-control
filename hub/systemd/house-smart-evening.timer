@@ -1,0 +1,10 @@
+[Unit]
+Description=House Control: tonight's films for the TV, at 16:30
+
+[Timer]
+OnCalendar=*-*-* 16:30:00
+# Missed while the Dell was off: run when it's back (For you drops them after 12 hours).
+Persistent=true
+
+[Install]
+WantedBy=timers.target
