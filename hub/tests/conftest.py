@@ -6,6 +6,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import house  # noqa: E402
+import tv  # noqa: E402
 import weather  # noqa: E402
 
 
@@ -25,3 +26,8 @@ def no_real_tv(monkeypatch, tmp_path):
     # Nor the Mac app's floor plan, which the hub reads and saves hand-drawn plans into: on a
     # Mac the real one is there. A test that wants one sets its own.
     monkeypatch.setattr(house, "PANEL_PLAN", tmp_path / "no-mac-app" / "plan.json")
+    # Nor YouTube or JustWatch, for a picture of what the TV plays: no test asks for one.
+    async def no_art(self, q):
+        return None
+    monkeypatch.setattr(tv.TvRemote, "_youtube_art", no_art)
+    monkeypatch.setattr(tv.TvRemote, "_catalog_art", no_art)
