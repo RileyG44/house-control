@@ -24,8 +24,11 @@ mode of the last change it sent.
 """
 from __future__ import annotations
 
+import asyncio
+import functools
 import json
 import logging
+import time
 from pathlib import Path
 
 from wiz import hex_color, rgb
@@ -34,12 +37,87 @@ log = logging.getLogger("house.aidot")
 
 try:  # The hub still runs (and its WiZ/MRCOOL tests still pass) without it.
     from aidot.client import AidotClient as _AidotClient
+    from aidot.device_client import DeviceClient as _DeviceClient
 except Exception:  # ImportError, or a broken install
-    _AidotClient = None
+    _AidotClient = _DeviceClient = None
 
 
 class AidotError(Exception):
     pass
+
+
+# ---------- python-aidot's receive loop ----------
+
+class _LanReader:
+    """A bulb's TCP stream as python-aidot's receive loop reads it.
+
+    The library (0.3.59) treats a read that fails with anything but a short list of
+    connection errors as one bad message and reads again at once. A socket that has lost
+    its local address (errno 49 on macOS, after the Mac changes networks) fails every read
+    without waiting, so that loop never yielded: the hub stopped answering until restarted
+    and logged about 14,000 identical lines a second. A failed read means the connection is
+    gone, so it is reported as a reset, which the library answers by closing the socket and
+    reconnecting once a minute."""
+
+    def __init__(self, reader):
+        self._reader = reader
+
+    async def readexactly(self, n: int) -> bytes:
+        try:
+            return await self._reader.readexactly(n)
+        except (asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError):
+            raise
+        except Exception as e:
+            raise ConnectionResetError(f"connection lost ({e})") from e
+
+    def __getattr__(self, name):
+        return getattr(self._reader, name)
+
+
+def _guard_receive_loop(cls) -> None:
+    receive = getattr(cls, "receive_data", None)
+    if receive is None or getattr(receive, "house_guarded", False):
+        return
+
+    @functools.wraps(receive)
+    async def receive_data(self):
+        if self.reader is not None and not isinstance(self.reader, _LanReader):
+            self.reader = _LanReader(self.reader)
+        return await receive(self)
+
+    receive_data.house_guarded = True
+    cls.receive_data = receive_data
+
+
+if _DeviceClient is not None:
+    _guard_receive_loop(_DeviceClient)
+
+
+class QuietRepeats(logging.Filter):
+    """Lets each distinct python-aidot message through at most once a minute.
+
+    The library logs from inside its connection loops, so one failing bulb can repeat a
+    line as fast as it retries. Repeats are counted and reported on the next one let through."""
+
+    def __init__(self, prefix: str = "aidot", every: float = 60.0, clock=time.monotonic):
+        super().__init__()
+        self.prefix, self.every, self.clock = prefix, every, clock
+        self.seen: dict[str, list] = {}  # message -> [when last let through, repeats since]
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name != self.prefix and not record.name.startswith(self.prefix + "."):
+            return True
+        text, now = record.getMessage(), self.clock()
+        entry = self.seen.get(text)
+        if entry and now - entry[0] < self.every:
+            entry[1] += 1
+            return False
+        if len(self.seen) >= 256:
+            self.seen = {k: v for k, v in self.seen.items() if now - v[0] < self.every}
+        self.seen[text] = [now, 0]
+        if entry and entry[1]:
+            record.msg, record.args = f"{text} (and {entry[1]} more like it in {now - entry[0]:.0f}s)", ()
+        return True
 
 
 def normalize_mac(mac: str | None) -> str:
