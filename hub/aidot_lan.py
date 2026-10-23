@@ -24,8 +24,11 @@ mode of the last change it sent.
 """
 from __future__ import annotations
 
+import asyncio
+import functools
 import json
 import logging
+import time
 from pathlib import Path
 
 from wiz import hex_color, rgb
@@ -34,12 +37,129 @@ log = logging.getLogger("house.aidot")
 
 try:  # The hub still runs (and its WiZ/MRCOOL tests still pass) without it.
     from aidot.client import AidotClient as _AidotClient
+    from aidot.device_client import DeviceClient as _DeviceClient
 except Exception:  # ImportError, or a broken install
-    _AidotClient = None
+    _AidotClient = _DeviceClient = None
 
 
 class AidotError(Exception):
     pass
+
+
+# ---------- python-aidot's connection loops ----------
+# These lean on DeviceClient internals of the pinned python-aidot (requirements.txt);
+# check them again before upgrading it.
+
+RECONNECT_GAP = 10.0  # seconds between connection attempts to one bulb
+
+
+class _LanReader:
+    """A bulb's TCP stream as python-aidot's receive loop reads it.
+
+    The library (0.3.59) treats a read that fails with anything but a short list of
+    connection errors as one bad message and reads again at once. A socket that has lost
+    its local address (errno 49 on macOS, after the Mac changes networks) fails every read
+    without waiting, so that loop never yielded: the hub stopped answering until restarted
+    and logged about 14,000 identical lines a second. A failed read means the connection is
+    gone, so it is reported as a reset, which the library answers by closing the socket and
+    reconnecting (see _spaced_connect)."""
+
+    def __init__(self, reader):
+        self._reader = reader
+
+    async def readexactly(self, n: int) -> bytes:
+        try:
+            return await self._reader.readexactly(n)
+        except (asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError):
+            raise
+        except Exception as e:
+            raise ConnectionResetError(f"connection lost ({e})") from e
+
+    def __getattr__(self, name):
+        return getattr(self._reader, name)
+
+
+def _guarded_receive(receive):
+    async def receive_data(self, *args, **kwargs):
+        if getattr(self, "reader", None) is not None and not isinstance(self.reader, _LanReader):
+            self.reader = _LanReader(self.reader)
+        return await receive(self, *args, **kwargs)
+    return receive_data
+
+
+def _spaced_connect(connect):
+    """After a reset the library reconnects at once, and again every minute until one
+    works. A bulb that accepts the login and then drops the connection would be redialled
+    as fast as the network answers, so attempts on one bulb are kept RECONNECT_GAP apart."""
+    async def spaced(self, *args, **kwargs):
+        wait = getattr(self, "_house_next_connect", 0.0) - time.monotonic()
+        if wait > 0:
+            self._connecting = True  # the library's other reconnect paths stand aside meanwhile
+            try:
+                await asyncio.sleep(wait)
+            finally:
+                self._connecting = False
+            if self._is_close:
+                return
+            if args and getattr(self, "_ip_address", None):
+                args = (self._ip_address, *args[1:])  # the bulb may have moved meanwhile
+        self._house_next_connect = time.monotonic() + RECONNECT_GAP
+        result = await connect(self, *args, **kwargs)
+        if self._is_close and getattr(self, "writer", None) is not None:
+            await self.reset()  # closed while dialling: hang up the session that just opened
+        return result
+    return spaced
+
+
+def _guard(cls, name: str, wrap) -> None:
+    original = getattr(cls, name, None)
+    if original is None:
+        log.warning("python-aidot's DeviceClient has no %s; its connection guard is off", name)
+        return
+    if getattr(original, "house_guarded", False):
+        return
+    guarded = functools.wraps(original)(wrap(original))
+    guarded.house_guarded = True
+    setattr(cls, name, guarded)
+
+
+if _DeviceClient is not None:
+    _guard(_DeviceClient, "receive_data", _guarded_receive)
+    _guard(_DeviceClient, "connect", _spaced_connect)
+
+
+class QuietRepeats(logging.Filter):
+    """Lets each distinct python-aidot message through at most once a minute.
+
+    The library logs from inside its connection loops, so one failing bulb can repeat a
+    line as fast as it retries. Repeats are counted and reported on the next one let through.
+    The decision is kept on the record, so every handler it reaches agrees with the first."""
+
+    def __init__(self, prefix: str = "aidot", every: float = 60.0, clock=time.monotonic):
+        super().__init__()
+        self.prefix, self.every, self.clock = prefix, every, clock
+        self.seen: dict[str, list] = {}  # message -> [when last let through, repeats since]
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name != self.prefix and not record.name.startswith(self.prefix + "."):
+            return True
+        decided = getattr(record, "house_quiet", None)
+        if decided is None:
+            decided = record.house_quiet = self._let_through(record)
+        return decided
+
+    def _let_through(self, record: logging.LogRecord) -> bool:
+        text, now = record.getMessage(), self.clock()
+        entry = self.seen.get(text)
+        if entry and now - entry[0] < self.every:
+            entry[1] += 1
+            return False
+        if len(self.seen) >= 256:
+            self.seen = {k: v for k, v in self.seen.items() if now - v[0] < self.every}
+        self.seen[text] = [now, 0]
+        if entry and entry[1]:
+            record.msg, record.args = f"{text} (and {entry[1]} more like it in {now - entry[0]:.0f}s)", ()
+        return True
 
 
 def normalize_mac(mac: str | None) -> str:
@@ -111,6 +231,7 @@ class AidotLanClient:
         self.state: dict[str, dict] = {}      # key -> last panel reading
         self.modes: dict[str, str] = {}       # key -> "white" | "color" (see module note)
         self.ips: dict[str, str] = {}         # key -> last known address
+        self._signing_in = asyncio.Lock()      # one sign-in at a time (see connect)
 
     # ---------- credentials ----------
 
@@ -140,6 +261,10 @@ class AidotLanClient:
 
     async def connect(self) -> None:
         """Signs in and learns every light on the account. Raises AidotError."""
+        async with self._signing_in:  # two rescans at once would each close the same old client
+            await self._sign_in()
+
+    async def _sign_in(self) -> None:
         if _AidotClient is None:
             raise AidotError("python-aidot is not installed: run ./setup.sh or "
                              "`.venv/bin/pip install -r requirements.txt` in the hub folder")
@@ -155,6 +280,8 @@ class AidotLanClient:
             raise
         except Exception as e:
             raise AidotError(f"AiDot sign-in failed: {e}") from e
+        if self.client is not None:  # a rescan: the old LAN connections go before new ones start
+            await self.close()
         self.client = client
         self.devices, self.clients = {}, {}
         for device in found.get("device_list") or []:
@@ -186,12 +313,14 @@ class AidotLanClient:
                 self.clients[key].update_ip_address(ip)
 
     async def close(self) -> None:
-        if self.client is not None:
+        client = self.client
+        if client is not None:
             try:
-                await self.client.async_close()
+                await client.async_close()
             except Exception:
                 pass
-            self.client = None
+            if self.client is client:
+                self.client = None
 
     # ---------- devices ----------
 

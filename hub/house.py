@@ -36,7 +36,7 @@ import catalog as catalogs  # noqa: E402
 import history  # noqa: E402
 from history import WatchLog  # noqa: E402
 import plan as plans  # noqa: E402
-from aidot_lan import AidotError, AidotLanClient  # noqa: E402
+from aidot_lan import AidotError, AidotLanClient, QuietRepeats  # noqa: E402
 import launcher as launchers  # noqa: E402
 from mrcool import MrcoolClient, MrcoolError  # noqa: E402
 from nowplaying import Adb  # noqa: E402
@@ -1017,8 +1017,11 @@ async def pair_tv(where: str | None) -> bool:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     # The AiDot library logs every device message (login payloads with LAN passwords included)
-    # as a *warning*, so only its errors are let through.
+    # as a *warning*, so only its errors are let through, and each at most once a minute.
     logging.getLogger("aidot").setLevel(logging.ERROR)
+    quiet = QuietRepeats()
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(quiet)
     arg = sys.argv[1] if len(sys.argv) > 1 else "run"
     if arg == "install":
         install()
