@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// The whole screen: the 3D home filling it, and over it the controls card, a real sheet with two
-/// detents. The model is never resized: as the card is pulled up it is scaled and moved (from the
-/// card's live position, every frame) into the strip left between the Dynamic Island and the card.
+/// detents. The 3D viewport follows the card's live position, keeping its full width while the
+/// camera fits the house into the strip left between the Dynamic Island and the card.
 struct HomeScreen: View {
     @Environment(HomeStore.self) private var store
     @Environment(CardModel.self) private var card

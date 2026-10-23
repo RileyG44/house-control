@@ -2,23 +2,19 @@ import RealityKit
 import SwiftUI
 
 /// Holds the scene across SwiftUI updates (and lets the RealityView's closures reach it).
-@MainActor @Observable
+@MainActor
 final class SceneBox {
-    /// How far the camera is into the TV's close-up, mirrored from the scene so the view's framing
-    /// (which SwiftUI only recomputes on observed changes) follows it.
-    var tvness: CGFloat = 0
-    @ObservationIgnored var scene: HomeScene?
-    @ObservationIgnored let holder = Entity()
-    @ObservationIgnored var subscription: EventSubscription?
-    @ObservationIgnored var builtRev = -1
-    @ObservationIgnored var lastPick = Date.distantPast
-    @ObservationIgnored var dragStart: (az: Float, el: Float)?
-    @ObservationIgnored var pinchStart: Float?
+    var scene: HomeScene?
+    let holder = Entity()
+    var subscription: EventSubscription?
+    var builtRev = -1
+    var lastPick = Date.distantPast
+    var dragStart: (az: Float, el: Float)?
+    var pinchStart: Float?
 }
 
-/// The 3D home behind the card: full screen and never resized. As the card is pulled up the view
-/// is scaled and moved (from the card's live position) into the strip above it; in front of the
-/// TV the view itself gets shorter instead (see `resize`).
+/// The 3D home behind the card. The viewport gets shorter as the card rises and stays full
+/// width, so the surrounding sky and landscape remain edge to edge at either detent.
 struct StageView: View {
     var size: CGSize
     var safeTop: CGFloat
@@ -28,7 +24,7 @@ struct StageView: View {
     @State private var box = SceneBox()
 
     var body: some View {
-        let t = framing()
+        let t = framing
         RealityView { content in
             content.camera = .virtual
             content.add(box.holder)
@@ -36,7 +32,6 @@ struct StageView: View {
                 MainActor.assumeIsolated {
                     guard let scene = box.scene else { return }
                     scene.update(dt: Float(min(0.05, event.deltaTime)))
-                    if abs(scene.tvness - box.tvness) > 0.002 { box.tvness = scene.tvness }
                 }
             }
         }
@@ -49,30 +44,20 @@ struct StageView: View {
         .simultaneousGesture(SpatialTapGesture().onEnded { _ in backgroundTap() })
         .simultaneousGesture(orbit)
         .simultaneousGesture(magnify)
-        .frame(width: size.width, height: t.stageHeight)
-        // Shortened (the TV strip), its foot fades out under the card instead of ending in a line.
+        .frame(width: t.viewport.width, height: t.viewport.height)
+        // Its foot fades out under the card instead of ending in a line.
         .mask {
             LinearGradient(stops: [.init(color: .black, location: 0),
-                                   .init(color: .black, location: max(0, 1 - Self.tuck * 1.6 / max(1, t.stageHeight))),
-                                   .init(color: .black.opacity(1 - t.tuck), location: 1)],
+                                   .init(color: .black, location: t.fadeStart),
+                                   .init(color: .black.opacity(1 - min(1, t.progress)), location: 1)],
                            startPoint: .top, endPoint: .bottom)
         }
         .frame(width: size.width, height: size.height, alignment: .top)
-        .scaleEffect(t.scale, anchor: .topLeading)
-        .offset(t.offset)
-        .frame(width: size.width, height: size.height, alignment: .topLeading)
-        .mask {
-            RoundedRectangle(cornerRadius: t.radius, style: .continuous)
-                .frame(width: t.clip.width, height: t.clip.height)
-                .position(x: t.clip.midX, y: t.clip.midY)
-                .blur(radius: t.feather)
-        }
         .onAppear(perform: rebuildIfNeeded)
         .onChange(of: store.modelRev) { rebuildIfNeeded() }
         .onChange(of: scheme, initial: true) { box.scene?.lookGoal = scheme == .light ? 1 : 0 }
         .onChange(of: card.route, initial: true) { applyFocus() }
-        .onChange(of: size, initial: true) { resize() }
-        .onChange(of: t.stageHeight) { resize() }
+        .onChange(of: t, initial: true) { resize() }
         .accessibilityLabel("The 3D view of \(store.plan.name)")
     }
 
@@ -90,16 +75,10 @@ struct StageView: View {
         scene.syncInstantly()
     }
 
-    /// In front of the TV, pulling the card up makes the 3D view itself shorter, down to the strip
-    /// under the Dynamic Island, so the camera frames the TV with its wall and cabinet on either
-    /// side across the full width (a picture scaled down from the portrait view would be a narrow
-    /// cut-out). Elsewhere the view keeps the full screen and is scaled instead.
+    /// Fit the camera to the same viewport RealityKit is drawing, at every sheet position.
     private func resize() {
-        let k = min(1, max(0, card.progress)) * box.tvness
-        let restBottom = size.height - CardMetrics.restTop + 10
-        let h = stageHeight(k)
-        box.scene?.resize(CGSize(width: size.width, height: h), top: safeTop + 4,
-                          bottom: restBottom + (16 + Self.tuck - restBottom) * k)
+        let t = framing
+        box.scene?.resize(t.viewport, top: t.topInset, bottom: t.bottomInset)
     }
 
     private func applyFocus() {
@@ -167,43 +146,8 @@ struct StageView: View {
             .onEnded { _ in box.pinchStart = nil }
     }
 
-    // MARK: - the card's progress
-
-    struct Framing {
-        var scale: CGFloat = 1
-        var offset: CGSize = .zero
-        var clip: CGRect
-        var radius: CGFloat = 0
-        var feather: CGFloat = 0
-        var stageHeight: CGFloat = 0
-        var tuck: CGFloat = 0
-    }
-
-    /// At rest the model fills the area above the card; pulled up, the same picture is scaled and
-    /// moved into the strip between the Dynamic Island and the card, in step with the card.
-    /// How far the shortened view runs on under the card, where it fades out.
-    static let tuck: CGFloat = 46
-
-    private func stageHeight(_ k: CGFloat) -> CGFloat {
-        (size.height + (CardMetrics.expandedTop + 10 + Self.tuck - size.height) * k).rounded()
-    }
-
-    private func framing() -> Framing {
-        let full = CGRect(origin: .zero, size: size)
-        guard let scene = box.scene else { return Framing(clip: full, stageHeight: size.height) }
-        let k = min(1, max(0, card.progress)) * box.tvness
-        let p = min(1, max(0, card.progress)) * (1 - box.tvness)
-        if k > 0.0005 { return Framing(clip: full, stageHeight: stageHeight(k), tuck: k) }
-        guard p > 0.0005, let r = scene.restRect() else { return Framing(clip: full, stageHeight: size.height) }
-        let side: CGFloat = 12
-        let miniTop = safeTop + 4, miniBottom = CardMetrics.expandedTop - 6
-        let mw = max(10, size.width - side * 2), mh = max(10, miniBottom - miniTop)
-        let fit = mh * 0.94 / r.height
-        let s1 = min(1, fit, mw * 0.96 / r.width)
-        let sc = 1 + (s1 - 1) * p
-        let R = CGPoint(x: r.midX, y: r.midY)
-        let M = CGPoint(x: size.width / 2, y: (miniTop + miniBottom) / 2)
-        let C = CGPoint(x: R.x + (M.x - R.x) * p, y: R.y + (M.y - R.y) * p)
-        return Framing(scale: sc, offset: CGSize(width: C.x - R.x * sc, height: C.y - R.y * sc), clip: full, stageHeight: size.height)
+    private var framing: StageFraming {
+        StageFraming(size: size, safeTop: safeTop, restTop: CardMetrics.restTop,
+                     expandedTop: CardMetrics.expandedTop, progress: card.progress)
     }
 }

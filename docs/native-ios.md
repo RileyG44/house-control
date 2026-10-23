@@ -111,16 +111,22 @@ material so the frame cost stays low (target 120 fps on the 15 Pro Max, never be
 - **Picking**: `SpatialTapGesture` + `RealityViewContent`/`ARView`-free hit test
   (`entity(at:)` / `hitTest`) on `InputTargetComponent` + `CollisionComponent` per device:
   tap a lamp toggles it (tick haptic); tap the AC or TV opens its page in the card.
-- **Card progress drives the model**: the card's progress `p ∈ [0,1]` (rest → expanded) is
-  computed every frame from the sheet's live height. The 3D view stays full screen and is never
-  resized; it gets a `scaleEffect` + `offset` (anchor top) interpolated from the rest framing
-  (model filling the area above the resting card) to the mini framing (model fitted into the strip
-  between `safeTop + 4` and the expanded card's top). Taps keep working through the transform.
-  Tapping the mini model while expanded collapses the card.
+- **Card progress drives the model**: the card's progress `p ∈ [0,1]` (rest → expanded), plus
+  its upward stretch to 1.08, is computed every frame from the sheet's live position. `StageFraming` keeps the RealityKit
+  viewport at the full screen width and shortens its height as the card rises. The camera fits
+  the home, room, AC or TV into the usable area above the card. The sky and landscape keep
+  reaching both screen edges, and the renderer continues under the card with a soft bottom fade.
+  Tapping the small model while expanded collapses the card; picking and orbit gestures stay
+  attached to the renderer. Check its framing across phone sizes with:
+
+  ```sh
+  swiftc ios-native/Sources/Scene/StageFraming.swift scripts/test-stage-framing.swift -o /tmp/house-stage-check
+  /tmp/house-stage-check
+  ```
 - **TV close-up**: opening the TV flies the camera (0.7 s ease-in-out) to 0.9 m straight in front
   of the screen at its centre height, FOV fitted to the screen and a little surround; walls or
   furniture between camera and screen are hidden (or the near plane pushed past them). With the
-  card expanded the mini strip shows this TV view in a rounded 2:1 window, not the whole home.
+  card expanded the full-width strip shows this TV view with its wall and cabinet around it.
   Closing the remote flies back to the home view at the home's detent.
 - **Theme**: light mode = bright warm-white backdrop and lighting; dark = today's look. Blend
   ~0.3 s on change. A plan with a `site` ignores the theme for the stage (below).
