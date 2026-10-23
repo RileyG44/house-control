@@ -107,7 +107,7 @@ private val ContinueWidth = 152.dp
 private val ContinueHeight = 86.dp
 
 @Composable
-fun HomeRoot() {
+fun HomeRoot(homeRequest: Int = 0) {
     val pinned by Graph.apps.pinned.collectAsState()
     val allApps by Graph.apps.all.collectAsState()
     val entries by Graph.history.entries.collectAsState()
@@ -132,6 +132,16 @@ fun HomeRoot() {
         entries.firstOrNull { it.id == f.entry.id }?.let { Focus.Title(it) }
     } ?: focus
 
+    LaunchedEffect(homeRequest) {
+        if (homeRequest > 0) {
+            backToStudio = false
+            backToWeather = false
+            overlay = null
+            menuFor = null
+        }
+    }
+    // Back on the Home screen stays at Home instead of finishing the only launcher.
+    BackHandler(enabled = overlay == null && menuFor == null) { }
     LaunchedEffect(liveFocus) { Graph.hub.focus.value = liveFocus.toInfo() }
     BackHandler(enabled = overlay != null && overlay != Overlay.Studio && overlay != Overlay.Weather) { overlay = null }
     LaunchedEffect(menuFor) {
@@ -160,6 +170,7 @@ fun HomeRoot() {
                 shelves = shelves,
                 studio = studio,
                 weatherTile = weatherTile,
+                homeRequest = homeRequest,
                 focusFirst = !backToStudio && !backToWeather,
                 onFocus = { focus = it },
                 onPoster = { lastPoster = it },
@@ -200,6 +211,7 @@ private fun HomeContent(
     weatherTile: FocusRequester,
     /** False when coming back from the studio, whose tile takes the focus again instead. */
     focusFirst: Boolean,
+    homeRequest: Int,
     onFocus: (Focus) -> Unit,
     onPoster: (FocusRequester) -> Unit,
     onMenu: (CatalogTile) -> Unit,
@@ -214,8 +226,9 @@ private fun HomeContent(
     val scope = rememberCoroutineScope()
     val hasFresh = continueItems.isNotEmpty() || fresh.isNotEmpty()
     val ready = hasFresh || pinned.isNotEmpty()
-    LaunchedEffect(ready) {
+    LaunchedEffect(ready, homeRequest) {
         if (ready && focusFirst) {
+            if (homeRequest > 0) list.scrollToItem(0)
             delay(80)
             runCatching { first.requestFocus() }
         }

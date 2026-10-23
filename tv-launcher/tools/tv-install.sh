@@ -1,7 +1,7 @@
 #!/bin/zsh
-# Build Living Room, install it on the TV as a normal app, and grant the two ADB permissions it needs.
-# Does not change the default Home app or disable anything. Undo with tv-launcher/tools/tv-uninstall.sh.
-#   tv-launcher/tools/tv-install.sh [--no-build]
+# Build Living Room, grant remote permissions, and make it the Chromecast Home.
+# Recovery: tv-home.py restore. Use --keep-stock-home for a regular-app test install.
+#   ANDROID_SERIAL=<TV> tv-launcher/tools/tv-install.sh [--no-build] [--keep-stock-home]
 set -euo pipefail
 root=${0:A:h:h}
 pkg=com.livingroom.tv
@@ -11,7 +11,18 @@ state=$root/tools/.tv-state
 export JAVA_HOME=${JAVA_HOME:-/opt/homebrew/opt/openjdk@17}
 export ANDROID_HOME=${ANDROID_HOME:-$HOME/Library/Android/sdk}
 
-if [[ ${1:-} != --no-build ]]; then
+[[ -n ${ANDROID_SERIAL:-} ]] || { echo "Set ANDROID_SERIAL to the TV’s adb serial/address." >&2; exit 1; }
+no_build=0
+keep_stock=0
+for arg in "$@"; do
+  case $arg in
+    --no-build) no_build=1 ;;
+    --keep-stock-home) keep_stock=1 ;;
+    *) echo "Unknown option: $arg" >&2; exit 1 ;;
+  esac
+done
+
+if (( ! no_build )); then
   (cd $root && ./gradlew :app:assembleRelease --console=plain -q)
 fi
 apk=$root/app/build/outputs/apk/release/app-release.apk
@@ -47,7 +58,11 @@ for i in {1..30}; do
   sleep 0.5
 done
 echo
-echo "Installed. Open “Living Room” from the TV's app row."
+if (( keep_stock )); then
+  echo "Installed as a regular app; existing Home settings were left as they were."
+else
+  python3 "$root/tools/tv-home.py" enable
+fi
 if [[ -n $url ]]; then
   host=${${url#http://}%%:*}
   echo "Launcher API: ${url%%/\?k=*}"
