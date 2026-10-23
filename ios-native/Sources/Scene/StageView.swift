@@ -2,15 +2,15 @@ import RealityKit
 import SwiftUI
 
 /// Holds the scene across SwiftUI updates (and lets the RealityView's closures reach it).
-@MainActor @Observable
+@MainActor
 final class SceneBox {
-    @ObservationIgnored var scene: HomeScene?
-    @ObservationIgnored let holder = Entity()
-    @ObservationIgnored var subscription: EventSubscription?
-    @ObservationIgnored var builtRev = -1
-    @ObservationIgnored var lastPick = Date.distantPast
-    @ObservationIgnored var dragStart: (az: Float, el: Float)?
-    @ObservationIgnored var pinchStart: Float?
+    var scene: HomeScene?
+    let holder = Entity()
+    var subscription: EventSubscription?
+    var builtRev = -1
+    var lastPick = Date.distantPast
+    var dragStart: (az: Float, el: Float)?
+    var pinchStart: Float?
 }
 
 /// The 3D home behind the card. The viewport gets shorter as the card rises and stays full
@@ -49,7 +49,7 @@ struct StageView: View {
         .mask {
             LinearGradient(stops: [.init(color: .black, location: 0),
                                    .init(color: .black, location: t.fadeStart),
-                                   .init(color: .black.opacity(1 - t.progress), location: 1)],
+                                   .init(color: .black.opacity(1 - min(1, t.progress)), location: 1)],
                            startPoint: .top, endPoint: .bottom)
         }
         .frame(width: size.width, height: size.height, alignment: .top)

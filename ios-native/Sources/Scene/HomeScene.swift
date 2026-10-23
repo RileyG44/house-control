@@ -48,8 +48,6 @@ final class HomeScene {
     private(set) var goal: Rig
     var zoom: Float = 1
     private(set) var focus: Focus = .home
-    /// What the goal frames (world points), for the small view over the pulled-up card.
-    private(set) var corners: [SIMD3<Float>] = []
     private var tween: (from: Rig, t0: Double, dur: Double)?
     private let baseAz: Float
     private let camDir: P2
@@ -256,10 +254,6 @@ final class HomeScene {
         return (dist, c)
     }
 
-    private func box(_ lo: SIMD3<Float>, _ hi: SIMD3<Float>) -> [SIMD3<Float>] {
-        (0..<8).map { i in SIMD3(i & 1 != 0 ? hi.x : lo.x, i & 2 != 0 ? hi.y : lo.y, i & 4 != 0 ? hi.z : lo.z) }
-    }
-
     func frameGoal() {
         goal.fov = Self.fov
         let H = Float(plan.wallHeight)
@@ -290,7 +284,6 @@ final class HomeScene {
         let (d, c) = fitDistance(lo, hi, goal.az, goal.el, fill: fill)
         goal.dist = d * zoom
         goal.target = c
-        corners = box(lo, hi)
     }
 
     /// Standing in front of the TV, eyes level with the middle of its screen, looking straight at it.
@@ -309,8 +302,6 @@ final class HomeScene {
         let widest = tan(32 * Float.pi / 180)
         if t > widest { goal.dist = Self.tvDist * t / widest; t = widest }
         goal.fov = 2 * atan(t) * 180 / .pi
-        let side = SIMD3(n.z, 0, -n.x)
-        corners = [(-1, -1), (1, -1), (1, 1), (-1, 1)].map { (sx: Float, sy: Float) in c + side * (sx * bw / 2) + SIMD3(0, sy * bh / 2, 0) }
     }
 
     var closeUpOn: Bool { if case .tv(let id) = focus { return tvUnits.contains { $0.id == id } }; return false }
@@ -410,34 +401,6 @@ final class HomeScene {
         frameGoal()
         placeCamera()
     }
-
-    // MARK: - the small view over the pulled-up card
-
-    /// Where the goal's frame lies on screen at rest (seen from where the camera is heading).
-    func restRect() -> CGRect? {
-        guard !corners.isEmpty else { return nil }
-        let (fwd, right, up) = basis(goal.az, goal.el)
-        let (aim, eye) = eyeAndAim(goal, up: up, fwd: fwd, tv: closeUpOn ? 1 : 0)
-        let f = simd_normalize(aim - eye)
-        let r = simd_normalize(simd_cross(f, [0, 1, 0]))
-        let u = simd_cross(r, f)
-        _ = right
-        let tanV = tan(goal.fov * .pi / 360), tanH = tanV * aspect
-        var x0 = CGFloat.infinity, y0 = CGFloat.infinity, x1 = -CGFloat.infinity, y1 = -CGFloat.infinity
-        for p in corners {
-            let v = p - eye
-            let z = simd_dot(v, f)
-            guard z > 0.01 else { continue }
-            let nx = simd_dot(v, r) / (z * tanH), ny = simd_dot(v, u) / (z * tanV)
-            let sx = CGFloat((nx * 0.5 + 0.5)) * size.width, sy = CGFloat((-ny * 0.5 + 0.5)) * size.height
-            x0 = min(x0, sx); x1 = max(x1, sx); y0 = min(y0, sy); y1 = max(y1, sy)
-        }
-        guard x1 > x0, y1 > y0 else { return nil }
-        return CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
-    }
-
-    /// How close the camera is to the TV, 0 … 1.
-    var tvness: CGFloat { CGFloat(tvWeight) }
 
     // MARK: - every frame
 

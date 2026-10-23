@@ -111,8 +111,8 @@ material so the frame cost stays low (target 120 fps on the 15 Pro Max, never be
 - **Picking**: `SpatialTapGesture` + `RealityViewContent`/`ARView`-free hit test
   (`entity(at:)` / `hitTest`) on `InputTargetComponent` + `CollisionComponent` per device:
   tap a lamp toggles it (tick haptic); tap the AC or TV opens its page in the card.
-- **Card progress drives the model**: the card's progress `p ∈ [0,1]` (rest → expanded) is
-  computed every frame from the sheet's live position. `StageFraming` keeps the RealityKit
+- **Card progress drives the model**: the card's progress `p ∈ [0,1]` (rest → expanded), plus
+  its upward stretch to 1.08, is computed every frame from the sheet's live position. `StageFraming` keeps the RealityKit
   viewport at the full screen width and shortens its height as the card rises. The camera fits
   the home, room, AC or TV into the usable area above the card. The sky and landscape keep
   reaching both screen edges, and the renderer continues under the card with a soft bottom fade.
