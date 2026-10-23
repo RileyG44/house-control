@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -101,6 +102,9 @@ private enum class Overlay { AllApps, Pair, Studio, Weather }
 
 private val CardShape = RoundedCornerShape(CardRadius)
 private val TileShape = RoundedCornerShape(16.dp)
+/** What's being watched, after the picks: small, landscape, to sit at the foot of the big cards. */
+private val ContinueWidth = 152.dp
+private val ContinueHeight = 86.dp
 
 @Composable
 fun HomeRoot() {
@@ -250,6 +254,10 @@ private fun HomeContent(
                 Text("Fresh today", fontSize = 13.sp, color = Color.White.copy(alpha = .85f), modifier = Modifier.padding(start = 48.dp, top = 4.dp))
                 // What's being watched can arrive after the picks: the row starts at its start again then.
                 val freshRow = rememberLazyListState()
+                // Today's and tonight's picks lead as big cards; what's being watched follows, small;
+                // then the rest of the picks as posters.
+                val featured = fresh.take(FEATURED_PICKS)
+                val more = fresh.drop(FEATURED_PICKS)
                 LaunchedEffect(continueItems.firstOrNull()?.id, fresh.firstOrNull()?.id) {
                     if (freshRow.firstVisibleItemIndex != 0) freshRow.scrollToItem(0)
                 }
@@ -258,12 +266,27 @@ private fun HomeContent(
                     modifier = Modifier.fillMaxWidth().focusRestorer(),
                     contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(13.dp),
+                    verticalAlignment = Alignment.Bottom,
                 ) {
+                    itemsIndexed(featured, key = { _, t -> "c:" + t.id }) { i, t ->
+                        FeatureCard(
+                            tile = t,
+                            modifier = (if (i == 0) Modifier.focusRequester(first) else Modifier)
+                                .rowEdges(first = i == 0, last = continueItems.isEmpty() && more.isEmpty() && i == featured.lastIndex),
+                            onFocus = { requester ->
+                                onFocus(Focus.Tile(t, "Fresh today"))
+                                onPoster(requester)
+                                toTop()
+                            },
+                            onClick = { openTile(context, t) },
+                            onLongClick = { onMenu(t) },
+                        )
+                    }
                     itemsIndexed(continueItems, key = { _, e -> "h:" + e.id }) { i, e ->
                         ContinueCard(
                             entry = e,
-                            modifier = (if (i == 0) Modifier.focusRequester(first) else Modifier)
-                                .rowEdges(first = i == 0, last = fresh.isEmpty() && i == continueItems.lastIndex),
+                            modifier = (if (featured.isEmpty() && i == 0) Modifier.focusRequester(first) else Modifier)
+                                .rowEdges(first = featured.isEmpty() && i == 0, last = more.isEmpty() && i == continueItems.lastIndex),
                             onFocus = { onFocus(Focus.Title(e)); toTop() },
                             onClick = { Graph.apps.launch(e.pkg) },
                             onLongClick = {
@@ -272,11 +295,10 @@ private fun HomeContent(
                             },
                         )
                     }
-                    itemsIndexed(fresh, key = { _, t -> "c:" + t.id }) { i, t ->
+                    itemsIndexed(more, key = { _, t -> "c:" + t.id }) { i, t ->
                         PosterTile(
                             tile = t,
-                            modifier = (if (continueItems.isEmpty() && i == 0) Modifier.focusRequester(first) else Modifier)
-                                .rowEdges(first = continueItems.isEmpty() && i == 0, last = i == fresh.lastIndex),
+                            modifier = Modifier.rowEdges(first = false, last = i == more.lastIndex),
                             onFocus = { requester ->
                                 onFocus(Focus.Tile(t, "Fresh today"))
                                 onPoster(requester)
@@ -326,7 +348,7 @@ private fun HomeContent(
     }
 }
 
-/** Something on this TV still being watched: its own picture, a hairline of progress. */
+/** Something on this TV still being watched, small after the picks: its picture, a hairline of progress. */
 @Composable
 private fun ContinueCard(
     entry: WatchEntry,
@@ -336,13 +358,13 @@ private fun ContinueCard(
     onLongClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val art = historyArt(entry, 480)
+    val art = historyArt(entry, 320)
     val app = Graph.apps.find(entry.pkg)
-    Column(Modifier.width(192.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.width(ContinueWidth), horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
             onClick = onClick,
             onLongClick = onLongClick,
-            modifier = modifier.size(192.dp, PosterHeight).onFocusChanged {
+            modifier = modifier.size(ContinueWidth, ContinueHeight).onFocusChanged {
                 focused = it.isFocused || it.hasFocus
                 if (focused) onFocus()
             },
@@ -354,24 +376,17 @@ private fun ContinueCard(
                 focusedBorder = Border(BorderStroke(2.dp, Color.White), shape = CardShape),
             ),
         ) {
-            Column {
-                Box(Modifier.fillMaxWidth().height(103.dp).clip(RoundedCornerShape(topStart = CardRadius, topEnd = CardRadius))) {
-                    if (art != null) Image(art, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                    else BannerFill(app)
-                }
-                Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 9.dp)) {
-                    Text(entry.title, fontSize = 11.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Spacer(Modifier.height(7.dp))
-                    if (entry.progress >= 0f) ProgressBar(entry.progress, Modifier.fillMaxWidth())
-                    else Text(listOfNotNull(app?.label, entry.subtitle).joinToString(" · "), fontSize = 9.sp, color = Color.White.copy(alpha = .55f), maxLines = 1)
-                }
+            Box(Modifier.fillMaxSize()) {
+                if (art != null) Image(art, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                else BannerFill(app)
+                if (entry.progress >= 0f) ProgressBar(entry.progress, Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp))
             }
         }
         // Same caption height as the posters, so the row lines up.
         Column(Modifier.padding(top = 14.dp).height(34.dp).wrapContentWidth(unbounded = true), horizontalAlignment = Alignment.CenterHorizontally) {
             if (focused) {
-                Text(listOfNotNull(app?.label, entry.subtitle?.takeIf { it != app?.label }).joinToString(" · "), fontSize = 10.sp, color = Color.White.copy(alpha = .55f), maxLines = 1)
-                if (entry.remainingMin >= 0) Text(remainingText(entry.remainingMin), fontSize = 10.sp, color = Color.White.copy(alpha = .55f))
+                Text(entry.title, fontSize = 11.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 260.dp))
+                Text(listOfNotNull(app?.label, entry.remainingMin.takeIf { it >= 0 }?.let(::remainingText)).joinToString(" · "), fontSize = 10.sp, color = Color.White.copy(alpha = .55f), maxLines = 1)
             }
         }
     }

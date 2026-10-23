@@ -73,6 +73,11 @@ val PosterHeight = 144.dp
 fun freshPicks(catalog: Catalog?, hidden: Set<String>): List<CatalogTile> =
     catalog?.forYou.orEmpty().filter { it.kind != "continue" && it.id !in hidden }
 
+/** How many of Fresh today's picks lead the row as big cards; the rest follow Continue as posters. */
+const val FEATURED_PICKS = 12
+private const val BACKDROP_PX = 560
+val FeatureWidth = 256.dp
+
 /** Each app's rows (Popular, Trending, New), in the hub's order, without the hidden titles. */
 fun shelvesOf(catalog: Catalog?, hidden: Set<String>): List<Shelf> {
     if (catalog == null) return emptyList()
@@ -131,6 +136,64 @@ fun captionOf(tile: CatalogTile): String = listOfNotNull(
     when (tile.kind) { "movie" -> "Film"; "show" -> "Series"; else -> null },
     tile.year?.toString(),
 ).joinToString(" · ")
+
+/**
+ * One of tonight's or today's picks, leading Fresh today: the title's backdrop in a big glass
+ * card, its name and app under it (the poster when there is no backdrop).
+ */
+@Composable
+fun FeatureCard(
+    tile: CatalogTile,
+    modifier: Modifier,
+    onFocus: (FocusRequester) -> Unit,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    val requester = remember { FocusRequester() }
+    var focused by remember { mutableStateOf(false) }
+    val art = catalogArt(tile.backdrop ?: tile.poster, BACKDROP_PX)
+    val app = Graph.apps.find(tile.pkg)
+    val shape = RoundedCornerShape(CardRadius)
+    Column(Modifier.width(FeatureWidth)) {
+        Surface(
+            onClick = onClick,
+            onLongClick = onLongClick,
+            modifier = modifier.size(FeatureWidth, PosterHeight).focusRequester(requester).onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) onFocus(requester)
+            },
+            shape = ClickableSurfaceDefaults.shape(shape),
+            colors = ClickableSurfaceDefaults.colors(containerColor = Color.White.copy(alpha = .09f), focusedContainerColor = Color.White.copy(alpha = .16f)),
+            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+            border = ClickableSurfaceDefaults.border(
+                border = Border(BorderStroke(1.dp, Color.White.copy(alpha = .10f)), shape = shape),
+                focusedBorder = Border(BorderStroke(2.dp, Color.White), shape = shape),
+            ),
+        ) {
+            Box(Modifier.fillMaxSize()) {
+                if (art != null) Image(art, tile.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                else Box(Modifier.fillMaxSize().background(
+                    Brush.linearGradient(listOf(Color(app?.color ?: 0xFF51604F.toInt()).copy(alpha = .45f), Color(0xFF1B231F).copy(alpha = .6f)))
+                ))
+                // The name sits on a soft shade at the foot of the picture, like a title card.
+                Box(
+                    Modifier.fillMaxWidth().height(64.dp).align(Alignment.BottomStart)
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .62f))))
+                        .padding(start = 14.dp, end = 14.dp, bottom = 11.dp),
+                    contentAlignment = Alignment.BottomStart,
+                ) {
+                    Text(tile.title, fontSize = 13.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+        Column(
+            Modifier.padding(top = 14.dp).height(34.dp).fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            if (focused) Text(captionOf(tile), fontSize = 10.sp, color = Color.White.copy(alpha = .55f), maxLines = 1)
+        }
+    }
+}
 
 /** A poster; focused, it grows a little and its title shows underneath. */
 @Composable
