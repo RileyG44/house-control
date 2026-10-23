@@ -101,6 +101,8 @@ def _spaced_connect(connect):
                 self._connecting = False
             if self._is_close:
                 return
+            if args and getattr(self, "_ip_address", None):
+                args = (self._ip_address, *args[1:])  # the bulb may have moved meanwhile
         self._house_next_connect = time.monotonic() + RECONNECT_GAP
         return await connect(self, *args, **kwargs)
     return spaced
@@ -270,6 +272,8 @@ class AidotLanClient:
             raise
         except Exception as e:
             raise AidotError(f"AiDot sign-in failed: {e}") from e
+        if self.client is not None:  # a rescan: the old LAN connections go before new ones start
+            await self.close()
         self.client = client
         self.devices, self.clients = {}, {}
         for device in found.get("device_list") or []:

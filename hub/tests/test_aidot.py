@@ -86,7 +86,7 @@ def refused_connections(monkeypatch):
     dialled = []
 
     async def open_connection(host, port):
-        dialled.append(asyncio.get_running_loop().time())
+        dialled.append((asyncio.get_running_loop().time(), host))
         raise ConnectionRefusedError(errno.ECONNREFUSED, "Connection refused")
 
     monkeypatch.setattr(asyncio, "open_connection", open_connection)
@@ -110,8 +110,24 @@ def test_reconnects_to_one_bulb_are_spaced_and_hold_off_the_other_paths(monkeypa
 
     held, after = asyncio.run(go())
     assert held and not after
-    assert len(dialled) == 2 and dialled[1] - dialled[0] >= 0.25
+    assert len(dialled) == 2 and dialled[1][0] - dialled[0][0] >= 0.25
 
+
+
+def test_a_bulb_that_moves_while_its_reconnect_waits_is_dialled_at_its_new_address(monkeypatch):
+    dialled = refused_connections(monkeypatch)
+
+    async def go():
+        client = DeviceClient({"id": "dev1"}, {"id": "user1"}, None)
+        client._ip_address = "192.0.2.10"
+        await client.connect(client._ip_address)
+        second = asyncio.create_task(client.connect(client._ip_address))
+        await asyncio.sleep(0.05)
+        client.update_ip_address("192.0.2.11")  # discovery finds it elsewhere; the waiting attempt goes there
+        await second
+
+    asyncio.run(go())
+    assert [host for _, host in dialled] == ["192.0.2.10", "192.0.2.11"]
 
 def test_a_bulb_closed_while_waiting_is_not_redialled(monkeypatch):
     dialled = refused_connections(monkeypatch)
@@ -165,3 +181,34 @@ def test_every_handler_agrees_with_the_first_and_the_count_is_added_once():
     now[0] += 61
     assert through_both() == ([True, True], spin + " (and 5 more like it in 61s)")
     assert len(second.seen) == 0  # the second handler never had to decide
+
+
+def test_a_rescan_closes_the_previous_connections_first(tmp_path, monkeypatch):
+    made, events = [], []
+
+    class Account:
+        def __init__(self, session, **kw):
+            self.n = len(made)
+            made.append(self)
+
+        async def async_post_login(self):
+            pass
+
+        async def async_get_all_device(self):
+            return {"device_list": [{"id": "dev1", "mac": "d8:47:32:d8:d0:df", "type": "light"}]}
+
+        def get_device_client(self, device):
+            events.append(("client", self.n))
+            return object()
+
+        async def async_close(self):
+            events.append(("close", self.n))
+
+    monkeypatch.setattr(aidot_lan, "_AidotClient", Account)
+    secret = tmp_path / "aidot.json"
+    secret.write_text('{"email": "a@example.com", "password": "x"}')
+    lights = aidot_lan.AidotLanClient(secret, None)
+    asyncio.run(lights.connect())
+    asyncio.run(lights.connect())
+    assert events == [("client", 0), ("close", 0), ("client", 1)]
+    assert lights.client is made[1]
