@@ -74,10 +74,59 @@ def test_lan_reader_passes_data_and_the_library_s_own_errors_through():
         asyncio.run(read(asyncio.CancelledError()))
 
 
-def test_guarding_twice_wraps_the_loop_once():
-    guarded = DeviceClient.receive_data
-    aidot_lan._guard_receive_loop(DeviceClient)
-    assert DeviceClient.receive_data is guarded and guarded.house_guarded
+def test_guarding_twice_wraps_each_method_once():
+    for name, wrap in (("receive_data", aidot_lan._guarded_receive), ("connect", aidot_lan._spaced_connect)):
+        guarded = getattr(DeviceClient, name)
+        aidot_lan._guard(DeviceClient, name, wrap)
+        assert getattr(DeviceClient, name) is guarded and guarded.house_guarded
+        assert asyncio.iscoroutinefunction(guarded)
+
+
+def refused_connections(monkeypatch):
+    dialled = []
+
+    async def open_connection(host, port):
+        dialled.append(asyncio.get_running_loop().time())
+        raise ConnectionRefusedError(errno.ECONNREFUSED, "Connection refused")
+
+    monkeypatch.setattr(asyncio, "open_connection", open_connection)
+    monkeypatch.setattr(aidot_lan, "RECONNECT_GAP", 0.3)
+    return dialled
+
+
+def test_reconnects_to_one_bulb_are_spaced_and_hold_off_the_other_paths(monkeypatch):
+    dialled = refused_connections(monkeypatch)
+
+    async def go():
+        client = DeviceClient({"id": "dev1"}, {"id": "user1"}, None)
+        client._ip_address = "192.0.2.10"
+        await client.connect("192.0.2.10")  # the first attempt is never held
+        second = asyncio.create_task(client.connect("192.0.2.10"))
+        await asyncio.sleep(0.05)
+        held = client.connecting
+        await client.async_login()  # e.g. the minute timer firing meanwhile: stands aside
+        await second
+        return held, client.connecting
+
+    held, after = asyncio.run(go())
+    assert held and not after
+    assert len(dialled) == 2 and dialled[1] - dialled[0] >= 0.25
+
+
+def test_a_bulb_closed_while_waiting_is_not_redialled(monkeypatch):
+    dialled = refused_connections(monkeypatch)
+
+    async def go():
+        client = DeviceClient({"id": "dev1"}, {"id": "user1"}, None)
+        await client.connect("192.0.2.10")
+        second = asyncio.create_task(client.connect("192.0.2.10"))
+        await asyncio.sleep(0.05)
+        client._is_close = True
+        await second
+        return client.connecting
+
+    assert asyncio.run(go()) is False
+    assert len(dialled) == 1
 
 
 def test_repeated_aidot_lines_are_let_through_once_a_minute():
@@ -99,3 +148,20 @@ def test_repeated_aidot_lines_are_let_through_once_a_minute():
     now[0] += 61
     again = record("aidot.device_client", spin)
     assert quiet.filter(again) and again.getMessage() == spin
+
+
+def test_every_handler_agrees_with_the_first_and_the_count_is_added_once():
+    now = [0.0]
+    first, second = aidot_lan.QuietRepeats(clock=lambda: now[0]), aidot_lan.QuietRepeats(clock=lambda: now[0])
+    spin = "f5bd:recv error: [Errno 49] Can't assign requested address"
+
+    def through_both():
+        r = logging.LogRecord("aidot.device_client", logging.ERROR, __file__, 1, spin, (), None)
+        return [first.filter(r), second.filter(r)], r.getMessage()
+
+    assert through_both() == ([True, True], spin)
+    for _ in range(5):
+        assert through_both()[0] == [False, False]
+    now[0] += 61
+    assert through_both() == ([True, True], spin + " (and 5 more like it in 61s)")
+    assert len(second.seen) == 0  # the second handler never had to decide

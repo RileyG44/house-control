@@ -46,7 +46,12 @@ class AidotError(Exception):
     pass
 
 
-# ---------- python-aidot's receive loop ----------
+# ---------- python-aidot's connection loops ----------
+# These lean on DeviceClient internals of the pinned python-aidot (requirements.txt);
+# check them again before upgrading it.
+
+RECONNECT_GAP = 10.0  # seconds between connection attempts to one bulb
+
 
 class _LanReader:
     """A bulb's TCP stream as python-aidot's receive loop reads it.
@@ -57,7 +62,7 @@ class _LanReader:
     without waiting, so that loop never yielded: the hub stopped answering until restarted
     and logged about 14,000 identical lines a second. A failed read means the connection is
     gone, so it is reported as a reset, which the library answers by closing the socket and
-    reconnecting once a minute."""
+    reconnecting (see _spaced_connect)."""
 
     def __init__(self, reader):
         self._reader = reader
@@ -74,30 +79,56 @@ class _LanReader:
         return getattr(self._reader, name)
 
 
-def _guard_receive_loop(cls) -> None:
-    receive = getattr(cls, "receive_data", None)
-    if receive is None or getattr(receive, "house_guarded", False):
-        return
-
-    @functools.wraps(receive)
-    async def receive_data(self):
-        if self.reader is not None and not isinstance(self.reader, _LanReader):
+def _guarded_receive(receive):
+    async def receive_data(self, *args, **kwargs):
+        if getattr(self, "reader", None) is not None and not isinstance(self.reader, _LanReader):
             self.reader = _LanReader(self.reader)
-        return await receive(self)
+        return await receive(self, *args, **kwargs)
+    return receive_data
 
-    receive_data.house_guarded = True
-    cls.receive_data = receive_data
+
+def _spaced_connect(connect):
+    """After a reset the library reconnects at once, and again every minute until one
+    works. A bulb that accepts the login and then drops the connection would be redialled
+    as fast as the network answers, so attempts on one bulb are kept RECONNECT_GAP apart."""
+    async def spaced(self, *args, **kwargs):
+        wait = getattr(self, "_house_next_connect", 0.0) - time.monotonic()
+        if wait > 0:
+            self._connecting = True  # the library's other reconnect paths stand aside meanwhile
+            try:
+                await asyncio.sleep(wait)
+            finally:
+                self._connecting = False
+            if self._is_close:
+                return
+        self._house_next_connect = time.monotonic() + RECONNECT_GAP
+        return await connect(self, *args, **kwargs)
+    return spaced
+
+
+def _guard(cls, name: str, wrap) -> None:
+    original = getattr(cls, name, None)
+    if original is None:
+        log.warning("python-aidot's DeviceClient has no %s; its connection guard is off", name)
+        return
+    if getattr(original, "house_guarded", False):
+        return
+    guarded = functools.wraps(original)(wrap(original))
+    guarded.house_guarded = True
+    setattr(cls, name, guarded)
 
 
 if _DeviceClient is not None:
-    _guard_receive_loop(_DeviceClient)
+    _guard(_DeviceClient, "receive_data", _guarded_receive)
+    _guard(_DeviceClient, "connect", _spaced_connect)
 
 
 class QuietRepeats(logging.Filter):
     """Lets each distinct python-aidot message through at most once a minute.
 
     The library logs from inside its connection loops, so one failing bulb can repeat a
-    line as fast as it retries. Repeats are counted and reported on the next one let through."""
+    line as fast as it retries. Repeats are counted and reported on the next one let through.
+    The decision is kept on the record, so every handler it reaches agrees with the first."""
 
     def __init__(self, prefix: str = "aidot", every: float = 60.0, clock=time.monotonic):
         super().__init__()
@@ -107,6 +138,12 @@ class QuietRepeats(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if record.name != self.prefix and not record.name.startswith(self.prefix + "."):
             return True
+        decided = getattr(record, "house_quiet", None)
+        if decided is None:
+            decided = record.house_quiet = self._let_through(record)
+        return decided
+
+    def _let_through(self, record: logging.LogRecord) -> bool:
         text, now = record.getMessage(), self.clock()
         entry = self.seen.get(text)
         if entry and now - entry[0] < self.every:
