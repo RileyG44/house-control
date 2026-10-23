@@ -211,3 +211,21 @@ test('launcher styling stays round and readable in both appearances', async ({ p
   }
   expect(errors).toEqual([]);
 });
+
+
+test('Spotify output stays full height while playing and the song can be saved to either destination', async ({ page, request }) => {
+  await page.locator('.tile.speaker').click();
+  await expect(page.getByRole('button', { name: /Evening mix/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
+  const output = page.getByLabel('Spotify output', { exact: true });
+  await output.scrollIntoViewIfNeeded();
+  expect((await output.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  await page.getByRole('button', { name: 'Save to Liked Songs', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Saved to Liked Songs', exact: true })).toBeDisabled();
+  await page.getByLabel('Add song to playlist', { exact: true }).selectOption('37i9dQZF1DXcBWIGoYBM5M');
+  await expect.poll(async () => (await data(request)).sent.filter((s) => s.route === 'spotify' && ['save', 'add_to_playlist'].includes(s.action)))
+    .toEqual([{ route: 'spotify', action: 'save', uri: 'spotify:track:7a3LWj5xSFhFRYmztS8wgK' },
+      { route: 'spotify', action: 'add_to_playlist', uri: 'spotify:track:7a3LWj5xSFhFRYmztS8wgK', playlist: '37i9dQZF1DXcBWIGoYBM5M' }]);
+  await expect(page.getByText('Added to playlist.', { exact: true })).toBeVisible();
+});

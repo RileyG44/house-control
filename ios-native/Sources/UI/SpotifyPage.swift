@@ -51,6 +51,35 @@ struct SpotifyPage: View {
                     Text(state.title).font(.house(28, weight: .light)).foregroundStyle(Color.ink).multilineTextAlignment(.center)
                     Text(state.artist).font(.house(17)).foregroundStyle(Color.muted).multilineTextAlignment(.center)
                 }
+                VStack(spacing: 10) {
+                    HStack(spacing: 12) {
+                        Button { player.saveSong(state.trackURI) } label: {
+                            Label(state.saved ? "Liked" : "Liked Songs", systemImage: state.saved ? "checkmark.circle.fill" : "plus.circle")
+                        }
+                        .buttonStyle(.glass).disabled(!state.available || !state.canSave || state.trackURI.isEmpty || state.saved || player.saving)
+                        .accessibilityLabel(state.saved ? "Saved to Liked Songs" : "Save to Liked Songs")
+                        Menu {
+                            ForEach(player.playlists.filter(\.writable)) { playlist in
+                                Button(playlist.name) { player.saveSong(state.trackURI, playlist: playlist.id) }
+                            }
+                            if player.nextPlaylistOffset != nil {
+                                Button("More playlists…") { Task { await player.loadPlaylists(reset: false) } }
+                            }
+                            if player.playlists.filter(\.writable).isEmpty && !player.loadingPlaylists {
+                                Text("No editable playlists loaded")
+                            }
+                        } label: { Label("Playlist", systemImage: "text.badge.plus") }
+                        .buttonStyle(.glass).disabled(!state.available || !state.canAddToPlaylist || state.trackURI.isEmpty || player.saving)
+                        .accessibilityLabel("Add song to playlist")
+                    }
+                    if player.saving { ProgressView("Saving song…") }
+                    else if player.saveMessageURI == state.trackURI && !player.saveMessage.isEmpty {
+                        Text(player.saveMessage).font(.footnote).foregroundStyle(Color.muted)
+                    } else if state.available && state.canTransfer && (!state.canSave || !state.canAddToPlaylist) {
+                        Text("Connect Spotify again to allow saving songs and editing playlists.")
+                            .font(.footnote).foregroundStyle(Color.muted).multilineTextAlignment(.center)
+                    }
+                }
                 if state.duration > 0 {
                     VStack(spacing: 6) {
                         GradientSlider(value: seek ?? state.position, range: 0...max(1, state.duration), colors: [.faint, .ink], height: 30,
@@ -92,6 +121,7 @@ struct SpotifyPage: View {
                         Text(state.outputs.isEmpty ? "No speakers available" : "Choose a speaker").tag("")
                         ForEach(state.outputs) { output in Text(output.name).tag(output.id) }
                     }
+                    .pickerStyle(.menu).frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                     .disabled(!state.canTransfer || !state.available)
                     Text(!state.available ? (state.error.isEmpty ? "Spotify is temporarily unavailable. Try Refresh." : state.error)
                          : state.canTransfer ? "Choose your Echo or another Spotify Connect output."

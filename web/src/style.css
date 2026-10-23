@@ -1650,6 +1650,10 @@ html.ios .tv-extra-row { min-height: 50px; font-size: 14px; }
 .tile.speaker { grid-column: 1 / -1; cursor: pointer; }
 .tile.tv { touch-action: pan-y; }
 .spotify-remote { display: flex; flex-direction: column; align-items: stretch; gap: 16px; padding-top: 18px; padding-bottom: 32px; }
+.spotify-remote > * { flex-shrink: 0; }
+.spotify-remote select.scene-input { min-height: 46px; }
+.spotify-save-row { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.spotify-save-row select { max-width: 240px; }
 .spotify-cover { width: min(64%, 240px); aspect-ratio: 1; align-self: center; position: relative; }
 .spotify-art { width: 100%; height: 100%; border-radius: 30px; object-fit: cover; }
 .spotify-placeholder { display: grid; place-items: center; color: var(--muted); background: linear-gradient(150deg, rgba(120, 192, 172, .22), var(--glass)); }

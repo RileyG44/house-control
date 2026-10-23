@@ -34,11 +34,15 @@ async def api_server(command_status=204, command_body=None, command_type=None):
             return web.json_response({"devices": devices})
         if request.method == "GET" and request.path.endswith("/playlists"):
             return web.json_response({"items": [{"id": "37i9dQZF1DXcBWIGoYBM5M", "name": "Evening mix",
-                                      "owner": {"display_name": "Riley"}}, None],
+                                      "owner": {"display_name": "Riley", "id": "riley"}}, None],
                                       "next": "https://api.spotify.com/v1/me/playlists?offset=50" if request.query.get("offset") == "0" else None})
+        if request.method == "GET" and request.path.endswith("/contains"):
+            return web.json_response([False])
+        if request.method == "GET" and request.path == "/v1/me":
+            return web.json_response({"id": "riley"})
         if request.method == "GET":
             return web.json_response({"is_playing": True, "progress_ms": 12000, "device": devices[0],
-                                      "item": {"id": "track", "name": "Evening", "duration_ms": 200000,
+                                      "item": {"id": "7a3LWj5xSFhFRYmztS8wgK", "uri": "spotify:track:7a3LWj5xSFhFRYmztS8wgK", "type": "track", "name": "Evening", "duration_ms": 200000,
                                                "artists": [{"name": "A musician"}], "album": {"name": "Studio", "images": []}}})
         return web.Response(status=command_status, text=command_body, content_type=command_type)
 
@@ -116,7 +120,7 @@ def test_playlists_are_paged_separately_from_the_player_poll(tmp_path, monkeypat
             answer, code = await service.playlists()
             assert code == 200 and answer["available"]
             assert answer["items"] == [{"id": "37i9dQZF1DXcBWIGoYBM5M", "uri": "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M",
-                                         "name": "Evening mix", "owner": "Riley"}]
+                                         "name": "Evening mix", "owner": "Riley", "writable": False}]
             assert answer["next"] == 50
             assert sent[-1][2] == {"limit": "50", "offset": "0"}
             assert (await service.playlists(offset=50))[0]["next"] is None
@@ -340,4 +344,77 @@ def test_hub_routes_enforce_origin_and_do_not_start_discovery(tmp_path):
             assert (await client.post("/api/spotify", data="bad")).status == 400
         finally:
             await client.close()
+    run(check())
+
+
+LIBRARY_SCOPES = "user-library-read user-library-modify playlist-modify-public playlist-modify-private"
+TRACK_URI = "spotify:track:7a3LWj5xSFhFRYmztS8wgK"
+PLAYLIST_ID = "37i9dQZF1DXcBWIGoYBM5M"
+
+
+def test_save_captures_song_and_uses_current_library_and_playlist_endpoints(tmp_path, monkeypatch):
+    async def check():
+        server, sent = await api_server(command_status=202)
+        monkeypatch.setattr(spotify, "API", str(server.make_url("/v1")))
+        spotify.save_config(tmp_path / "spotify.json", {"refresh_token": "refresh", "access_token": "new-access",
+                            "expires_at": time.time() + 3600, "scope": LIBRARY_SCOPES})
+        service = spotify.Spotify(tmp_path)
+        async with aiohttp.ClientSession() as http:
+            service.http = http
+            state = await service.state(fresh=True)
+            assert state["canSave"] and state["canAddToPlaylist"]
+            assert state["track"]["uri"] == TRACK_URI and state["track"]["saved"] is False
+            await service.state(fresh=True)
+            assert len([call for call in sent if call[1].endswith("/contains")]) == 1
+            # The explicit URI wins even if playback moves before the action runs.
+            captured = "spotify:track:4iV5W9uYEdYUVa79Axb7Rh"
+            assert (await service.act({"action": "save", "uri": captured}))[1] == 200
+            assert sent[-1] == ("PUT", "/v1/me/library", {"uris": captured}, None)
+            assert (await service.act({"action": "save", "uri": TRACK_URI}))[1] == 200
+            assert (await service.state(fresh=True))["track"]["saved"] is True
+            answer, code = await service.playlists()
+            assert code == 200 and answer["items"][0]["writable"] is True
+            assert (await service.act({"action": "add_to_playlist", "uri": captured, "playlist": PLAYLIST_ID}))[1] == 200
+            assert sent[-1] == ("POST", f"/v1/playlists/{PLAYLIST_ID}/items", {}, {"uris": [captured]})
+        await server.close()
+    run(check())
+
+
+@pytest.mark.parametrize("body", [
+    {"action": "save"}, {"action": "save", "uri": "spotify:episode:" + "a" * 22},
+    {"action": "save", "uri": "spotify:track:bad"},
+    {"action": "add_to_playlist", "uri": TRACK_URI, "playlist": "../me"},
+    {"action": "add_to_playlist", "uri": TRACK_URI},
+])
+def test_library_rejects_missing_or_unsafe_ids_before_network(tmp_path, body):
+    service = spotify.Spotify(tmp_path)
+    assert run(service.act(body))[1] == 400
+
+
+def test_old_consent_keeps_playback_working_but_cannot_save(tmp_path, monkeypatch):
+    async def check():
+        server, sent = await api_server()
+        monkeypatch.setattr(spotify, "API", str(server.make_url("/v1")))
+        spotify.save_config(tmp_path / "spotify.json", {"refresh_token": "refresh", "access_token": "new-access",
+                                                       "expires_at": time.time() + 3600})
+        service = spotify.Spotify(tmp_path)
+        async with aiohttp.ClientSession() as http:
+            service.http = http
+            state = await service.state()
+            assert state["available"] and not state["canSave"]
+            assert (await service.act({"action": "save", "uri": TRACK_URI}))[1] == 403
+            assert not any(call[1].endswith("/library") for call in sent)
+            assert (await service.act({"action": "pause"}))[1] == 200
+        await server.close()
+    run(check())
+
+
+def test_mac_adapter_refuses_library_actions_without_launching_spotify(tmp_path, monkeypatch):
+    async def check():
+        service = spotify.Spotify(tmp_path)
+        service.is_mac = True
+        for body in [{"action": "save", "uri": TRACK_URI},
+                     {"action": "add_to_playlist", "uri": TRACK_URI, "playlist": PLAYLIST_ID}]:
+            answer, status = await service.act(body, local_only=True)
+            assert status == 409 and "library permissions" in answer["error"]
     run(check())

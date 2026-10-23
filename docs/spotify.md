@@ -120,3 +120,21 @@ If an account is not authorized, the remote shows the setup state instead of a p
 
 Live Echo transfer requires the account’s one-time authorization. Native iPhone visual and
 touch checks require a connected iPhone or an installed iOS simulator runtime.
+
+### Save the current song
+
+The plus button saves the displayed song to **Liked Songs**. The adjacent playlist menu
+adds that song to an editable playlist instead. Both capture the song's Spotify URI when
+pressed, so a queued command never accidentally saves the next song. Episodes, local files,
+and the Mac scripting fallback do not offer song saving. Playlist pages load independently
+of the player poll; use **More playlists** to find another destination.
+
+Existing Spotify connections must run `spotify_pair.py` once more and accept the additional
+library and playlist permissions. Playback and speaker selection continue working before
+that consent; the remote explains why saving is disabled. No new developer app or secret is
+needed. Pairing stores the granted scopes with the private hub credentials.
+
+The hub uses Spotify's current `PUT /me/library` and `POST /playlists/{id}/items` endpoints.
+Saved-song checks are cached for one minute; library failures do not disable playback.
+Commands are sent once to the selected hub and are never replayed on another hub after a
+timeout. A playlist request that loses its reply should be checked in Spotify before retrying.

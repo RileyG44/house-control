@@ -24,8 +24,8 @@ tv = {"available": True, "error": "", "devices": [{"id": "test-tv", "name": "Stu
       "on": True, "volume": 10, "volumeMax": 25, "muted": False, "caps": ["volume", "keys", "apps"],
       "app": {"id": "home", "name": "Living Room"}, "nowPlaying": None}]}
 spotify = {"available": True, "backend": "connect", "error": "", "playing": False, "volume": 35,
-           "canTransfer": True, "canSeek": True, "device": "echo", "devices": [{"id": "echo", "name": "Studio Echo"},
-           {"id": "mac", "name": "MacBook"}], "track": {"title": "A quiet evening", "artist": "Studio Sessions",
+           "canTransfer": True, "canSave": True, "canAddToPlaylist": True, "canSeek": True, "device": "echo", "devices": [{"id": "echo", "name": "Studio Echo"},
+           {"id": "mac", "name": "MacBook"}], "track": {"uri": "spotify:track:7a3LWj5xSFhFRYmztS8wgK", "saved": False, "title": "A quiet evening", "artist": "Studio Sessions",
            "duration": 240, "position": 48}}
 sent = []
 listeners = set()
@@ -96,6 +96,8 @@ async def spotify_action(request):
         spotify["volume"] = body["level"]
     elif body["action"] == "seek":
         spotify["track"]["position"] = body["position"]
+    if body["action"] == "save":
+        spotify["track"]["saved"] = True
     return web.json_response({"ok": True})
 
 
@@ -131,7 +133,7 @@ async def get_playlists(request):
     return web.json_response({"available": True, "backend": "connect", "items": [
         {"id": "37i9dQZF1DXcBWIGoYBM5M" if first else "37i9dQZF1DX0XUsuxWHRQd",
          "uri": "spotify:playlist:" + ("37i9dQZF1DXcBWIGoYBM5M" if first else "37i9dQZF1DX0XUsuxWHRQd"),
-         "name": "Evening mix" if first else "Morning mix", "owner": "Riley"}], "next": 50 if first else None})
+         "name": "Evening mix" if first else "Morning mix", "owner": "Riley", "writable": True}], "next": 50 if first else None})
 
 
 app = web.Application()
