@@ -104,7 +104,10 @@ def _spaced_connect(connect):
             if args and getattr(self, "_ip_address", None):
                 args = (self._ip_address, *args[1:])  # the bulb may have moved meanwhile
         self._house_next_connect = time.monotonic() + RECONNECT_GAP
-        return await connect(self, *args, **kwargs)
+        result = await connect(self, *args, **kwargs)
+        if self._is_close and getattr(self, "writer", None) is not None:
+            await self.reset()  # closed while dialling: hang up the session that just opened
+        return result
     return spaced
 
 
@@ -228,6 +231,7 @@ class AidotLanClient:
         self.state: dict[str, dict] = {}      # key -> last panel reading
         self.modes: dict[str, str] = {}       # key -> "white" | "color" (see module note)
         self.ips: dict[str, str] = {}         # key -> last known address
+        self._signing_in = asyncio.Lock()      # one sign-in at a time (see connect)
 
     # ---------- credentials ----------
 
@@ -257,6 +261,10 @@ class AidotLanClient:
 
     async def connect(self) -> None:
         """Signs in and learns every light on the account. Raises AidotError."""
+        async with self._signing_in:  # two rescans at once would each close the same old client
+            await self._sign_in()
+
+    async def _sign_in(self) -> None:
         if _AidotClient is None:
             raise AidotError("python-aidot is not installed: run ./setup.sh or "
                              "`.venv/bin/pip install -r requirements.txt` in the hub folder")
@@ -305,12 +313,14 @@ class AidotLanClient:
                 self.clients[key].update_ip_address(ip)
 
     async def close(self) -> None:
-        if self.client is not None:
+        client = self.client
+        if client is not None:
             try:
-                await self.client.async_close()
+                await client.async_close()
             except Exception:
                 pass
-            self.client = None
+            if self.client is client:
+                self.client = None
 
     # ---------- devices ----------
 

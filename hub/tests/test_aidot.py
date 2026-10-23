@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import errno
 import logging
+import socket
 import sys
 from pathlib import Path
 
@@ -183,7 +184,7 @@ def test_every_handler_agrees_with_the_first_and_the_count_is_added_once():
     assert len(second.seen) == 0  # the second handler never had to decide
 
 
-def test_a_rescan_closes_the_previous_connections_first(tmp_path, monkeypatch):
+def fake_accounts(tmp_path, monkeypatch):
     made, events = [], []
 
     class Account:
@@ -192,7 +193,7 @@ def test_a_rescan_closes_the_previous_connections_first(tmp_path, monkeypatch):
             made.append(self)
 
         async def async_post_login(self):
-            pass
+            await asyncio.sleep(0)  # lets a second sign-in run alongside, as two panels might
 
         async def async_get_all_device(self):
             return {"device_list": [{"id": "dev1", "mac": "d8:47:32:d8:d0:df", "type": "light"}]}
@@ -202,13 +203,62 @@ def test_a_rescan_closes_the_previous_connections_first(tmp_path, monkeypatch):
             return object()
 
         async def async_close(self):
+            await asyncio.sleep(0)
             events.append(("close", self.n))
 
     monkeypatch.setattr(aidot_lan, "_AidotClient", Account)
     secret = tmp_path / "aidot.json"
     secret.write_text('{"email": "a@example.com", "password": "x"}')
-    lights = aidot_lan.AidotLanClient(secret, None)
+    return aidot_lan.AidotLanClient(secret, None), made, events
+
+
+def test_a_rescan_closes_the_previous_connections_first(tmp_path, monkeypatch):
+    lights, made, events = fake_accounts(tmp_path, monkeypatch)
     asyncio.run(lights.connect())
     asyncio.run(lights.connect())
     assert events == [("client", 0), ("close", 0), ("client", 1)]
     assert lights.client is made[1]
+
+
+def test_two_rescans_at_once_leave_only_the_newest_account_running(tmp_path, monkeypatch):
+    lights, made, events = fake_accounts(tmp_path, monkeypatch)
+
+    async def go():
+        await lights.connect()
+        await asyncio.gather(lights.refresh(), lights.refresh())
+
+    asyncio.run(go())
+    closed = [n for what, n in events if what == "close"]
+    assert closed == [0, 1] and lights.client is made[2]
+
+
+def test_a_bulb_closed_while_dialling_hangs_up(monkeypatch):
+    async def go():
+        client = DeviceClient({"id": "dev1"}, {"id": "user1"}, None)
+        hung_up = []
+
+        async def open_connection(host, port):
+            client._is_close = True  # the hub closes this bulb's client (a rescan) mid-dial
+            return LostAddress(), Writer(sock)
+
+        async def login():
+            client.status.online = True
+
+        async def reset():
+            hung_up.append(client.writer)
+
+        monkeypatch.setattr(asyncio, "open_connection", open_connection)
+        client.login, client.reset = login, reset
+        await client.connect("192.0.2.10")
+        return hung_up
+
+    with socket.socket() as sock:
+        assert len(asyncio.run(go())) == 1
+
+
+class Writer:
+    def __init__(self, sock):
+        self.sock = sock
+
+    def get_extra_info(self, name):
+        return self.sock
