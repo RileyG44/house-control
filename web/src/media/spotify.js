@@ -80,6 +80,31 @@ export function createSpotifyRemote() {
   const output = h('select.scene-input', { 'aria-label': 'Spotify output' });
   const outputHint = h('p.spotify-output-hint');
   const playlists = h('div.spotify-playlists');
+  const save = h('button.pill', { 'aria-label': 'Save to Liked Songs' }, icon('plus', 18), 'Liked Songs');
+  const addPlaylist = h('select.scene-input', { 'aria-label': 'Add song to playlist' }, h('option', { value: '' }, 'Add to playlist…'));
+  const saveNote = h('p.spotify-output-hint', { role: 'status' });
+  let saving = false, saveMessage = '', messageURI = '';
+  function updateSave(s = spotify.state) {
+    const uri = s.track?.uri;
+    save.disabled = saving || !s.available || !s.canSave || !uri || s.track?.saved === true;
+    save.replaceChildren(icon(s.track?.saved ? 'check' : 'plus', 18), s.track?.saved ? 'Liked' : 'Liked Songs');
+    save.setAttribute('aria-label', s.track?.saved ? 'Saved to Liked Songs' : 'Save to Liked Songs');
+    addPlaylist.disabled = saving || !s.available || !s.canAddToPlaylist || !uri;
+    saveNote.textContent = saving ? 'Saving song…' : saveMessage && messageURI === uri ? saveMessage
+      : s.available && s.canTransfer && (!s.canSave || !s.canAddToPlaylist) ? 'Connect Spotify again to allow saving songs and editing playlists.'
+      : !uri ? 'Choose a song in Spotify to save it here.' : '＋ saves to Liked Songs. Choose a playlist to add the song there instead.';
+  }
+  async function saveSong(playlist) {
+    const uri = spotify.state.track?.uri; // Capture this song before queued commands change playback.
+    if (!uri || saving) return;
+    saving = true; saveMessage = ''; updateSave();
+    const ok = await spotify.act({ action: playlist ? 'add_to_playlist' : 'save', uri, ...(playlist ? { playlist } : {}) });
+    saving = false; messageURI = uri;
+    saveMessage = ok ? playlist ? 'Added to playlist.' : 'Saved to Liked Songs.' : 'Song was not saved. Check the message above before trying again.';
+    addPlaylist.value = ''; updateSave();
+  }
+  save.addEventListener('click', () => saveSong());
+  addPlaylist.addEventListener('change', () => { if (addPlaylist.value) saveSong(addPlaylist.value); });
   const libraryNote = h('p.spotify-output-hint.spotify-library-note', { role: 'status' });
   const more = h('button.pill', { hidden: true, onclick: () => loadPlaylists(false) }, 'More playlists');
   const open = h('button.pill', { onclick: () => spotify.act({ action: 'open' }) }, 'Open Spotify on Mac');
@@ -98,8 +123,12 @@ export function createSpotifyRemote() {
       const result = await request(null, `api/spotify/playlists?offset=${reset ? 0 : libraryNext ?? 0}`);
       if (stopped) return;
       if (!result.available) throw new Error(result.error || 'Connect Spotify to browse your playlists.');
-      if (reset) playlists.replaceChildren();
+      if (reset) {
+        playlists.replaceChildren();
+        addPlaylist.replaceChildren(h('option', { value: '' }, 'Add to playlist…'));
+      }
       for (const item of result.items || []) {
+        if (item.writable) addPlaylist.append(h('option', { value: item.id }, item.name));
         playlists.append(h('button.spotify-playlist', { onclick: () => {
           const device = chosenOutput || spotify.state.device;
           spotify.act({ action: 'play', uri: item.uri, ...(device ? { device } : {}) });
@@ -133,6 +162,7 @@ export function createSpotifyRemote() {
   output.addEventListener('change', () => { chosenOutput = output.value; if (chosenOutput) spotify.act({ action: 'transfer', device: chosenOutput }); });
   const el = h('div.spotify-remote.sheet-scroll', note,
     h('div.spotify-cover', placeholder, artwork), title, artist,
+    h('div.spotify-save-row', save, addPlaylist), saveNote,
     h('div.spotify-progress', seek, times), h('div.spotify-transport', previous, play, next),
     h('label.spotify-volume', icon('volume', 19), volume),
     h('div.field-label', 'Playing on'), output, outputHint,
@@ -173,7 +203,7 @@ export function createSpotifyRemote() {
       // One library read per opening, rather than on every three-second player poll.
       libraryLoaded = true; loadPlaylists(true);
     }
-    updateLibraryNote(s);
+    updateLibraryNote(s); updateSave(s);
   });
   return { el, stop() { stopped = true; unsubscribe(); } };
 }

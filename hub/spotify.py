@@ -21,7 +21,7 @@ import aiohttp
 API = "https://api.spotify.com/v1"
 TOKEN = "https://accounts.spotify.com/api/token"
 TIMEOUT = aiohttp.ClientTimeout(total=8, connect=3)
-ACTIONS = {"play", "pause", "next", "previous", "seek", "volume", "transfer", "open"}
+ACTIONS = {"play", "pause", "next", "previous", "seek", "volume", "transfer", "open", "save", "add_to_playlist"}
 
 
 def read_config(path: Path) -> dict:
@@ -65,6 +65,16 @@ def validate_action(body) -> dict:
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
             raise SpotifyError(f"Send a finite {key}", 400)
         out[key] = max(0, min(100 if action == "volume" else 24 * 3600, value))
+    if action in {"save", "add_to_playlist"}:
+        uri = body.get("uri")
+        if not isinstance(uri, str) or not re.fullmatch(r"spotify:track:[A-Za-z0-9]{22}", uri):
+            raise SpotifyError("Choose a Spotify song to save.", 400)
+        out["uri"] = uri
+        if action == "add_to_playlist":
+            playlist = body.get("playlist")
+            if not isinstance(playlist, str) or not re.fullmatch(r"[A-Za-z0-9]{22}", playlist):
+                raise SpotifyError("Choose a Spotify playlist.", 400)
+            out["playlist"] = playlist
     if action == "play" and "uri" in body:
         uri = body["uri"]
         if not isinstance(uri, str) or not re.fullmatch(r"spotify:playlist:[A-Za-z0-9]{22}", uri):
@@ -122,6 +132,7 @@ class Spotify:
         self._bridge_retry_at = 0.0
         self._bridge_retry_urls = ()
         self._rate_until = 0.0
+        self._saved_tracks: dict[str, tuple[bool | None, float]] = {}
 
     def bridge_urls(self) -> list[str]:
         env = os.environ.get("HOUSE_SPOTIFY_URLS")
@@ -144,6 +155,8 @@ class Spotify:
                     raise SpotifyError("Spotify sign-in expired. Connect your account again.", 401)
                 tokens = await response.json()
             cfg.update(access_token=tokens["access_token"], expires_at=time.time() + tokens.get("expires_in", 3600))
+            if "scope" in tokens:
+                cfg["scope"] = tokens["scope"]
             if tokens.get("refresh_token"):
                 cfg["refresh_token"] = tokens["refresh_token"]
             save_config(self.path, cfg)
@@ -197,6 +210,23 @@ class Spotify:
                      "album": item.get("album", {}).get("name", ""), "artwork": images[0]["url"] if images else None,
                      "duration": item.get("duration_ms", 0) / 1000, "position": player.get("progress_ms", 0) / 1000,
                      "at": time.time()}
+        scopes = set(read_config(self.path).get("scope", "").split())
+        can_save = "user-library-modify" in scopes
+        can_add = {"playlist-modify-public", "playlist-modify-private"} <= scopes
+        if track:
+            uri = item.get("uri", "")
+            track["uri"] = uri if item.get("type") == "track" and re.fullmatch(r"spotify:track:[A-Za-z0-9]{22}", uri) and not item.get("is_local") else None
+            if track["uri"] and "user-library-read" in scopes:
+                if uri not in self._saved_tracks or self._saved_tracks[uri][1] < time.monotonic():
+                    try:
+                        saved = await self._api("GET", "/me/library/contains", params={"uris": uri})
+                        if isinstance(saved, list) and saved and isinstance(saved[0], bool):
+                            # Bound memory without making a library read on every player poll.
+                            if len(self._saved_tracks) >= 100: self._saved_tracks.clear()
+                            self._saved_tracks[uri] = (saved[0], time.monotonic() + 60)
+                    except (SpotifyError, aiohttp.ClientError, asyncio.TimeoutError):
+                        self._saved_tracks[uri] = (None, time.monotonic() + 30)  # Preserve playback and back off library reads.
+                track["saved"] = self._saved_tracks.get(uri, (None, 0))[0]
         device = player.get("device") or {}
         devices = [{"id": d.get("id"), "name": d.get("name", "Speaker"), "type": d.get("type", "Speaker"),
                     "active": d.get("is_active", False), "volume": d.get("volume_percent"),
@@ -205,10 +235,13 @@ class Spotify:
         return {"available": True, "backend": "connect", "error": "", "playing": player.get("is_playing", False),
                 "track": track, "device": device.get("id"), "devices": devices,
                 "volume": device.get("volume_percent"), "canTransfer": True,
+                "canSave": can_save, "canAddToPlaylist": can_add,
                 "canSeek": bool(track) and not player.get("actions", {}).get("disallows", {}).get("seeking", False),
                 "volumeSupported": device.get("supports_volume", True)}
 
     async def _mac(self, body=None):
+        if body and body["action"] in {"save", "add_to_playlist"}:
+            raise SpotifyError("Connect Spotify with library permissions to save songs here.", 409)
         if body and ("uri" in body or ("device" in body and body["action"] == "play")):
             raise SpotifyError("Connect your Spotify account to choose a playlist and speaker here.", 409)
         if body and body["action"] == "transfer":
@@ -273,9 +306,14 @@ class Spotify:
             try:
                 cfg = read_config(self.path)
                 if cfg.get("refresh_token"):
+                    profile_id = None
+                    if {"playlist-modify-public", "playlist-modify-private"} <= set(cfg.get("scope", "").split()):
+                        profile = await self._api("GET", "/me")
+                        profile_id = profile.get("id")
                     page = await self._api("GET", "/me/playlists", params={"limit": 50, "offset": offset})
                     items = [{"id": p["id"], "uri": "spotify:playlist:" + p["id"],
-                              "name": p.get("name") or "Playlist", "owner": (p.get("owner") or {}).get("display_name") or ""}
+                              "name": p.get("name") or "Playlist", "owner": (p.get("owner") or {}).get("display_name") or "",
+                              "writable": bool(p.get("collaborative") or (profile_id and (p.get("owner") or {}).get("id") == profile_id))}
                              for p in page.get("items", []) if isinstance(p, dict) and isinstance(p.get("id"), str)
                              and re.fullmatch(r"[A-Za-z0-9]{22}", p["id"])]
                     return {"available": True, "backend": "connect", "items": items,
@@ -326,7 +364,22 @@ class Spotify:
                 cfg = read_config(self.path)
                 if cfg.get("refresh_token"):
                     action = body["action"]
-                    if action == "transfer":
+                    if action in {"save", "add_to_playlist"}:
+                        scopes = set(cfg.get("scope", "").split())
+                        required = {"user-library-modify"} if action == "save" else {"playlist-modify-public", "playlist-modify-private"}
+                        if not required <= scopes:
+                            raise SpotifyError("Connect Spotify again to allow House Control to save songs and edit playlists.", 403)
+                        try:
+                            if action == "save":
+                                await self._api("PUT", "/me/library", params={"uris": body["uri"]})
+                                self._saved_tracks[body["uri"]] = (True, time.monotonic() + 60)
+                            else:
+                                await self._api("POST", f"/playlists/{body['playlist']}/items", data={"uris": [body["uri"]]})
+                        except SpotifyError as error:
+                            if error.status == 403:
+                                raise SpotifyError("Spotify refused this save. Check this app’s library permissions and that you can edit the playlist.", 403) from error
+                            raise
+                    elif action == "transfer":
                         outputs = await self._api("GET", "/me/player/devices")
                         if not any(d.get("id") == body["device"] and not d.get("is_restricted") for d in outputs.get("devices", [])):
                             raise SpotifyError("That speaker is no longer available in Spotify.", 409)

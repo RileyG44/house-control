@@ -24,7 +24,7 @@ from aiohttp import web
 from spotify import TOKEN, read_config, save_config
 
 REDIRECT = "http://127.0.0.1:8767/callback"
-SCOPES = "user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative"
+SCOPES = "user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative user-library-read user-library-modify playlist-modify-public playlist-modify-private"
 
 
 async def pair(client_id: str, conf: Path, *, no_browser=False):
@@ -68,7 +68,7 @@ async def pair(client_id: str, conf: Path, *, no_browser=False):
                 tokens = await response.json()
         cfg = read_config(conf / "spotify.json")
         cfg.update(client_id=client_id, access_token=tokens["access_token"], refresh_token=tokens["refresh_token"],
-                   expires_at=time.time() + tokens.get("expires_in", 3600))
+                   expires_at=time.time() + tokens.get("expires_in", 3600), scope=tokens.get("scope", SCOPES))
         save_config(conf / "spotify.json", cfg)
         print("Spotify is connected. Open the speaker remote to choose your Echo or another Spotify Connect output.")
     finally:

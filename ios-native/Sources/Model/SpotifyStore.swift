@@ -11,6 +11,7 @@ struct SpotifyPlaylist: Identifiable {
     var uri: String
     var name: String
     var owner: String
+    var writable: Bool
 }
 
 struct SpotifyState {
@@ -18,6 +19,10 @@ struct SpotifyState {
     var playing = false
     var canOpen = false
     var canTransfer = false
+    var canSave = false
+    var canAddToPlaylist = false
+    var trackURI = ""
+    var saved = false
     var canSeek = false
     var volumeSupported = true
     var device = ""
@@ -36,6 +41,10 @@ struct SpotifyState {
         playing = json["playing"]?.bool ?? false
         canOpen = json["canOpen"]?.bool ?? false
         canTransfer = json["canTransfer"]?.bool ?? false
+        canSave = json["canSave"]?.bool ?? false
+        canAddToPlaylist = json["canAddToPlaylist"]?.bool ?? false
+        trackURI = json["track"]?["uri"]?.string ?? ""
+        saved = json["track"]?["saved"]?.bool ?? false
         canSeek = json["canSeek"]?.bool ?? false
         volumeSupported = json["volumeSupported"]?.bool ?? true
         device = json["device"]?.string ?? ""
@@ -62,6 +71,9 @@ final class SpotifyStore {
     private(set) var nextPlaylistOffset: Int?
     private(set) var loadingPlaylists = false
     private(set) var playlistError = ""
+    private(set) var saving = false
+    private(set) var saveMessage = ""
+    private(set) var saveMessageURI = ""
     @ObservationIgnored private var reading = false
     @ObservationIgnored private var tail: Task<Void, Never>?
     @ObservationIgnored private var pendingVolume: Double?
@@ -97,7 +109,7 @@ final class SpotifyStore {
             }
             let items = (json["items"]?.array ?? []).compactMap { item -> SpotifyPlaylist? in
                 guard let id = item["id"]?.string, let uri = item["uri"]?.string else { return nil }
-                return SpotifyPlaylist(id: id, uri: uri, name: item["name"]?.string ?? "Playlist", owner: item["owner"]?.string ?? "")
+                return SpotifyPlaylist(id: id, uri: uri, name: item["name"]?.string ?? "Playlist", owner: item["owner"]?.string ?? "", writable: item["writable"]?.bool ?? false)
             }
             if reset { playlists = items }
             else { playlists += items.filter { item in !playlists.contains { $0.id == item.id } } }
@@ -118,6 +130,24 @@ final class SpotifyStore {
             _ = try await hub.post("api/spotify", .object(fields.merging(["action": .string(action)]) { _, new in new }))
             await refresh()
         } catch { state.error = error.localizedDescription; Haptics.error() }
+    }
+
+    func saveSong(_ uri: String, playlist: String? = nil) {
+        guard !saving, !uri.isEmpty else { return }
+        saving = true; saveMessage = ""
+        let previous = tail
+        tail = Task {
+            await previous?.value
+            defer { saving = false }
+            var fields: [String: JSON] = ["uri": .string(uri), "action": .string(playlist == nil ? "save" : "add_to_playlist")]
+            if let playlist { fields["playlist"] = .string(playlist) }
+            do {
+                _ = try await hub.post("api/spotify", .object(fields))
+                saveMessageURI = uri
+                saveMessage = playlist == nil ? "Saved to Liked Songs." : "Added to playlist."
+                await refresh()
+            } catch { state.error = error.localizedDescription; Haptics.error() }
+        }
     }
 
     func setVolume(_ level: Double) {
