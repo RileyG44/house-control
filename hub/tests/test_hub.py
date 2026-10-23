@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 import aiohttp
+import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
@@ -24,6 +25,8 @@ import plan  # noqa: E402
 import wiz  # noqa: E402
 
 PORT = 38979  # fake lights listen here, so a real one on the network never answers a test
+needs_fake_lights = pytest.mark.skipif(
+    not fake_wiz.addresses_ready(), reason="the pretend WiZ lights need 127.0.0.2-4 (see fake_wiz.addresses_ready)")
 
 
 def run(coro):
@@ -48,6 +51,7 @@ def test_reading_and_pilot_params():
     assert wiz.capabilities_of("ESP06_SHDW9_01") == ["brightness"]
 
 
+@needs_fake_lights
 def test_discover_and_control_fake_lights():
     async def go():
         bulbs = await fake_wiz.serve(PORT)
@@ -671,6 +675,7 @@ def test_panel_origin_allows_tailscale_serve():
         "Origin": "https://evil.example", "X-Forwarded-Proto": "https", "X-Forwarded-Host": "evil.example"}))
 
 
+@needs_fake_lights
 def test_hub_serves_panel_and_sends_commands(tmp_path, monkeypatch):
     async def go():
         bulbs = await fake_wiz.serve(PORT)

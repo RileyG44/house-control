@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 import sys
 
 LIGHTS = [
@@ -49,6 +50,20 @@ class Bulb(asyncio.DatagramProtocol):
             self.transport.sendto(json.dumps({"method": method, "error": {"code": -32601, "message": "Method not found"}}).encode(), addr)
             return
         self.transport.sendto(json.dumps({"method": method, "env": "pro", "result": result}).encode(), addr)
+
+
+
+def addresses_ready() -> bool:
+    """Whether each pretend light's loopback address can be used. Linux answers on all of
+    127.0.0.0/8; macOS has only 127.0.0.1 until aliases are added
+    (`sudo ifconfig lo0 alias 127.0.0.2 up`, and .3 and .4)."""
+    for light in LIGHTS:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            try:
+                s.bind((light["ip"], 0))
+            except OSError:
+                return False
+    return True
 
 
 async def serve(port: int = 38899):
