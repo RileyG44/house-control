@@ -13,6 +13,16 @@ stays. The plan for it in this repo is [`docs/tv-launcher.md`](../docs/tv-launch
   the hub. Under that, peeking up from the bottom edge, your **Apps** with their real banners,
   then All apps, Search, pairing and Settings; further down, each app's Popular, Trending and New
   rows. Nothing explains why a title is there.
+- **Home presets:** the saved house modes sit below the greeting/weather/studio band. OK runs
+  the same light, heat-pump and optional TV-app actions as the iPhone or desktop. Create and edit
+  them on either app; the hub synchronizes their order and TV actions. Home initially focuses a
+  poster, so opening the launcher never triggers a routine.
+- **Weather:** the tile includes sunrise, sunset and today's maximum wind speed. OK opens the
+  full forecast, with conditions, high/low, rain chance, wind/gusts and the hourly forecast.
+  Select any of the ten days to see that day's details and hours; Back returns focus to the tile.
+  Times use the forecast location's timezone, including daylight-saving changes. Missing solar
+  or hourly values stay blank rather than becoming zero. Forecast data comes from
+  [Open-Meteo](https://open-meteo.com/en/docs); Refresh keeps the last good forecast on failure.
 - **The studio:** OK on the studio tile opens it full screen: the 3D studio with every light and
   the AC marked, the plan's scenes, the AC (OK on or off, ◀ ▶ temperature, mode and fan) and each
   light (OK on or off, ◀ ▶ brightness). It goes through House Control's hub (`/api/plan`,
@@ -35,6 +45,7 @@ On the Mac: JDK 17 (`/opt/homebrew/opt/openjdk@17`) and the Android SDK
 cd tv-launcher
 export JAVA_HOME=/opt/homebrew/opt/openjdk@17 ANDROID_HOME=~/Library/Android/sdk
 ./gradlew :app:assembleRelease      # app/build/outputs/apk/release/app-release.apk
+./gradlew :app:testDebugUnitTest    # forecast parsing/DST and plan-recovery checks; no device needed
 ```
 
 The release build is minified (R8) and signed with the debug key: Compose runs several times
@@ -72,6 +83,9 @@ press of Home away. If something goes wrong:
 - **The launcher misbehaves or its API stops answering.** The hub falls back to tv-remote on the
   Mac by itself. Restart the app with `adb shell am force-stop com.livingroom.tv` and open it from
   the app row, or remove it with `tools/tv-uninstall.sh`.
+- **A plan read fails:** the studio and preset row retry on event-stream heartbeats as well as
+  reconnects. Failed reads remain pending, with at least five seconds between attempts. A failed
+  reload keeps the previous usable plan until its replacement can be read.
 - **Arrows, typing or Now Playing stopped working** (`caps.keys` or `caps.media` is false in
   `/api/state`; a Google TV update can reset these). Run `tools/tv-install.sh --no-build` to grant
   them again.

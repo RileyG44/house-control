@@ -1,6 +1,7 @@
 package com.livingroom.tv.ui
 
 import android.text.format.DateFormat
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -30,6 +32,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.tv.material3.Border
+import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.livingroom.tv.Graph
 import kotlinx.coroutines.delay
@@ -79,52 +85,70 @@ fun HelloBlock(modifier: Modifier = Modifier) {
     }
 }
 
-/** Today at home: the temperature in thin numerals, the sky, high and low, and the day's curve. */
+/** Today's essentials; OK opens the full forecast without leaving the launcher. */
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun WeatherCard(modifier: Modifier = Modifier) {
+fun WeatherCard(modifier: Modifier = Modifier, onFocus: () -> Unit = {}, onClick: () -> Unit = {}) {
     val weather by Graph.weather.weather.collectAsState()
     val now = rememberNow()
+    val clock24 = DateFormat.is24HourFormat(LocalContext.current)
     val shape = RoundedCornerShape(CardRadius)
-    Box(modifier.glass(shape)) {
+    Surface(onClick = onClick, modifier = modifier.onFocusChanged { if (it.isFocused) onFocus() }.glass(shape),
+        shape = ClickableSurfaceDefaults.shape(shape),
+        colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = Color.White.copy(alpha = .06f)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.025f),
+        border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(1.dp, Color.White.copy(alpha = .85f)), shape = shape))) {
         val w = weather
-        Column(Modifier.padding(start = 18.dp, top = 16.dp, end = 16.dp)) {
+        Column(Modifier.padding(start = 18.dp, top = 14.dp, end = 16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(w?.place ?: "Weather", fontSize = 11.sp, color = Color.White.copy(alpha = .55f), maxLines = 1, modifier = Modifier.weight(1f))
-                if (w != null) WeatherIcon(w.code, w.isDay, Modifier.size(20.dp))
+                if (w != null) WeatherIcon(w.code, w.isDay, Modifier.size(18.dp))
             }
             if (w == null) {
-                Spacer(Modifier.height(30.dp))
-                Text("–", fontSize = 60.sp, fontWeight = FontWeight.ExtraLight, color = Color.White.copy(alpha = .5f))
+                Spacer(Modifier.height(24.dp))
+                Text("–", fontSize = 48.sp, fontWeight = FontWeight.ExtraLight, color = Color.White.copy(alpha = .5f))
+                Text("Open forecast", fontSize = 11.sp)
                 return@Column
             }
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(3.dp))
             Row(verticalAlignment = Alignment.Top) {
-                Text("${w.temp}", fontSize = 64.sp, lineHeight = 64.sp, fontWeight = FontWeight.ExtraLight, letterSpacing = (-2).sp, color = Color.White)
-                Text("°" + if (w.imperial) "F" else "C", fontSize = 13.sp, color = Color.White.copy(alpha = .6f), modifier = Modifier.padding(top = 8.dp, start = 2.dp))
+                Text("${w.temp}", fontSize = 48.sp, lineHeight = 48.sp, fontWeight = FontWeight.ExtraLight, letterSpacing = (-2).sp, color = Color.White)
+                Text("°" + if (w.imperial) "F" else "C", fontSize = 12.sp, color = Color.White.copy(alpha = .6f), modifier = Modifier.padding(top = 6.dp, start = 2.dp))
             }
-            Text(w.condition, fontSize = 12.sp, color = Color.White)
-            Text("High ${w.high}° · Low ${w.low}°", fontSize = 10.sp, color = Color.White.copy(alpha = .5f))
+            Text(w.condition, fontSize = 12.sp, lineHeight = 14.sp, color = Color.White)
+            Text("High ${w.high ?: "—"}° · Low ${w.low ?: "—"}°", fontSize = 10.sp, lineHeight = 13.sp, color = Color.White.copy(alpha = .6f))
+            Text("High wind ${w.windMax ?: "—"} ${w.windUnit}", fontSize = 10.sp, lineHeight = 13.sp, color = Color.White.copy(alpha = .7f))
+            Text("Sunrise ${forecastTime(w.sunrise, w.zone, clock24)}", fontSize = 10.sp, lineHeight = 13.sp, color = Color.White.copy(alpha = .7f))
+            Text("Sunset ${forecastTime(w.sunset, w.zone, clock24)}", fontSize = 10.sp, lineHeight = 13.sp, color = Color.White.copy(alpha = .7f))
         }
-        weather?.hourly?.takeIf { it.size >= 12 }?.let { temps ->
-            val hour = remember(now) { Calendar.getInstance().apply { time = now }.let { it.get(Calendar.HOUR_OF_DAY) + it.get(Calendar.MINUTE) / 60f } }
-            Sparkline(temps, hour, Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(36.dp).padding(start = 18.dp, end = 18.dp, bottom = 10.dp))
+        weather?.let { w ->
+            val hours = w.hours(w.today)
+            if (hours.size >= 2) {
+                val index = hours.indexOfLast { it.at <= now.time }.coerceAtLeast(0)
+                val cursor = index + (now.time - hours[index].at) / 3600_000f
+                Sparkline(hours.map { it.temp }, cursor, Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(24.dp).padding(start = 18.dp, end = 18.dp, bottom = 8.dp))
+            }
         }
     }
 }
 
 /** A thin line through the day's temperatures, a solid dot at now and a ring at the high. */
 @Composable
-private fun Sparkline(temps: List<Float>, hour: Float, modifier: Modifier) {
+private fun Sparkline(temps: List<Float?>, hour: Float, modifier: Modifier) {
     Canvas(modifier) {
-        val lo = temps.min()
-        val hi = temps.max()
+        val values = temps.filterNotNull()
+        if (values.isEmpty()) return@Canvas
+        val lo = values.min()
+        val hi = values.max()
         val span = (hi - lo).coerceAtLeast(1f)
         fun at(i: Float, t: Float) = Offset(size.width * i / (temps.size - 1), size.height - 3.dp.toPx() - (t - lo) / span * (size.height - 8.dp.toPx()))
         val path = Path()
         temps.forEachIndexed { i, t ->
+            if (t == null) return@forEachIndexed
             val p = at(i.toFloat(), t)
-            if (i == 0) path.moveTo(p.x, p.y) else {
-                val q = at(i - 1f, temps[i - 1])
+            val previous = temps.getOrNull(i - 1)
+            if (previous == null) path.moveTo(p.x, p.y) else {
+                val q = at(i - 1f, previous)
                 val mx = (q.x + p.x) / 2
                 path.cubicTo(mx, q.y, mx, p.y, p.x, p.y)
             }
@@ -133,8 +157,9 @@ private fun Sparkline(temps: List<Float>, hour: Float, modifier: Modifier) {
         val hiAt = temps.indexOf(hi)
         drawCircle(Color.White, 2.6.dp.toPx(), at(hiAt.toFloat(), hi), style = Stroke(1.2.dp.toPx()))
         val i = hour.coerceIn(0f, temps.size - 1f)
-        val t = temps[i.toInt()] + (temps[minOf(i.toInt() + 1, temps.size - 1)] - temps[i.toInt()]) * (i - i.toInt())
-        drawCircle(Color.White, 3.6.dp.toPx(), at(i, t))
+        val left = temps[i.toInt()]
+        val right = temps[minOf(i.toInt() + 1, temps.size - 1)]
+        if (left != null && right != null) drawCircle(Color.White, 3.6.dp.toPx(), at(i, left + (right - left) * (i - i.toInt())))
     }
 }
 
