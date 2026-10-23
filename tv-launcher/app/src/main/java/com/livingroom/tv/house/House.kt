@@ -51,6 +51,8 @@ data class Scene(
     val lights: Map<String, JSONObject>,
     val acs: Map<String, JSONObject>,
     val tvs: Map<String, JSONObject> = emptyMap(),
+    /** A playlist it starts: {uri, name, device?, deviceName?}, or null. */
+    val spotify: JSONObject? = null,
 )
 
 data class LightState(val on: Boolean, val brightness: Float, val temp: Int?, val color: String?)
@@ -287,6 +289,17 @@ class HouseRepository(private val prefs: Prefs) {
                 }.onFailure { _errors.tryEmit("The TV app could not be opened.") }
             }
         }
+        // The speaker by its id, or by its name if Spotify has given it a new one (the hub looks).
+        scene.spotify?.let { music ->
+            val body = JSONObject().put("action", "play").put("uri", music.optString("uri"))
+            music.optString("device").takeIf { it.isNotBlank() }?.let { body.put("device", it) }
+            music.optString("deviceName").takeIf { it.isNotBlank() }?.let { body.put("deviceName", it) }
+            scope.launch(Dispatchers.IO) {
+                runCatching {
+                    JSONObject(post("/api/spotify", body)).optString("error").takeIf { it.isNotBlank() }?.let { _errors.tryEmit(it) }
+                }.onFailure { _errors.tryEmit("Spotify could not start the playlist.") }
+            }
+        }
     }
 
     private fun sanitize(light: HouseLight, p: JSONObject): JSONObject {
@@ -461,6 +474,7 @@ class HouseRepository(private val prefs: Prefs) {
                     lights = s.optJSONObject("lights").children(),
                     acs = s.optJSONObject("acs").children(),
                     tvs = s.optJSONObject("tvs").children(),
+                    spotify = s.optJSONObject("spotify")?.takeIf { it.optString("uri").startsWith("spotify:playlist:") },
                 )
             }
             return House(plan.optString("name", "Home"), lights, acs, scenes, rooms)

@@ -368,6 +368,13 @@ final class HomeStore {
             guard let app = action["app"]?.string, !app.isEmpty else { continue }
             Task { await tv.act(deviceID, ["action": .string("open"), "app": .string(app), "name": action["name"] ?? .string(app)]) }
         }
+        // The speaker by its id, or by its name if Spotify has given it a new one (the hub looks).
+        if let music = s.spotify, let uri = music["uri"]?.string {
+            var fields: [String: JSON] = ["uri": .string(uri)]
+            if let device = music["device"]?.string, !device.isEmpty { fields["device"] = .string(device) }
+            if let name = music["deviceName"]?.string, !name.isEmpty { fields["deviceName"] = .string(name) }
+            spotify.perform("play", fields: fields)
+        }
         scene = id
     }
 
@@ -401,7 +408,7 @@ final class HomeStore {
     /// Saves a new scene (`id` nil) or changes one; `capture`: take what the lamps (and the AC,
     /// with `includeAC`) do now, otherwise keep what the scene already sets.
     @discardableResult
-    func saveScene(id: String?, name: String, icon: String, capture: Bool, includeAC: Bool, tvs: [String: JSON] = [:]) -> String {
+    func saveScene(id: String?, name: String, icon: String, capture: Bool, includeAC: Bool, tvs: [String: JSON] = [:], spotify music: JSON? = nil) -> String {
         var list = plan.scenesJSON
         let index = id.flatMap { i in list.firstIndex { $0["id"]?.string == i } }
         var entry: [String: JSON] = index.flatMap { list[$0].object } ?? [:]
@@ -410,6 +417,7 @@ final class HomeStore {
         entry["name"] = .string(name.isEmpty ? "Scene" : name)
         entry["icon"] = .string(icon)
         entry["tvs"] = tvs.isEmpty ? nil : .object(tvs)
+        entry["spotify"] = music
         if capture || index == nil {
             entry["lights"] = captureLights()
             entry["acs"] = includeAC && !plan.acs.isEmpty ? captureACs() : nil

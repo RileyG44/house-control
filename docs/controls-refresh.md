@@ -23,6 +23,12 @@ the paired TV launcher directly on Wi-Fi; app launches still use the hub’s che
   editing/deletion, and Alt+Left/Right moves a preset. Saved order and deletions survive reload.
 - A preset’s optional `tvs` map is `{ "<TV id>": {"app": "netflix", "name": "Netflix"} }`.
   The native phone, shared web UI and TV launcher run it along with the light and AC rules.
+- A preset’s optional `spotify` is `{"uri": "spotify:playlist:…", "name": "…", "device": "<id>",
+  "deviceName": "Riley's Echo"}`; every client starts it with `POST /api/spotify {action: "play"}`.
+  The hub plays on the saved id while Spotify lists it, else on the output with that name, and
+  says so when the speaker isn't available. The phone and web editors list the account's playlists.
+- AiDot bulbs report white or colour in their status (a full report carries `CCT` in white and
+  `RGBW` in colour), and the hub keeps that, so a preset made on either hub records colour lamps.
 - The furniture library and bundled studio include a speaker. The live saved studio can
   be upgraded with the idempotent script in [Spotify setup](spotify.md). The existing plan
   and device links are preserved. The speaker’s remote supports Spotify Connect and a

@@ -1,5 +1,6 @@
 import { post, call, controlsDevices } from './bridge.js';
 import { tv } from './tv/client.js';
+import { spotify } from './media/spotify.js';
 
 const STORAGE_KEY = 'house-control:state:v1';
 
@@ -221,6 +222,9 @@ export function createStore(config) {
       for (const [id, action] of Object.entries(scene.tvs || {})) {
         if (typeof action?.app === 'string' && action.app) tv.act(id, { action: 'open', app: action.app, name: action.name || action.app });
       }
+      // The speaker by its id, or by its name if Spotify has given it a new one (the hub looks).
+      const music = scene.spotify;
+      if (music?.uri) spotify.act({ action: 'play', uri: music.uri, ...(music.device ? { device: music.device } : {}), ...(music.deviceName ? { deviceName: music.deviceName } : {}) });
       state.scene = sceneId;
       emit({ type: 'bulk', scene: sceneId });
     },

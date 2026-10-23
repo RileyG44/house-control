@@ -229,3 +229,25 @@ test('Spotify output stays full height while playing and the song can be saved t
       { route: 'spotify', action: 'add_to_playlist', uri: 'spotify:track:7a3LWj5xSFhFRYmztS8wgK', playlist: '37i9dQZF1DXcBWIGoYBM5M' }]);
   await expect(page.getByText('Added to playlist.', { exact: true })).toBeVisible();
 });
+
+test('a preset can start a Spotify playlist on a chosen speaker, kept through reload', async ({ page, request }) => {
+  await page.locator('.scene[data-key="movie"]').click({ button: 'right' });
+  await page.getByText('Edit', { exact: true }).click();
+  const playlist = page.getByLabel('Spotify playlist', { exact: true });
+  await expect(playlist.locator('option', { hasText: 'Morning mix' })).toHaveCount(1); // the second page is read too
+  await playlist.selectOption({ label: 'Evening mix' });
+  await page.getByLabel('Spotify speaker', { exact: true }).selectOption({ label: 'Studio Echo' });
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(async () => (await data(request)).plan.scenes.find((s) => s.id === 'movie')?.spotify).toEqual(
+    { uri: 'spotify:playlist:37i9dQZF1DXcBWIGoYBM5M', name: 'Evening mix', device: 'echo', deviceName: 'Studio Echo' });
+  await page.locator('.scene[data-key="movie"]').click();
+  await expect.poll(async () => (await data(request)).sent.some((s) => s.route === 'spotify' && s.action === 'play'
+    && s.uri === 'spotify:playlist:37i9dQZF1DXcBWIGoYBM5M' && s.device === 'echo' && s.deviceName === 'Studio Echo')).toBe(true);
+  await page.reload();
+  await page.locator('.scene[data-key="movie"]').click({ button: 'right' });
+  await page.getByText('Edit', { exact: true }).click();
+  await expect(page.getByLabel('Spotify playlist', { exact: true })).toHaveValue('spotify:playlist:37i9dQZF1DXcBWIGoYBM5M');
+  await page.getByLabel('Spotify playlist', { exact: true }).selectOption({ label: 'No music' });
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(async () => 'spotify' in ((await data(request)).plan.scenes.find((s) => s.id === 'movie') || {})).toBe(false);
+});

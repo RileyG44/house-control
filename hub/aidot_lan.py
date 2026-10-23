@@ -18,9 +18,10 @@ The panel's patch vocabulary (on, brightness 0..1, temp in kelvin, colour as
 Credentials live in ~/.house-hub/aidot.json (0600): {"email", "password",
 "country_code"}. The password is only ever sent, RSA-encrypted by the library,
 to AiDot's sign-in endpoint; the day-to-day control is local. Changing a light
-from the AiDot app is picked up from the bulb's own status reports, except for
-white-vs-colour mode, which the bulb does not report: the hub remembers the
-mode of the last change it sent.
+from the AiDot app is picked up from the bulb's own status reports. White or
+colour is too: a bulb's full report names only the one it is in (CCT when white,
+RGBW in colour), so the hub keeps the last one a report named, and the mode of a
+change it sent itself.
 """
 from __future__ import annotations
 
@@ -37,9 +38,9 @@ log = logging.getLogger("house.aidot")
 
 try:  # The hub still runs (and its WiZ/MRCOOL tests still pass) without it.
     from aidot.client import AidotClient as _AidotClient
-    from aidot.device_client import DeviceClient as _DeviceClient
+    from aidot.device_client import DeviceClient as _DeviceClient, DeviceStatusData as _DeviceStatus
 except Exception:  # ImportError, or a broken install
-    _AidotClient = _DeviceClient = None
+    _AidotClient = _DeviceClient = _DeviceStatus = None
 
 
 class AidotError(Exception):
@@ -111,10 +112,22 @@ def _spaced_connect(connect):
     return spaced
 
 
+def _reported_mode(update):
+    """Notes white or colour from each report: a bulb's full report has CCT or RGBW, not both.
+    A report with both (or neither) leaves the mode as it was."""
+    def update_noting_mode(self, attr, *args, **kwargs):
+        result = update(self, attr, *args, **kwargs)
+        rgbw, cct = getattr(attr, "RGBW", None), getattr(attr, "CCT", None)
+        if (rgbw is None) != (cct is None):
+            self.house_mode = "color" if rgbw is not None else "white"
+        return result
+    return update_noting_mode
+
+
 def _guard(cls, name: str, wrap) -> None:
     original = getattr(cls, name, None)
     if original is None:
-        log.warning("python-aidot's DeviceClient has no %s; its connection guard is off", name)
+        log.warning("python-aidot's %s has no %s; its guard is off", cls.__name__, name)
         return
     if getattr(original, "house_guarded", False):
         return
@@ -126,6 +139,8 @@ def _guard(cls, name: str, wrap) -> None:
 if _DeviceClient is not None:
     _guard(_DeviceClient, "receive_data", _guarded_receive)
     _guard(_DeviceClient, "connect", _spaced_connect)
+if _DeviceStatus is not None:
+    _guard(_DeviceStatus, "update", _reported_mode)
 
 
 class QuietRepeats(logging.Filter):
@@ -229,7 +244,7 @@ class AidotLanClient:
         self.devices: dict[str, dict] = {}   # key -> the device as AiDot described it
         self.clients: dict[str, object] = {}  # key -> its DeviceClient (LAN connection)
         self.state: dict[str, dict] = {}      # key -> last panel reading
-        self.modes: dict[str, str] = {}       # key -> "white" | "color" (see module note)
+        self.modes: dict[str, str] = {}       # key -> "white" | "color", from the hub's own changes
         self.ips: dict[str, str] = {}         # key -> last known address
         self._signing_in = asyncio.Lock()      # one sign-in at a time (see connect)
 
@@ -348,7 +363,8 @@ class AidotLanClient:
         client = self.clients.get(key)
         if client is None or not getattr(client.status, "online", False):
             raise AidotError(f"The AiDot light {key} is not connected on the local network")
-        reading = panel_reading(_status_of(client), self.modes.get(key, "white"))
+        mode = getattr(client.status, "house_mode", None) or self.modes.get(key, "white")
+        reading = panel_reading(_status_of(client), mode)
         self.state[key] = reading
         return reading
 
@@ -370,10 +386,10 @@ class AidotLanClient:
                 raise
             except Exception as e:
                 raise AidotError(str(e) or e.__class__.__name__) from e
-            if name == "cct":
-                self.modes[key] = "white"
-            elif name == "rgbw":
-                self.modes[key] = "color"
+            if name in ("cct", "rgbw"):
+                self.modes[key] = "white" if name == "cct" else "color"
+                if getattr(client, "status", None) is not None:
+                    client.status.house_mode = self.modes[key]
         self.state.setdefault(key, dict(state))
         self.state[key].update(
             {k: v for k, v in patch.items() if k in ("on", "brightness", "temp", "color")})

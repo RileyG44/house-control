@@ -155,6 +155,7 @@ object Glyphs {
     val Plus = stroke("plus", 1.8f, "M6 12h12", "M12 6v12")
     val Sparkle = stroke("sparkle", 1.6f, "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z", "M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z")
     val Play = fill("play", "M8 5.5v13l10.5-6.5z")
+    val Note = stroke("note", 1.8f, "M9 17.5V6l10-2v11.5", "M9 17.5a2.5 2.5 0 1 1-5 0a2.5 2.5 0 1 1 5 0z", "M19 15.5a2.5 2.5 0 1 1-5 0a2.5 2.5 0 1 1 5 0z")
     val Arrow = stroke("arrow", 1.8f, "M7 17L17 7", "M8 7h9v9")
 }
 

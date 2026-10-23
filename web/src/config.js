@@ -61,12 +61,23 @@ function need(cond, msg) {
 /**
  * A plan's scenes as the panel uses them. Built in or made on a screen ("custom-<name>-<hex>"),
  * each is { id, name, icon, lights: { "<lamp id>" | "*": patch }, acs: { "<AC id>" | "*": patch } };
- * `acs` is left out of the plan when a scene sets no AC. One without an id is dropped.
+ * `acs` is left out of the plan when a scene sets no AC. One without an id is dropped. `tvs` opens an
+ * app on a TV; `spotify` ({ uri, name, device, deviceName }) starts a playlist on a Spotify speaker.
  */
 export function normalizeScenes(list) {
   return list.filter((s) => typeof s?.id === 'string' && s.id).map((s) => ({
     id: s.id, name: s.name || s.id, icon: s.icon || 'sun', lights: s.lights || {}, acs: s.acs || {}, tvs: s.tvs || {},
+    spotify: sceneSpotify(s.spotify),
   }));
+}
+
+/** A scene's playlist, or null: a Spotify playlist URI, and optionally the speaker it plays on. */
+export function sceneSpotify(raw) {
+  if (!raw || typeof raw.uri !== 'string' || !/^spotify:playlist:[A-Za-z0-9]{22}$/.test(raw.uri)) return null;
+  const out = { uri: raw.uri, name: typeof raw.name === 'string' && raw.name ? raw.name : 'Playlist' };
+  if (typeof raw.device === 'string' && raw.device) out.device = raw.device;
+  if (typeof raw.deviceName === 'string' && raw.deviceName) out.deviceName = raw.deviceName;
+  return out;
 }
 
 const isPoint = (p) => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite);

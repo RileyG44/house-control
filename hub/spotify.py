@@ -85,6 +85,11 @@ def validate_action(body) -> dict:
         if not isinstance(device, str) or not device or len(device) > 256:
             raise SpotifyError("Choose a Spotify output", 400)
         out["device"] = device
+    if action == "play" and "deviceName" in body:
+        name = body["deviceName"]
+        if not isinstance(name, str) or not name.strip() or len(name) > 256:
+            raise SpotifyError("Choose a Spotify output", 400)
+        out["deviceName"] = name.strip()
     return out
 
 
@@ -299,6 +304,20 @@ class Spotify:
             self._bridge_retry_at = time.monotonic() + 30
         return unavailable("Spotify is not connected. Open it on the Mac, or connect your account.", canOpen=False), 200
 
+    async def _output_named(self, device: str | None, name: str) -> str:
+        """The output a preset saved: its id while Spotify still lists it, else the one with its
+        name (an Echo can come back with a new id). Spotify must list it to play there."""
+        outputs = [d for d in (await self._api("GET", "/me/player/devices")).get("devices", [])
+                   if isinstance(d, dict) and isinstance(d.get("id"), str) and not d.get("is_restricted")]
+        for d in outputs:
+            if d["id"] == device:
+                return device
+        for d in outputs:
+            if str(d.get("name", "")).strip().casefold() == name.casefold():
+                return d["id"]
+        raise SpotifyError(f"{name} isn't available in Spotify right now. Open Spotify on it (or ask Alexa "
+                           "to play Spotify), then try again.", 409)
+
     async def playlists(self, *, local_only=False, offset=0):
         if not isinstance(offset, int) or not 0 <= offset <= 100000:
             return {"error": "Send a playlist offset between 0 and 100000."}, 400
@@ -385,6 +404,8 @@ class Spotify:
                             raise SpotifyError("That speaker is no longer available in Spotify.", 409)
                         await self._api("PUT", "/me/player", data={"device_ids": [body["device"]]})
                     elif action in {"play", "pause"}:
+                        if "deviceName" in body:
+                            body["device"] = await self._output_named(body.get("device"), body["deviceName"])
                         await self._api("PUT", "/me/player/" + action,
                                         data={"context_uri": body["uri"]} if "uri" in body else None,
                                         params={"device_id": body["device"]} if "device" in body else None)

@@ -98,12 +98,19 @@ private fun PresetPill(scene: Scene, active: Boolean, modifier: Modifier, onFocu
             Glyph(sceneIcon(scene.icon), LocalContentColor.current, Modifier.size(17.dp))
             Spacer(Modifier.width(9.dp))
             Text(scene.name, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 180.dp))
+            val faint = LocalContentColor.current.copy(alpha = if (focused) .6f else .5f)
             if (app != null) {
-                val faint = LocalContentColor.current.copy(alpha = if (focused) .6f else .5f)
                 Spacer(Modifier.width(10.dp))
                 Glyph(Glyphs.Play, faint, Modifier.size(9.dp))
                 Spacer(Modifier.width(4.dp))
                 Text(app, fontSize = 11.sp, color = faint, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 110.dp))
+            }
+            val playlist = scene.spotify?.optString("name")?.ifBlank { null }
+            if (playlist != null) {
+                Spacer(Modifier.width(10.dp))
+                Glyph(Glyphs.Note, faint, Modifier.size(11.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(playlist, fontSize = 11.sp, color = faint, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 110.dp))
             }
         }
     }
