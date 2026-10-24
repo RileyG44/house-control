@@ -122,8 +122,17 @@ to build the day's recommendations at about 3 AM.
   includes it in the subscription, in the app Codex named when it has it. They are written as
   ordinary tiles to `~/.house-hub/smart-recs.json` with `generatedAt`; a failed night keeps the
   previous file and exits non-zero, which the journal shows.
+- **New every morning.** The file also keeps `recent`, the last ~100 titles suggested (about four
+  nights). The next night tells Codex those, and the evening's films on Home, and asks for others;
+  a title it repeats anyway goes after the new ones, and only when fewer than 12 are new.
+- **On the TV at once.** After writing, the job asks the running hub (`POST /api/tv/catalog/refresh`)
+  to have the launcher read its rows again: the hub sends the launcher its own catalog address
+  (`/api/settings {"hub"}`, as at pairing), which makes it read now. Otherwise the TV reads every
+  three hours, or when Home comes back after an hour away, so a TV left on Home overnight kept
+  the rows it read before 03:00.
 - **Serving them.** For you is Continue, then the shows in Continue as themselves (found the same
-  way, so OK opens the show), then the nightly picks, then the rest as before. No `reason` field
-  exists anywhere.
+  way, so OK opens the show), then tonight's films (from the 16:30 run, until the night's picks
+  replace them, at most 12 hours), then the nightly picks, then the rest as before. No `reason`
+  field exists anywhere.
 - Tests: `hub/tests/test_history.py`, `hub/tests/test_smart_recs.py` (a pretend Codex and
   JustWatch), and `test_the_nightly_picks_follow_what_is_being_watched` in `test_catalog.py`.

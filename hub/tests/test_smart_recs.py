@@ -144,6 +144,7 @@ def test_a_bad_night_keeps_the_last_picks(tmp_path, monkeypatch):
     async def go():
         server, _ = await fake_justwatch(monkeypatch)
         monkeypatch.setattr(smart_recs, "tv_apps", lambda hub: APPS)
+        monkeypatch.setattr(smart_recs, "tell_tv", lambda hub: False)
         history.WatchLog(tmp_path).add([{"pkg": "com.netflix.ninja", "title": "Chapter Seven: The Bathtub",
                                          "subtitle": "Stranger Things · S1 E7", "at": NOW}])
         try:
@@ -182,3 +183,78 @@ def test_the_evening_asks_for_films_in_riley_s_taste_without_repeats(tmp_path):
     assert "Loves The Goonies" in text and "- The Sandlot" in text and "feature films (no series)" in text
     assert "Friday October 23" in text and "Ice in the Cascades" in text
     assert smart_recs.taste(tmp_path / "nowhere") == "" and smart_recs.about("") == ""
+
+
+def test_the_night_asks_for_titles_it_hasn_t_suggested_lately_and_tells_the_tv(tmp_path, monkeypatch):
+    async def go():
+        server, _ = await fake_justwatch(monkeypatch)
+        told = []
+        monkeypatch.setattr(smart_recs, "tv_apps", lambda hub: APPS)
+        monkeypatch.setattr(smart_recs, "tell_tv", told.append)
+        history.WatchLog(tmp_path).add([{"pkg": "com.netflix.ninja", "title": "Chapter Seven: The Bathtub",
+                                         "subtitle": "Stranger Things · S1 E7", "at": NOW}])
+        # Last night's file, from before nights were remembered: its picks are what was shown.
+        (tmp_path / catalog.SMART_FILE).write_text(json.dumps({"picks": [
+            {"id": "ts300000", "title": "The Bear", "pkg": "com.hulu.livingroomplus"}]}))
+        (tmp_path / catalog.EVENING_FILE).write_text(json.dumps({"picks": [
+            {"id": "tm1", "title": "National Treasure", "pkg": "com.hulu.livingroomplus"}], "recent": ["National Treasure"]}))
+        try:
+            codex = fake_codex(tmp_path, json.dumps(ANSWER))
+            tiles = await smart_recs.run(tmp_path, "http://hub", str(codex), dry_run=False)
+            asked = json.loads((tmp_path / "args.json").read_text())["stdin"]
+            lately = asked.split("Already suggested on recent days", 1)[1].split("Suggest ", 1)[0]
+            assert "- The Bear" in lately and "- National Treasure" in lately
+            # Codex named The Bear again: with too few new titles it stays, after the new one.
+            assert [t["id"] for t in tiles] == ["tm1065711", "ts300000"]
+            kept = json.loads((tmp_path / catalog.SMART_FILE).read_text())
+            assert kept["recent"] == [t["title"] for t in tiles]
+            assert told == ["http://hub"]
+            # With enough new titles, a repeat is left out altogether.
+            monkeypatch.setattr(smart_recs, "MIN_NEW", 1)
+            (tmp_path / catalog.SMART_FILE).write_text(json.dumps({"picks": [], "recent": ["The Bear"]}))
+            tiles = await smart_recs.run(tmp_path, "http://hub", str(codex), dry_run=False)
+            assert [t["id"] for t in tiles] == ["tm1065711"]
+            assert json.loads((tmp_path / catalog.SMART_FILE).read_text())["recent"][:2] == [tiles[0]["title"], "The Bear"]
+        finally:
+            await server.close()
+    asyncio.run(go())
+
+
+def test_the_hub_is_asked_to_show_the_new_picks_on_the_tv(monkeypatch):
+    async def go():
+        answers = [{"ok": True}, {"ok": False, "error": "This hub isn't paired with the TV's launcher"}]
+        asked = []
+
+        async def refresh(request):
+            asked.append(request.path)
+            return web.json_response(answers[len(asked) - 1])
+
+        app = web.Application()
+        app.router.add_post("/api/tv/catalog/refresh", refresh)
+        server = TestServer(app)
+        await server.start_server()
+        try:
+            hub = str(server.make_url("/"))
+            assert await asyncio.to_thread(smart_recs.tell_tv, hub) is True
+            assert await asyncio.to_thread(smart_recs.tell_tv, hub) is False
+        finally:
+            await server.close()
+        assert asked == ["/api/tv/catalog/refresh"] * 2
+        assert await asyncio.to_thread(smart_recs.tell_tv, "http://127.0.0.1:9") is False  # no hub there
+    asyncio.run(go())
+
+
+def test_tonights_films_give_way_to_the_night_s_picks(tmp_path):
+    import os
+    cat = catalog.Catalog(tmp_path, apps=lambda: ["Hulu"])
+    film = {"id": "tm100000", "title": "National Treasure", "pkg": "com.hulu.livingroomplus", "kind": "movie"}
+    pick = {"id": "tm200000", "title": "Palm Springs", "pkg": "com.hulu.livingroomplus", "kind": "movie"}
+    evening, night = tmp_path / catalog.EVENING_FILE, tmp_path / catalog.SMART_FILE
+    evening.write_text(json.dumps({"picks": [film]}))
+    night.write_text(json.dumps({"picks": [pick]}))
+    made = time.time() - 4 * 3600   # 16:30
+    os.utime(night, (made - 13 * 3600, made - 13 * 3600))  # last night's 03:00
+    os.utime(evening, (made, made))
+    assert [t["id"] for t in cat.evening_picks(now=made + 3600)] == ["tm100000"]
+    os.utime(night, (made + 10.5 * 3600, made + 10.5 * 3600))  # this morning's 03:00
+    assert cat.evening_picks(now=made + 11 * 3600) == []

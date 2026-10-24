@@ -528,3 +528,22 @@ def test_long_poll_client(tmp_path):
                 pass
         await lr.close()
     run(go())
+
+
+def test_the_hub_has_the_tv_read_its_rows_again_for_new_picks(tmp_path, monkeypatch):
+    async def go():
+        fake, lr, server, state, sent, hub, client = await hub_with_launcher(tmp_path, monkeypatch)
+        hub.http = aiohttp.ClientSession()
+        try:
+            r = await (await client.post("/api/tv/catalog/refresh")).json()
+            assert r == {"ok": True}
+            assert fake.settings == [{"hub": f"http://{house.local_ip()}:{house.PORT}"}]
+            (tmp_path / "tv.json").write_text("{}")  # no launcher paired
+            assert (await (await client.post("/api/tv/catalog/refresh")).json())["ok"] is False
+            assert len(fake.settings) == 1
+        finally:
+            await hub.http.close()
+            await client.close()
+            await lr.close()
+            await server.close()
+    asyncio.run(go())
