@@ -46,6 +46,7 @@ cd tv-launcher
 export JAVA_HOME=/opt/homebrew/opt/openjdk@17 ANDROID_HOME=~/Library/Android/sdk
 ./gradlew :app:assembleRelease      # app/build/outputs/apk/release/app-release.apk
 ./gradlew :app:testDebugUnitTest    # forecast parsing/DST and plan-recovery checks; no device needed
+python3 -m unittest discover -s tools/tests -v  # Home takeover, rollback and target-device guards (fake ADB)
 ```
 
 The release build is minified (R8) and signed with the debug key: Compose runs several times
@@ -57,9 +58,13 @@ The TV must be paired with the Mac for wireless ADB first (Settings → System �
 Wireless debugging), and `adb devices` must list it.
 
 ```sh
-tv-launcher/tools/tv-install.sh               # build, install, grant Now Playing + remote input over ADB
+export ANDROID_SERIAL=<the-TV-serial-or-address-from-adb-devices>
+tv-launcher/tools/tv-install.sh               # build, install, grant remote access and select Living Room as Home
 tv-launcher/tools/tv-install.sh --no-build    # install the APK that is already built
-tv-launcher/tools/tv-uninstall.sh             # remove it and put the TV's settings back
+tv-launcher/tools/tv-install.sh --keep-stock-home  # optional regular-app test install
+python3 tv-launcher/tools/tv-home.py status   # inspect the current Home and Google package states
+python3 tv-launcher/tools/tv-home.py restore  # restore the recorded stock Home without removing Living Room
+tv-launcher/tools/tv-uninstall.sh             # restore stock Home first, then remove Living Room
 tv-launcher/tools/tv-wallpaper.sh photo.jpg   # stores a wallpaper (JPEG, PNG or HEIC); the redesigned Home shows its own field instead
 ```
 
@@ -72,13 +77,28 @@ Pair the hub once: `python hub/house.py --pair-tv <tv address>`. The TV shows a 
 in its top corner; type it in, and the hub saves the launcher's address and token in
 `~/.house-hub/tv.json`. Each hub (the Dell and the Mac) pairs on its own.
 
-This runs as a normal app. The physical remote's Home button still opens Google TV; making it
-open Living Room is phase 4 of the plan and needs its own go-ahead.
+Living Room is a real Android Home handler (`MAIN` + `HOME` + `DEFAULT`) as well as a TV app.
+The installer selects it as Home, then disables Google TV Home (`launcherx`) and its competing
+SetupWraith fallback for user 0. Both packages stay installed. The physical Home button and
+startup now use Living Room; pressing Home also closes overlays and returns to the top row.
+Back at Home keeps the launcher open. Once takeover is configured, later installs verify it
+without switching away from the app currently on screen. `--keep-stock-home` skips takeover.
+
+Home takeover is specific to the tested Chromecast 4K (`sabrina`) after Android setup completes.
+The script records the hardware serial, resolved stock Home and exact Google enabled states in
+`tools/.tv-state/home.json` before any changes, and restores them if takeover fails. Always set
+`ANDROID_SERIAL`; the tools refuse to choose an arbitrary attached Android device.
 
 ## Recovery
 
-Nothing here replaces Home or disables any Google package, so the stock launcher is always one
-press of Home away. If something goes wrong:
+If something goes wrong, keep the authorized ADB connection available. Restore stock Home with
+`ANDROID_SERIAL=<TV> python3 tools/tv-home.py restore`. This re-enables the stock packages first,
+selects the recorded Home component, restores their original enabled states and presses Home.
+The recovery file is bound to the TV's hardware serial and cannot be applied to another device.
+If the Mac no longer sees wireless ADB, read the current IP/port from the TV's Wireless debugging
+page, reconnect with `adb connect <address>:<port>`, and set `ANDROID_SERIAL` to that address.
+
+Recovery steps:
 
 - **The launcher misbehaves or its API stops answering.** The hub falls back to tv-remote on the
   Mac by itself. Restart the app with `adb shell am force-stop com.livingroom.tv` and open it from
@@ -89,10 +109,10 @@ press of Home away. If something goes wrong:
 - **Arrows, typing or Now Playing stopped working** (`caps.keys` or `caps.media` is false in
   `/api/state`; a Google TV update can reset these). Run `tools/tv-install.sh --no-build` to grant
   them again.
-- **Remove everything:** `tools/tv-uninstall.sh` takes the listener access away, restores the
-  saved accessibility settings and uninstalls the app.
-- **No ADB:** uninstall Living Room from Settings → Apps on the TV. A factory reset is the last
-  resort, and it erases the TV.
+- **Remove everything:** `tools/tv-uninstall.sh` restores stock Home first, then takes listener access away,
+  restores saved accessibility settings and uninstalls the app. A failed Home restore stops removal.
+- **No ADB:** reconnect authorized wireless debugging first. Keep Living Room installed while it is the only
+  enabled Home. Do not factory-reset the TV to solve a default-launcher selection problem.
 
 ## The API
 

@@ -57,6 +57,7 @@ object Commands {
         runCatching {
             context.startActivity(
                 Intent(context, MainActivity::class.java)
+                    .setAction(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
             )
         }.isSuccess
