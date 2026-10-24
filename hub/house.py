@@ -712,6 +712,19 @@ def make_app(hub: Hub) -> web.Application:
     async def devices(_):
         return web.json_response(hub.devices())
 
+    async def tv_catalog_refresh(_):
+        # New picks (smart_recs.py): the TV's launcher reads its rows again now, from this hub,
+        # instead of on its next three-hourly read. Its catalog address is this hub's house Wi-Fi
+        # address, as at pairing; sending it is what makes the launcher read again.
+        launcher = launchers.from_conf(hub.conf)
+        if launcher is None or hub.http is None:
+            return web.json_response({"ok": False, "error": "This hub isn't paired with the TV's launcher"})
+        try:
+            ok = await launcher.settings(hub.http, {"hub": f"http://{local_ip()}:{PORT}"})
+        except launchers.LauncherError as e:
+            return web.json_response({"ok": False, "error": f"The TV didn't answer: {e}"})
+        return web.json_response({"ok": ok})
+
     # ---------- Spotify and the TV ----------
 
     async def spotify_state(request):
@@ -892,6 +905,7 @@ def make_app(hub: Hub) -> web.Application:
     app.router.add_get("/api/tv/banner/{pkg}", tv_picture)
     app.router.add_get("/api/tv/art/h/{hid}", tv_history_picture)
     app.router.add_get("/api/tv/catalog", tv_catalog)
+    app.router.add_post("/api/tv/catalog/refresh", tv_catalog_refresh)
     app.router.add_get("/api/tv/catalog/{app}", tv_catalog_more)
     app.router.add_get("/api/tv/title/{jw}", tv_title)
     app.router.add_get("/api/tv/img/{kind}/{num}/{slug}", tv_catalog_picture)

@@ -15,8 +15,11 @@ old). Both tell Codex what ~/.house-hub/taste.md says about Riley, when it is th
 3. Each is looked up on JustWatch (catalog.Catalog.find) and kept only when one of those apps
    includes it in the subscription; it becomes a catalog tile like any other, with its poster,
    backdrop and links, in the app Codex named when that one has it.
-4. ~/.house-hub/smart-recs.json {generatedAt, picks}, which the hub's "For you" serves after the
-   shows being watched. Nothing says why a title is there.
+4. ~/.house-hub/smart-recs.json {generatedAt, picks, recent}, which the hub's "For you" serves after
+   the shows being watched. Nothing says why a title is there. `recent` is the last few nights'
+   titles: the next night asks for others, so the row is new each morning.
+5. The running hub is asked to have the TV read its rows again (POST /api/tv/catalog/refresh), so
+   the new picks are on Home at once rather than at the TV's next three-hourly read.
 
 When anything goes wrong (no Codex, signed out, an answer that isn't the JSON, nothing found)
 the previous file stays and the exit status isn't 0, so systemd's journal shows it.
@@ -54,6 +57,8 @@ WANT = 25
 KEEP = 30
 EVENING_WANT = 16
 EVENING_KEEP = 12
+NIGHTS_KEPT = 100   # titles of recent nights the next night avoids (about four nights' worth)
+MIN_NEW = 12        # fewer new titles than this, and repeats fill the row after them
 TASTE_FILE = "taste.md"
 CODEX_TIMEOUT = 15 * 60
 
@@ -128,8 +133,9 @@ def about(text: str) -> str:
     return f"\nAbout Riley, in their own words and from what they do:\n{text}\n" if text else ""
 
 
-def prompt(lines: list[str], apps: list[str], profile: str = "") -> str:
+def prompt(lines: list[str], apps: list[str], profile: str = "", shown: list[str] | None = None) -> str:
     history = "\n".join(f"- {line}" for line in lines) or "- (nothing recorded yet)"
+    lately = "\n".join(f"- {t}" for t in shown or []) or "- (none yet)"
     return f"""You choose what Riley might enjoy watching next on the living room TV.
 
 Their streaming services (US): {", ".join(apps)}.
@@ -137,9 +143,12 @@ Their streaming services (US): {", ".join(apps)}.
 What the TV played in the last {DAYS} days, most recent first (day · app · title · details):
 {history}
 
+Already suggested on recent days, on the TV's Home now or lately (suggest different ones, so the row is new):
+{lately}
+
 Suggest {WANT} films or series that:
 - are available to stream on one of those services in the US right now, included in the subscription (not rent or buy);
-- are none of the titles above, nor any show whose episodes appear above (they have seen or started those);
+- are none of the titles above (watched, started or already suggested), nor any show whose episodes appear above;
 - fit their taste as the list shows it, with some variety in genre and service. YouTube videos say what interests them (subjects, channels, tone): turn those into films and series on the services, documentaries and docuseries included where they fit. Ignore test clips and demo reels;
 - lean towards recent and well regarded titles (at most a third from before 2016).
 
@@ -247,8 +256,9 @@ def app_named(hint: str | None, apps: list[str]) -> str | None:
 # ---------- JustWatch ----------
 
 async def resolve(picks: list[dict], apps: list[str], watched: list[dict], http: aiohttp.ClientSession,
-                  scratch: Path) -> list[dict]:
-    """The picks as tiles in the TV's apps, in Codex's order, without anything already watched."""
+                  scratch: Path, shown: list[str] | None = None) -> list[dict]:
+    """The picks as tiles in the TV's apps, in Codex's order, without anything already watched.
+    Titles in `shown` (suggested lately) go after the new ones, and only when too few are new."""
     cat = catalog.Catalog(scratch, apps=lambda: apps)  # its own cache: the hub keeps its own
     cat.http = http
     seen_titles = {show_of(e).casefold() for e in watched} | {e["title"].casefold() for e in watched}
@@ -264,6 +274,12 @@ async def resolve(picks: list[dict], apps: list[str], watched: list[dict], http:
             continue
         ids.add(t["id"])
         out.append(t)
+    if shown:
+        new = [t for t in out if not any(catalog.same_title(t["title"], s) for s in shown)]
+        if len(new) < len(out):
+            log.info("%d of the %d were suggested lately%s", len(out) - len(new), len(out),
+                     "" if len(new) >= MIN_NEW else "; they fill the row after the new ones")
+        out = new if len(new) >= MIN_NEW else new + [t for t in out if t not in new]
     return out[:KEEP]
 
 
@@ -280,6 +296,46 @@ def tv_apps(hub: str) -> list[str]:
     if not names:
         raise PicksError("The hub lists no streaming apps on the TV")
     return names
+
+
+def nightly_recent(conf: Path) -> list[str]:
+    """The titles of the last few nights, newest first: the picks file's `recent`, else its picks."""
+    try:
+        data = json.loads((conf / catalog.SMART_FILE).read_text())
+    except (OSError, ValueError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    titles = data.get("recent")
+    if not isinstance(titles, list):
+        titles = [p.get("title") for p in data.get("picks") or [] if isinstance(p, dict)]
+    return [t for t in titles if isinstance(t, str) and t.strip()][:NIGHTS_KEPT]
+
+
+def evening_tonight(conf: Path) -> list[str]:
+    """The films the evening run picked last (they lead Home until the night's picks come)."""
+    try:
+        data = json.loads((conf / catalog.EVENING_FILE).read_text())
+        return [p["title"] for p in data.get("picks") or [] if isinstance(p, dict) and isinstance(p.get("title"), str)]
+    except (OSError, ValueError, AttributeError, TypeError):
+        return []
+
+
+def tell_tv(hub: str) -> bool:
+    """Asks the running hub to have the TV read its rows again, so new picks show at once."""
+    req = urllib.request.Request(hub.rstrip("/") + "/api/tv/catalog/refresh", data=b"{}", method="POST",
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            answer = json.load(r)
+    except (OSError, ValueError) as e:
+        log.info("The TV gets them at its next read (the hub: %s)", e)
+        return False
+    if answer.get("ok") is True:
+        log.info("Told the TV, which shows them now")
+        return True
+    log.info("The TV gets them at its next read (%s)", answer.get("error") or "the hub couldn't tell it")
+    return False
 
 
 def evening_recent(conf: Path) -> list[str]:
@@ -308,16 +364,18 @@ async def run(conf: Path, hub: str, codex: str, dry_run: bool, evening: bool = F
     profile = taste(conf)
     log.info("%d titles watched in %d days; apps: %s%s", len(lines), DAYS, ", ".join(apps),
              "; with taste.md" if profile else "")
-    recent = evening_recent(conf) if evening else []
+    recent = evening_recent(conf) if evening else nightly_recent(conf)
+    # The night avoids its own last nights, and the films the evening has put first on Home.
+    shown = [] if evening else list(dict.fromkeys(recent + evening_tonight(conf)))
     text = (evening_prompt(lines, apps, profile, recent, time.strftime("%A %B %-d")) if evening
-            else prompt(lines, apps, profile))
+            else prompt(lines, apps, profile, shown))
     answer = await asyncio.to_thread(ask_codex, text, codex)
     picks = parse_picks(answer)
     if evening:
         picks = [{**p, "kind": "movie"} for p in picks if p["kind"] != "show"]
     with tempfile.TemporaryDirectory() as scratch:
         async with aiohttp.ClientSession() as http:
-            tiles = await resolve(picks, apps, watched, http, Path(scratch))
+            tiles = await resolve(picks, apps, watched, http, Path(scratch), shown)
     if evening:
         tiles = [t for t in tiles if t.get("kind") == "movie"][:EVENING_KEEP]
     if not tiles:
@@ -329,8 +387,11 @@ async def run(conf: Path, hub: str, codex: str, dry_run: bool, evening: bool = F
             path = write(conf, tiles, len(picks), catalog.EVENING_FILE,
                          recent=fresh + [t for t in recent if t not in fresh][:60 - len(fresh)])
         else:
-            path = write(conf, tiles, len(picks))
+            fresh = [t["title"] for t in tiles]
+            path = write(conf, tiles, len(picks),
+                         recent=fresh + [t for t in recent if t not in fresh][:NIGHTS_KEPT - len(fresh)])
         log.info("Wrote %s", path)
+        tell_tv(hub)
     return tiles
 
 

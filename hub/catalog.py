@@ -80,7 +80,7 @@ FOR_YOU_MAX = 30
 WATCHING_MAX = 6     # shows in Continue that lead For you as themselves
 SMART_FILE = "smart-recs.json"
 EVENING_FILE = "smart-evening.json"    # tonight's films (smart_recs.py --evening, 16:30)
-EVENING_FOR_S = 12 * 3600               # first in For you until it is this old
+EVENING_FOR_S = 12 * 3600               # first in For you until it is this old, or the night's picks are newer
 ART_LIMIT = 200 * 1024 * 1024   # the picture cache on disk
 ART_ONE = 3 * 1024 * 1024       # a picture bigger than this isn't one
 ART_PROFILES = {"poster": "s332", "backdrop": "s1440"}
@@ -648,14 +648,17 @@ class Catalog:
         return self._smart[1]
 
     def evening_picks(self, now: float | None = None) -> list[dict]:
-        """Tonight's films (smart_recs.py --evening), while they are under 12 hours old."""
+        """Tonight's films (smart_recs.py --evening), while they are under 12 hours old and the
+        night's picks (03:00) haven't come since: the morning starts with those."""
         self._evening = self._read_picks(self.evening_file, self._evening)
-        if not self._evening[1] or (now or time.time()) - self._evening[0] > EVENING_FOR_S:
+        self._smart = self._read_picks(self.smart_file, self._smart)
+        if (not self._evening[1] or (now or time.time()) - self._evening[0] > EVENING_FOR_S
+                or self._smart[0] > self._evening[0]):
             return []
         return self._evening[1]
 
     async def for_you(self, names: list[str], popular: dict[str, list[dict]]) -> list[dict]:
-        """Continue; the shows in it as themselves; tonight's films (from 16:30, for 12 hours);
+        """Continue; the shows in it as themselves; tonight's films (from 16:30 until the night's picks);
         the nightly picks; the apps' own picks; then
         titles similar to the latest Continue titles (in the TV's apps), then each app's popular
         ones in turn."""
