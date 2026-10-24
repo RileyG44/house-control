@@ -137,6 +137,7 @@ fun HomeRoot(homeRequest: Int = 0) {
             backToStudio = false
             backToWeather = false
             overlay = null
+            lastPoster = null
             menuFor = null
         }
     }
