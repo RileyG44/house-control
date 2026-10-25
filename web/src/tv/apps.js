@@ -178,11 +178,11 @@ const svgEl = (tag, attrs) => {
 let gradients = 0;
 
 /** The app's logo as an <svg> filling a square tile (its background included). */
-export function logoSVG(app, size = 56) {
+export function logoSVG(app, size = 56, monochrome = false) {
   const a = app?.mark ? app : appInfo(app) || SYSTEM.other;
   const svg = svgEl('svg', { viewBox: '0 0 100 100', width: size, height: size, 'aria-hidden': 'true', class: 'tv-logo' });
-  let fill = a.bg;
-  if (Array.isArray(a.bg)) {
+  let fill = monochrome ? '#f8f8f5' : a.bg;
+  if (!monochrome && Array.isArray(a.bg)) {
     const id = `tvg${++gradients}`;
     const g = svgEl('linearGradient', { id, x1: 0, y1: 0, x2: 1, y2: 1 });
     g.append(svgEl('stop', { offset: 0, 'stop-color': a.bg[0] }), svgEl('stop', { offset: 1, 'stop-color': a.bg[1] }));
@@ -192,7 +192,17 @@ export function logoSVG(app, size = 56) {
     fill = `url(#${id})`;
   }
   svg.append(svgEl('rect', { width: 100, height: 100, fill }));
-  for (const s of a.mark) svg.append(svgShape(s));
+  const mark = svgEl('g', monochrome ? { transform: 'translate(9 9) scale(.82)' } : {});
+  for (const s of a.mark) {
+    const shape = svgShape(s);
+    if (monochrome) {
+      const key = s[0] === 'stroke' ? 'stroke' : 'fill';
+      const color = shape.getAttribute(key);
+      shape.setAttribute(key, (a.id === 'youtube' && color === '#ffffff') || color === '#000000' ? '#f8f8f5' : '#252624');
+    }
+    mark.append(shape);
+  }
+  svg.append(mark);
   return svg;
 }
 

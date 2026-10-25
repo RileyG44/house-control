@@ -85,6 +85,7 @@ import com.livingroom.tv.Graph
 import com.livingroom.tv.apps.TvApp
 import com.livingroom.tv.catalog.CatalogTile
 import com.livingroom.tv.companion.FocusInfo
+import com.livingroom.tv.companion.Commands
 import com.livingroom.tv.history.HistoryStore
 import com.livingroom.tv.history.WatchEntry
 import kotlinx.coroutines.delay
@@ -244,7 +245,8 @@ private fun HomeContent(
         LazyColumn(state = list, modifier = Modifier.fillMaxSize()) {
             item(key = "top") {
                 Box(Modifier.fillMaxWidth().height(246.dp)) {
-                    HelloBlock(Modifier.padding(start = 48.dp, top = 34.dp))
+                    HelloBlock(Modifier.padding(start = 48.dp, top = 34.dp),
+                        onSettingsFocus = { onFocus(Focus.Other); toTop() })
                     WeatherCard(Modifier.padding(start = 380.dp, top = 36.dp).size(170.dp, 200.dp).focusRequester(weatherTile),
                         onFocus = { onFocus(Focus.Other); toTop() }, onClick = { onOverlay(Overlay.Weather) })
                     StudioTile(
@@ -276,7 +278,7 @@ private fun HomeContent(
                 }
                 LazyRow(
                     state = freshRow,
-                    modifier = Modifier.fillMaxWidth().focusRestorer(),
+                    modifier = Modifier.fillMaxWidth().homeRowFade().focusRestorer(),
                     contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(13.dp),
                 ) {
@@ -312,7 +314,7 @@ private fun HomeContent(
             if (continueItems.isNotEmpty()) item(key = "watching") { Column {
                 Text("Keep watching", fontSize = 13.sp, color = Color.White.copy(alpha = .85f), modifier = Modifier.padding(start = 48.dp))
                 LazyRow(
-                    modifier = Modifier.fillMaxWidth().focusRestorer(),
+                    modifier = Modifier.fillMaxWidth().homeRowFade().focusRestorer(),
                     contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(13.dp),
                 ) {
@@ -333,7 +335,7 @@ private fun HomeContent(
             } }
             // Keyed on the apps, so a row first drawn with only its buttons doesn't stay scrolled to them.
             item(key = "apps") { key(pinned.map { it.pkg }) { LazyRow(
-                modifier = Modifier.fillMaxWidth().focusRestorer(),
+                modifier = Modifier.fillMaxWidth().homeRowFade().focusRestorer(),
                 contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 6.dp, bottom = 22.dp),
                 horizontalArrangement = Arrangement.spacedBy(13.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -351,7 +353,7 @@ private fun HomeContent(
                 item(key = "all-apps") { CircleButton(Glyphs.Grid, Modifier.rowEdges(first = pinned.isEmpty(), last = false), { onFocus(Focus.Other) }) { onOverlay(Overlay.AllApps) } }
                 item(key = "search") { CircleButton(Glyphs.Search, Modifier, { onFocus(Focus.Other) }) { openSearch(context) } }
                 item(key = "pair") { CircleButton(Glyphs.Phone, Modifier, { onFocus(Focus.Other) }) { onOverlay(Overlay.Pair) } }
-                item(key = "settings") { CircleButton(Glyphs.Gear, Modifier.rowEdges(first = false, last = true), { onFocus(Focus.Other) }) { context.startSafely(Intent(Settings.ACTION_SETTINGS)) } }
+                item(key = "settings") { CircleButton(Glyphs.Gear, Modifier.rowEdges(first = false, last = true), { onFocus(Focus.Other) }) { Commands.settings(context) } }
             } } }
             items(shelves, key = { it.key }) { shelf ->
                 ShelfRow(

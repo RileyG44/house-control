@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Optional, explicitly granted by the keep-adb install option for home-network recovery. -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
     <!-- The apps' own recommendations (Watch Next, preview channels) in the TV provider. A normal permission on this TV. -->
     <uses-permission android:name="com.android.providers.tv.permission.READ_EPG_DATA" />
 
@@ -12,6 +14,8 @@
 
     <!-- Lets the launcher see every app that appears on a TV home screen. -->
     <queries>
+        <intent><action android:name="android.intent.action.SEARCH" /></intent>
+        <intent><action android:name="com.google.android.gms.actions.SEARCH_ACTION" /></intent>
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LEANBACK_LAUNCHER" />

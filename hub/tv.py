@@ -872,6 +872,25 @@ class TvRemote:
         if dev is None:
             return {"error": "There is no such TV"}, 404
         action = body["action"]
+        if action in ("settings", "app-search"):
+            command = {"type": "launch", "pkg": "com.android.tv.settings"}
+            if action == "app-search":
+                name = APP_NAMES.get(body.get("app"))
+                text = body.get("text")
+                if not name:
+                    return {"error": "Choose an app to search"}, 400
+                if not isinstance(text, str) or not text.strip() or len(text) > 200:
+                    return {"error": "Up to 200 characters of text"}, 400
+                command = {"type": "search", "pkg": APPS[name][0], "text": text.strip()}
+            await self._awake(tv_id)
+            ok = await self._launcher_cmd(command)
+            if ok is None:
+                return {"error": "The TV launcher needs to be connected for this action"}, 503
+            if not ok:
+                return {"error": f"{name} doesn't support opening its search from the remote. Open its search on the TV and use Type into the TV."
+                        if action == "app-search" else "The Chromecast couldn't open Settings"}, 409
+            self.kick()
+            return {"ok": True}, 200
         if action in ("seek", "skip"):
             return await self._seek(tv_id, dev, body)
         if action in ("resume", "recommendation"):

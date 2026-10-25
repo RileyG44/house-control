@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -29,15 +30,19 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
+import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.livingroom.tv.Graph
+import com.livingroom.tv.companion.Commands
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -58,7 +63,8 @@ private fun rememberNow(): Date {
 
 /** "Good evening, Riley", the time in thin numerals, and the date. Top left of Home. */
 @Composable
-fun HelloBlock(modifier: Modifier = Modifier) {
+@OptIn(ExperimentalTvMaterial3Api::class)
+fun HelloBlock(modifier: Modifier = Modifier, onSettingsFocus: () -> Unit = {}) {
     val context = LocalContext.current
     val now = rememberNow()
     val name by Graph.hub.ownerName.collectAsState()
@@ -81,7 +87,23 @@ fun HelloBlock(modifier: Modifier = Modifier) {
                 Text(ampm, fontSize = 17.sp, fontWeight = FontWeight.Light, color = Color.White.copy(alpha = .6f), modifier = Modifier.padding(start = 6.dp, top = 22.dp))
             }
         }
-        Text(date, fontSize = 14.sp, fontWeight = FontWeight.Light, color = Color.White.copy(alpha = .58f))
+        Row(Modifier.width(316.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(date, fontSize = 14.sp, fontWeight = FontWeight.Light, color = Color.White.copy(alpha = .58f),
+                maxLines = 1, modifier = Modifier.weight(1f))
+            Surface(
+                onClick = { Commands.settings(context) },
+                modifier = Modifier.onFocusChanged { if (it.isFocused) onSettingsFocus() }
+                    .semantics { contentDescription = "Chromecast Settings" },
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
+                colors = ClickableSurfaceDefaults.colors(containerColor = Color.White.copy(alpha = .09f), focusedContainerColor = Color.White.copy(alpha = .25f)),
+            ) {
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Glyph(Glyphs.Gear, LocalContentColor.current, Modifier.size(14.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Settings", fontSize = 12.sp)
+                }
+            }
+        }
     }
 }
 

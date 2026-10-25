@@ -1,5 +1,50 @@
 import SwiftUI
 
+/// The selected app's own search, kept above its recommendations.
+struct TVAppSearch: View {
+    let id: String
+    let app: TVAppInfo
+    @Environment(HomeStore.self) private var store
+    @State private var query = ""
+    @State private var sending = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass").foregroundStyle(Color.muted)
+            TextField("Search \(app.name) on TV", text: $query)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .focused($focused)
+                .onSubmit(search)
+            Button(action: search) {
+                if sending { ProgressView() } else { Image(systemName: "arrow.up.right.circle.fill").font(.title2) }
+            }
+            .buttonStyle(.plain)
+            .disabled(sending || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || query.count > 200)
+            .accessibilityLabel("Search \(app.name) on the TV")
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.fill))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.line))
+    }
+
+    private func search() {
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, text.count <= 200, !sending else { return }
+        sending = true
+        focused = false
+        Haptics.light()
+        Task {
+            if await store.tv.act(id, ["action": .string("app-search"), "app": .string(app.id), "text": .string(text)]) {
+                store.show("Searching \(app.name) on the TV")
+            }
+            sending = false
+        }
+    }
+}
+
 /// The title search (docs/tv-remote.md): a field (350 ms after typing stops it asks the hub's
 /// streaming catalogue), results with their poster, year, kind and the apps they stream on; a
 /// logo (or the row, when there is one app) plays it. Below: hand the words to the TV itself.

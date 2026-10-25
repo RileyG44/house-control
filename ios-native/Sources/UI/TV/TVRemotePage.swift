@@ -12,6 +12,7 @@ struct TVRemotePage: View {
     @State private var opening: (app: TVAppInfo, until: Date)?
     @State private var pairing = false
     @State private var askingTV = false
+    @State private var browseApp = TVBrowse.forYou
 
     private var tv: TVStore { store.tv }
 
@@ -52,7 +53,7 @@ struct TVRemotePage: View {
                 Text("Apps").font(.subheadline.weight(.semibold)).foregroundStyle(Color.muted)
                 apps(d, on: on)
                 Text("Browse").font(.subheadline.weight(.semibold)).foregroundStyle(Color.muted)
-                TVBrowse(id: id, onPlay: { tile, offer in play(tile, offer: offer) })
+                TVBrowse(id: id, onPlay: { tile, offer in play(tile, offer: offer) }, chip: $browseApp)
                 Text("Search").font(.subheadline.weight(.semibold)).foregroundStyle(Color.muted)
                 TVSearch(id: id, onPlay: { result, offer in
                     open(TVCatalog.info(id: offer.app) ?? TVAppInfo(id: offer.app, name: offer.name, bg: ["#2b3140"], glow: "#9aa4b5", mark: []), play: offer)
@@ -75,7 +76,10 @@ struct TVRemotePage: View {
             }
         }
         .onChange(of: d?.app?.id) { _, now in if now == opening?.app.id { opening = nil } }
-        .onAppear { tv.remoteOpened(id) }
+        .onAppear {
+            tv.remoteOpened(id)
+            if let app = d?.app?.id, TVCatalog.info(id: app)?.package != nil { browseApp = app }
+        }
         .onDisappear { tv.remoteClosed(id) }
         .sheet(isPresented: $pairing) { PairTVSheet(id: id) }
     }
@@ -135,6 +139,7 @@ struct TVRemotePage: View {
     private func key(_ action: String) { tv.act(id, action: action) }
 
     private func open(_ app: TVAppInfo, play: SearchResult.Offer? = nil) {
+        browseApp = app.id
         var body: [String: JSON] = ["action": .string(play == nil ? "open" : "play"), "app": .string(app.id), "name": .string(app.name)]
         if let play { body["link"] = .string(play.link) }
         send(app, body)
@@ -174,19 +179,41 @@ struct TVRemotePage: View {
     // MARK: - the direction pad, its keys and the volume
 
     private func remote(_ d: TVDevice?, on: Bool, available: Bool) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(spacing: 10) {
-                KeyButton(symbol: "house", label: "Home") { key("home") }
-                KeyButton(symbol: "arrow.uturn.backward", label: "Back") { key("back") }
-                KeyButton(symbol: "playpause", label: "Play or pause") { key("playpause") }
-                KeyButton(symbol: d?.muted == true && on ? "speaker.slash.fill" : "speaker.slash", label: "Mute", active: d?.muted == true && on) { key("mute") }
+        VStack(spacing: 16) {
+            HStack {
+                Text("Remote").font(.subheadline.weight(.semibold))
+                Spacer()
+                Button { key("settings") } label: {
+                    Label("Settings", systemImage: "gearshape").font(.caption.weight(.medium))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open Chromecast Settings")
+                .disabled(!available)
             }
-            DPad(enabled: available && on, onKey: { key($0) }, size: 250)
-                .frame(maxWidth: .infinity)
-            VolumeColumn(level: d?.volume, max: d?.volumeMax ?? 25, muted: d?.muted == true, enabled: on && d?.volume != nil,
-                         onStep: { key($0 > 0 ? "volup" : "voldown") },
-                         onLevel: { level in Task { await tv.act(id, ["action": .string("volume"), "level": .number(Double(level))]) } })
+            GeometryReader { geometry in
+                HStack(alignment: .center, spacing: 10) {
+                    VStack(spacing: 10) {
+                        KeyButton(symbol: "house", label: "Home") { key("home") }
+                        KeyButton(symbol: "arrow.uturn.backward", label: "Back") { key("back") }
+                        KeyButton(symbol: "playpause", label: "Play or pause") { key("playpause") }
+                        KeyButton(symbol: d?.muted == true && on ? "speaker.slash.fill" : "speaker.slash", label: "Mute", active: d?.muted == true && on) { key("mute") }
+                    }
+                    DPad(enabled: available && on, onKey: { key($0) }, size: min(250, max(120, geometry.size.width - 112)))
+                        .frame(maxWidth: .infinity)
+                    VolumeColumn(level: d?.volume, max: d?.volumeMax ?? 25, muted: d?.muted == true, enabled: on && d?.volume != nil,
+                                 onStep: { key($0 > 0 ? "volup" : "voldown") },
+                                 onLevel: { level in Task { await tv.act(id, ["action": .string("volume"), "level": .number(Double(level))]) } })
+                }
+            }
+            .frame(height: 250)
         }
+        .padding(16)
+        .foregroundStyle(Color(hex: "#30312f"))
+        .background(RoundedRectangle(cornerRadius: 30, style: .continuous)
+            .fill(LinearGradient(colors: [Color(hex: "#ffffff"), Color(hex: "#f1f1ee")], startPoint: .topLeading, endPoint: .bottomTrailing)))
+        .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).strokeBorder(Color.white.opacity(0.9)))
+        .shadow(color: .black.opacity(0.14), radius: 18, x: 0, y: 9)
+        .environment(\.colorScheme, .light)
         .opacity(available ? 1 : 0.6)
     }
 
@@ -200,13 +227,14 @@ struct TVRemotePage: View {
                     let isOpening = opening?.app.id == app.id && (opening?.until ?? .distantPast) > Date()
                     Button { open(app) } label: {
                         VStack(spacing: 6) {
-                            AppLogo(app: app, size: 62)
-                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .strokeBorder(current ? Color.accentColor : Color.line, lineWidth: current ? 3 : 1)
+                            AppLogo(app: app, size: 62, monochrome: true)
+                                .clipShape(Circle())
+                                .shadow(color: .black.opacity(0.14), radius: 4, x: 0, y: 3)
+                                .overlay(Circle()
+                                    .strokeBorder(current ? Color.ink : Color.line, lineWidth: current ? 2 : 1)
                                     .padding(current ? -4 : 0))
                                 .overlay(alignment: .topTrailing) {
-                                    if current { Circle().fill(Color.green).frame(width: 10, height: 10).offset(x: 4, y: -4) }
+                                    if current { Circle().fill(Color.ink).frame(width: 8, height: 8).offset(x: 1, y: -1) }
                                 }
                                 .scaleEffect(isOpening ? 0.94 : 1)
                                 .animation(isOpening ? .easeInOut(duration: 0.6).repeatForever() : .default, value: isOpening)
@@ -239,10 +267,13 @@ struct KeyButton: View {
         } label: {
             Image(systemName: symbol)
                 .font(.system(size: 17, weight: .semibold))
-                .frame(width: 34, height: 34)
+                .frame(width: 44, height: 44)
                 .foregroundStyle(active ? Color.accentColor : Color.ink)
+                .background(Circle().fill(Color(hex: "#f7f7f4")))
+                .overlay(Circle().strokeBorder(Color.black.opacity(0.1)))
+                .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 2)
         }
-        .buttonStyle(.glass)
+        .buttonStyle(.plain)
         .buttonBorderShape(.circle)
         .accessibilityLabel(label)
     }
@@ -339,7 +370,9 @@ struct RepeatKey: View {
             .font(.system(size: 16, weight: .bold))
             .foregroundStyle(Color.ink)
             .frame(width: 44, height: 44)
-            .glassEffect(.regular.interactive(), in: .circle)
+            .background(Circle().fill(Color(hex: "#f7f7f4")))
+            .overlay(Circle().strokeBorder(Color.black.opacity(0.1)))
+            .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 2)
             .onTouch { phase, _ in
                 switch phase {
                 case .began:

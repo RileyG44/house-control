@@ -5,17 +5,21 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.util.Log
-import com.livingroom.tv.Prefs
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
@@ -29,7 +33,18 @@ import kotlin.math.roundToInt
  * Where the TV is (from its internet address, or set from the phone) and today's forecast from
  * Open-Meteo. No account, no key. Refreshes every 15 minutes.
  */
-class WeatherRepository(private val prefs: Prefs) {
+interface WeatherPreferences {
+    var location: JSONObject?
+    var ipLocation: JSONObject?
+    var forecast: JSONObject?
+}
+
+class WeatherRepository(
+    private val prefs: WeatherPreferences,
+    private val fetch: ((String) -> String)? = null,
+    private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val logFailure: (Exception) -> Unit = { Log.w(TAG, "Weather refresh failed: ${it.message}"); Unit },
+) {
     private val _weather = MutableStateFlow<Weather?>(null)
     val weather: StateFlow<Weather?> = _weather
     private val lock = Mutex()
@@ -37,18 +52,41 @@ class WeatherRepository(private val prefs: Prefs) {
     val error: StateFlow<String?> = _error
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing
+    private val requests = Channel<Unit>(Channel.CONFLATED)
 
-    fun start(scope: CoroutineScope) {
-        scope.launch(Dispatchers.IO) {
+    fun start(scope: CoroutineScope, context: Context? = null) {
+        scope.launch(dispatcher) {
+            prefs.forecast?.let { cached ->
+                runCatching {
+                    _weather.value = parseForecast(cached.getJSONObject("data"), cached.optString("place").ifBlank { null },
+                        cached.getBoolean("imperial"), cached.getLong("at"))
+                }
+            }
+            var failures = 0
             while (true) {
                 val ok = refreshSafely()
-                delay(if (ok) 15 * 60_000L else 2 * 60_000L)
+                failures = if (ok) 0 else (failures + 1).coerceAtMost(6)
+                // Recover quickly from boot's missing network, without hammering a failing service.
+                withTimeoutOrNull(if (ok) 15 * 60_000L else failures * 10_000L) { requests.receive() }
             }
         }
+        context?.getSystemService(ConnectivityManager::class.java)?.registerDefaultNetworkCallback(
+            object : ConnectivityManager.NetworkCallback() {
+                override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                    if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) refreshIfOld()
+                }
+            }
+        )
     }
 
-    fun refreshSoon(scope: CoroutineScope) {
-        scope.launch(Dispatchers.IO) { refreshSafely() }
+    fun refreshSoon() {
+        requests.trySend(Unit)
+    }
+
+    fun refreshIfOld() {
+        if (_weather.value == null || System.currentTimeMillis() - (_weather.value?.updatedAt ?: 0) >= 15 * 60_000L) {
+            requests.trySend(Unit)
+        }
     }
 
     private suspend fun refreshSafely(): Boolean = lock.withLock {
@@ -61,16 +99,20 @@ class WeatherRepository(private val prefs: Prefs) {
                 "&hourly=temperature_2m,weather_code,precipitation_probability,wind_speed_10m,is_day" +
                 "&timezone=auto&timeformat=unixtime&forecast_days=10" +
                 if (loc.imperial) "&temperature_unit=fahrenheit&wind_speed_unit=mph" else ""
-            val next = parseForecast(JSONObject(get(url)), loc.place, loc.imperial)
+            val data = JSONObject(get(url))
+            val next = parseForecast(data, loc.place, loc.imperial)
             kotlin.coroutines.coroutineContext.ensureActive()
             _weather.value = next
+            prefs.forecast = JSONObject().put("data", data).put("place", loc.place.orEmpty())
+                .put("imperial", loc.imperial).put("at", next.updatedAt)
             _error.value = null
             true
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "Weather refresh failed: ${e.message}")
-            _error.value = "Weather could not refresh. Showing the last available forecast."
+            logFailure(e)
+            _error.value = if (_weather.value == null) "Waiting for weather. Retrying automatically…"
+                else "Weather could not refresh. Showing the last available forecast."
             false
         } finally {
             _refreshing.value = false
@@ -101,6 +143,7 @@ class WeatherRepository(private val prefs: Prefs) {
     )
 
     private fun get(url: String): String {
+        fetch?.let { return it(url) }
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.connectTimeout = 6000
         conn.readTimeout = 8000

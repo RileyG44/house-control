@@ -127,10 +127,11 @@ enum TVCatalog {
 struct AppLogo: View {
     let app: TVAppInfo
     var size: CGFloat
+    var monochrome = false
 
     var body: some View {
         Canvas { ctx, sz in
-            LogoPainter.paint(app, in: &ctx, rect: CGRect(origin: .zero, size: sz), markSize: min(sz.width, sz.height))
+            LogoPainter.paint(app, in: &ctx, rect: CGRect(origin: .zero, size: sz), markSize: min(sz.width, sz.height) * (monochrome ? 0.82 : 1), monochrome: monochrome)
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
@@ -140,8 +141,12 @@ struct AppLogo: View {
 enum LogoPainter {
     /// Fills `rect` with the app's background and draws its mark, the 100-unit square scaled to
     /// `markSize` and centred.
-    static func paint(_ app: TVAppInfo, in ctx: inout GraphicsContext, rect: CGRect, markSize: CGFloat) {
-        let bg: GraphicsContext.Shading = app.bg.count > 1
+    static func paint(_ app: TVAppInfo, in ctx: inout GraphicsContext, rect: CGRect, markSize: CGFloat, monochrome: Bool = false) {
+        func ink(_ color: String) -> Color {
+            guard monochrome else { return Color(hex: color) }
+            return Color(hex: (app.id == "youtube" && color == "#ffffff") || color == "#000000" ? "#f8f8f5" : "#252624")
+        }
+        let bg: GraphicsContext.Shading = monochrome ? .color(Color(hex: "#f8f8f5")) : app.bg.count > 1
             ? .linearGradient(Gradient(colors: app.bg.map { Color(hex: $0) }), startPoint: rect.origin, endPoint: CGPoint(x: rect.maxX, y: rect.maxY))
             : .color(Color(hex: app.bg[0]))
         ctx.fill(Path(rect), with: bg)
@@ -151,15 +156,15 @@ enum LogoPainter {
         for shape in app.mark {
             switch shape {
             case .path(let d, let fill):
-                c.fill(SVGPath.parse(d), with: .color(Color(hex: fill)))
+                c.fill(SVGPath.parse(d), with: .color(ink(fill)))
             case .stroke(let d, let color, let width, let cap):
-                c.stroke(SVGPath.parse(d), with: .color(Color(hex: color)), style: StrokeStyle(lineWidth: width, lineCap: cap, lineJoin: .round))
+                c.stroke(SVGPath.parse(d), with: .color(ink(color)), style: StrokeStyle(lineWidth: width, lineCap: cap, lineJoin: .round))
             case .circle(let cx, let cy, let r, let fill):
-                c.fill(Path(ellipseIn: CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2)), with: .color(Color(hex: fill)))
+                c.fill(Path(ellipseIn: CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2)), with: .color(ink(fill)))
             case .text(let s, let x, let y, let size, let fill, let weight, let serif, let italic, let spacing):
                 var font = Font.system(size: size, weight: weight, design: serif ? .serif : .default)
                 if italic { font = font.italic() }
-                let resolved = c.resolve(Text(s).font(font).tracking(spacing).foregroundColor(Color(hex: fill)))
+                let resolved = c.resolve(Text(s).font(font).tracking(spacing).foregroundColor(ink(fill)))
                 let m = resolved.measure(in: CGSize(width: 400, height: 200))
                 let baseline = resolved.firstBaseline(in: m)
                 c.draw(resolved, in: CGRect(x: x - m.width / 2, y: y - baseline, width: m.width, height: m.height))

@@ -13,6 +13,7 @@ import com.livingroom.tv.companion.Pairing
 import com.livingroom.tv.companion.StateHub
 import com.livingroom.tv.glance.WallpaperStore
 import com.livingroom.tv.glance.WeatherRepository
+import com.livingroom.tv.glance.WeatherPreferences
 import com.livingroom.tv.history.HistoryStore
 import com.livingroom.tv.history.HistorySync
 import com.livingroom.tv.house.HouseRepository
@@ -48,6 +49,8 @@ object Graph {
         private set
     lateinit var weather: WeatherRepository
         private set
+    lateinit var debugging: WirelessDebugging
+        private set
     lateinit var wallpaper: WallpaperStore
         private set
     lateinit var catalog: CatalogRepository
@@ -71,6 +74,7 @@ object Graph {
         apps = AppsRepository(app, prefs)
         history = HistoryStore(app)
         weather = WeatherRepository(prefs)
+        debugging = WirelessDebugging(app, prefs)
         wallpaper = WallpaperStore(app)
         catalog = CatalogRepository(app, prefs)
         art = ArtCache(app)
@@ -90,7 +94,8 @@ object Graph {
         }
         apps.watchPackageChanges()
         hub.start(app, scope)
-        weather.start(scope)
+        weather.start(scope, app)
+        debugging.start(scope)
         catalog.start(scope)
         recommendations.start(scope)
         house.start(scope, hub.homeVisible)
@@ -100,7 +105,7 @@ object Graph {
     }
 }
 
-class Prefs(context: Context) {
+class Prefs(context: Context) : WeatherPreferences {
     private val sp = context.getSharedPreferences("livingroom", Context.MODE_PRIVATE)
 
     /** Shared secret in the pairing QR code. Every phone request must carry it. */
@@ -131,14 +136,23 @@ class Prefs(context: Context) {
         set(value) = sp.edit().putString("ownerName", value?.trim()?.ifBlank { null }).apply()
 
     /** Weather location chosen on the phone: {lat, lon, place, country}. Wins over [ipLocation]. */
-    var location: JSONObject?
+    override var location: JSONObject?
         get() = sp.getString("location", null)?.let { runCatching { JSONObject(it) }.getOrNull() }
         set(value) = sp.edit().putString("location", value?.toString()).apply()
 
     /** Where the internet address says the TV is, cached for a day. */
-    var ipLocation: JSONObject?
+    override var ipLocation: JSONObject?
         get() = sp.getString("ipLocation", null)?.let { runCatching { JSONObject(it) }.getOrNull() }
         set(value) = sp.edit().putString("ipLocation", value?.toString()).apply()
+
+    /** Last successful forecast, so a restart doesn't blank the weather while Wi-Fi connects. */
+    override var forecast: JSONObject?
+        get() = sp.getString("forecast", null)?.let { runCatching { JSONObject(it) }.getOrNull() }
+        set(value) = sp.edit().putString("forecast", value?.toString()).apply()
+
+    var debugRecoveryNetwork: String?
+        get() = sp.getString("debugRecoveryNetwork", null)
+        set(value) = sp.edit().putString("debugRecoveryNetwork", value).apply()
 
     /** The profile chosen on apps' "Who's watching?" screens (input/ProfilePicker.kt). Set from the phone or hub. */
     var profile: String

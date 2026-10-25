@@ -32,6 +32,7 @@ class MainActivity : ComponentActivity() {
         Graph.hub.homeVisible.value = true
         if (Graph.apps.all.value.isEmpty()) Graph.scope.launch(Dispatchers.IO) { Graph.apps.refresh() }
         Graph.catalog.refreshIfOld()
+        Graph.weather.refreshIfOld()
         Graph.recommendations.refreshSoon(Graph.scope)
     }
 

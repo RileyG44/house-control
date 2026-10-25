@@ -23,6 +23,12 @@ stays. The plan for it in this repo is [`docs/tv-launcher.md`](../docs/tv-launch
   Times use the forecast location's timezone, including daylight-saving changes. Missing solar
   or hourly values stay blank rather than becoming zero. Forecast data comes from
   [Open-Meteo](https://open-meteo.com/en/docs); Refresh keeps the last good forecast on failure.
+  The last forecast survives app/Chromecast restarts. Failed boot requests retry after 10 seconds,
+  backing off to at most one minute; a validated network reconnect also requests a refresh.
+- **Chromecast Settings:** the labelled button below the clock opens Android's Settings directly;
+  Settings is also available on the phone and web remote's white control card.
+- **Scrolling rows:** recommendations, Keep watching, Apps and presets share the clock/studio
+  alignment. Items remain opaque in the central area and fade through the 48 dp screen gutters.
 - **The studio:** OK on the studio tile opens it full screen: the 3D studio with every light and
   the AC marked, the plan's scenes, the AC (OK on or off, ◀ ▶ temperature, mode and fan) and each
   light (OK on or off, ◀ ▶ brightness). It goes through House Control's hub (`/api/plan`,
@@ -98,6 +104,27 @@ The recovery file is bound to the TV's hardware serial and cannot be applied to 
 If the Mac no longer sees wireless ADB, read the current IP/port from the TV's Wireless debugging
 page, reconnect with `adb connect <address>:<port>`, and set `ANDROID_SERIAL` to that address.
 
+### Keep wireless debugging available after a Wi-Fi reconnect
+
+Android can turn Wireless debugging off when Wi-Fi disconnects or the access point changes.
+For this dedicated home Chromecast, install with `--keep-adb` to opt into recovery:
+
+```sh
+ANDROID_SERIAL=<TV-address:port> tv-launcher/tools/tv-install.sh --no-build --keep-adb
+python3 tv-launcher/tools/tv-debugging.py status
+python3 tv-launcher/tools/tv-debugging.py disable   # stop automatic recovery; no ADB needed
+```
+
+The option grants `WRITE_SECURE_SETTINGS` once and records the connected Wi-Fi's IPv4 subnet
+and gateway. The launcher restores `adb_wifi_enabled` three seconds after a validated reconnect
+on that saved network, including startup. It makes one attempt per network connection, respects
+the Developer options master switch, and leaves Android's trusted-network and paired-computer
+authorization checks intact. It does not open legacy port 5555 or disable authorization expiry.
+Turning debugging off manually stays effective until the next reconnect; disable recovery above
+to keep it off across reconnects. If the router/subnet changes, explicitly enable recovery again
+on the new home network. A normal install does not grant this optional permission or enable recovery.
+The first grant and recovery on this Chromecast must be verified over ADB before relying on it.
+
 Recovery steps:
 
 - **The launcher misbehaves or its API stops answering.** The hub falls back to tv-remote on the
@@ -130,6 +157,12 @@ Every `/api` call carries the token as `X-LR-Key` (or `?k=`); without it the ans
 `tv.volume`, `tv.volumeMax` and `tv.muted` are Android's music stream. With HDMI-CEC volume
 control the Chromecast's own volume may be fixed (`tv.volumeFixed`): then the steps and mute go to
 the TV over CEC, but there is no level to read or set.
+
+`{"type":"settings"}` opens Chromecast Settings. `{"type":"search","pkg":"com.google.android.youtube.tv","text":"…"}`
+opens the chosen installed app's search using its Android search intent (YouTube also supports
+its search URL). Queries are limited to 200 characters. Apps without a compatible search entry
+return `ok:false`; the remote explains how to use the app's search field and Type into the TV.
+App searches never fall through to Google TV's global search.
 
 Commands:
 

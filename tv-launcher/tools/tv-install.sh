@@ -14,10 +14,12 @@ export ANDROID_HOME=${ANDROID_HOME:-$HOME/Library/Android/sdk}
 [[ -n ${ANDROID_SERIAL:-} ]] || { echo "Set ANDROID_SERIAL to the TV’s adb serial/address." >&2; exit 1; }
 no_build=0
 keep_stock=0
+keep_adb=0
 for arg in "$@"; do
   case $arg in
     --no-build) no_build=1 ;;
     --keep-stock-home) keep_stock=1 ;;
+    --keep-adb) keep_adb=1 ;;
     *) echo "Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
@@ -58,6 +60,11 @@ for i in {1..30}; do
   sleep 0.5
 done
 echo
+if (( keep_adb )); then
+  echo "Allowing wireless debugging recovery on the current home Wi-Fi network…"
+  adb shell pm grant "$pkg" android.permission.WRITE_SECURE_SETTINGS
+  python3 "$root/tools/tv-debugging.py" enable --adb
+fi
 if (( keep_stock )); then
   echo "Installed as a regular app; existing Home settings were left as they were."
 else

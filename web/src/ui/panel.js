@@ -1250,8 +1250,8 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     const now = h('div.tv-now', nowLogo, h('div.tv-now-text', h('span', 'Now on'), nowName),
       h('button.tv-now-home', { 'aria-label': 'Home screen', title: 'Home screen', onclick: () => { haptic('light'); key('home'); } }, icon('home', 16, 2)));
 
-    const appButtons = new Map(APPS.map((a) => [a.id, h('button.tv-app', { 'aria-label': `Open ${a.name}`, title: a.name, onclick: () => open(a) },
-      h('span.tv-app-icon', logoSVG(a, 58), h('i.tv-app-dot')), h('span.tv-app-name', a.name))]));
+    const appButtons = new Map(APPS.map((a) => [a.id, h('button.tv-app', { 'aria-label': `Open ${a.name}`, title: a.name, onclick: () => { selectSearchApp(a.id); open(a); } },
+      h('span.tv-app-icon', logoSVG(a, 58, true), h('i.tv-app-dot')), h('span.tv-app-name', a.name))]));
     const apps = h('div.tv-apps', [...appButtons.values()]);
 
     // Back, Home, Play/Pause and Mute down the left of the swipe pad, the volume down its right.
@@ -1270,6 +1270,31 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
           icon('play', 14, 2.4), icon('pause', 14, 2.4)), muteBtn),
       pad.el,
       volumeRow);
+    const settings = h('button.tv-settings', { 'aria-label': 'Open Chromecast Settings', onclick: () => key('settings') }, icon('settings', 16, 2), 'Settings');
+    const remoteCard = h('section.tv-remote-card', { 'aria-label': 'TV remote controls' },
+      h('div.tv-remote-heading', h('b', 'Remote'), settings), remote);
+
+    const searchApp = h('select.tv-search-app', { 'aria-label': 'App to search' },
+      APPS.map((app) => h('option', { value: app.id }, app.name)));
+    const appQuery = h('input.tv-search-input', { type: 'search', maxlength: 200, placeholder: 'Search YouTube on TV', 'aria-label': 'Search selected app on TV' });
+    const appSubmit = h('button.tv-app-search-submit', { type: 'submit', 'aria-label': 'Search selected app on TV' }, icon('search', 18, 2));
+    function selectSearchApp(app) {
+      if (!APPS.some((a) => a.id === app)) return;
+      searchApp.value = app;
+      appQuery.placeholder = `Search ${APPS.find((a) => a.id === app).name} on TV`;
+    }
+    searchApp.onchange = () => selectSearchApp(searchApp.value);
+    const appSearch = h('form.tv-app-search', { onsubmit: async (event) => {
+      event.preventDefault();
+      const text = appQuery.value.trim();
+      if (!text || appSubmit.disabled) return;
+      const app = APPS.find((a) => a.id === searchApp.value);
+      appSubmit.disabled = true;
+      try {
+        if (await tv.act(id, { action: 'app-search', app: app.id, text })) toast(`Searching ${app.name} on the TV`, null, { note: true });
+      } finally { appSubmit.disabled = false; }
+    } }, searchApp, h('div.tv-search', icon('search', 17, 2), appQuery, appSubmit));
+    selectSearchApp(d()?.app?.id || 'youtube');
 
     const search = createSearch({
       search: (q) => tv.search(q),
@@ -1281,8 +1306,8 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     const problemText = h('span');
     const problem = h('div.sheet-note.tv-problem', { hidden: true }, icon('offline', 18, 2), problemText);
     // What's on, then the remote within a thumb's reach; the apps and search further down.
-    const scroll = h('div.tv-scroll.sheet-scroll', problem, playing.el, now, remote,
-      h('div.tv-label', 'Apps'), apps, h('div.tv-label', 'Search'), search.el);
+    const scroll = h('div.tv-scroll.sheet-scroll', problem, playing.el, now, remoteCard,
+      h('div.tv-label', 'Apps'), apps, appSearch, h('div.tv-label', 'Movies & shows'), search.el);
 
     return {
       nodes: [sheetHead(name, sub, powerBtn), scroll],
@@ -1306,6 +1331,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
         name.textContent = tvName(id);
         powerBtn.classList.toggle('on', on);
         powerBtn.disabled = !tv.state.available || !dev?.online;
+        settings.disabled = !available;
         powerBtn.title = powerBtn.disabled ? (tv.state.error || 'The TV can’t be reached') : on ? 'Turn the TV off' : 'Turn the TV on';
         const glow = on ? glowOf(app) : null;
         sub.replaceChildren(

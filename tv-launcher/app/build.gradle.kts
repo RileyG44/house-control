@@ -14,8 +14,8 @@ android {
         applicationId = "com.livingroom.tv"
         minSdk = 33
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = 3
+        versionName = "0.1.2"
     }
 
     buildTypes {
@@ -47,6 +47,7 @@ kotlin {
 dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     val composeBom = platform("androidx.compose:compose-bom:2025.12.01")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")

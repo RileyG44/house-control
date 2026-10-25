@@ -547,3 +547,36 @@ def test_the_hub_has_the_tv_read_its_rows_again_for_new_picks(tmp_path, monkeypa
             await lr.close()
             await server.close()
     asyncio.run(go())
+
+
+def test_app_search_stays_in_selected_app_and_settings_opens(tmp_path, monkeypatch):
+    async def go():
+        fake, lr, server, state, sent, hub, client = await hub_with_launcher(tmp_path, monkeypatch)
+        post = lambda body: client.post(f"/api/tv/{TV_ID}", json=body)
+        try:
+            await client.get("/api/tv")
+            assert (await post({"action": "settings"})).status == 200
+            assert fake.sent[-1] == {"type": "launch", "pkg": "com.android.tv.settings"}
+            assert (await post({"action": "app-search", "app": "youtube", "text": "  space & science  "})).status == 200
+            assert fake.sent[-1] == {"type": "search", "pkg": "com.google.android.youtube.tv", "text": "space & science"}
+            for body in (
+                {"action": "app-search", "app": "com.other.app", "text": "test"},
+                {"action": "app-search", "app": "youtube", "text": " "},
+                {"action": "app-search", "app": "youtube", "text": "x" * 201},
+            ):
+                assert (await post(body)).status == 400
+            # Unsupported app searches must never fall through to Google TV's global search.
+            original = fake.run
+            fake.run = lambda command: False if command.get("type") == "search" else original(command)
+            response = await post({"action": "app-search", "app": "netflix", "text": "Dune"})
+            assert response.status == 409
+            assert "Netflix" in (await response.json())["error"]
+            assert sent == []
+            fake.broken = True
+            assert (await post({"action": "app-search", "app": "youtube", "text": "Dune"})).status == 503
+            assert sent == []
+        finally:
+            await client.close()
+            await server.close()
+            await lr.close()
+    run(go())

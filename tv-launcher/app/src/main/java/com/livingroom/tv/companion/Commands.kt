@@ -2,6 +2,8 @@ package com.livingroom.tv.companion
 
 import android.content.Context
 import android.content.Intent
+import android.app.SearchManager
+import android.provider.Settings
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Handler
@@ -34,6 +36,9 @@ object Commands {
             "media" -> onMain { MediaWatcher.command(cmd.optString("action"), cmd.optLong("ms", 10_000)) }
             "seek" -> cmd.has("positionMs") && onMain { MediaWatcher.seekTo(cmd.optLong("positionMs")) }
             "launch" -> onMain { Graph.apps.launch(cmd.optString("pkg")) }
+            "settings" -> onMain { settings(context) }
+            "debug-recovery" -> Graph.debugging.configure(cmd.optBoolean("enabled", false))
+            "search" -> onMain { search(context, cmd.optString("pkg"), cmd.optString("text")) }
             "open" -> onMain { open(context, cmd.optString("url"), cmd.optString("pkg")) }
             // One of the apps' own recommendations this launcher read from the TV provider.
             "recommendation" -> onMain { Graph.recommendations.open(context, cmd.optString("id")) }
@@ -61,6 +66,28 @@ object Commands {
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
             )
         }.isSuccess
+    }
+
+    fun settings(context: Context): Boolean = runCatching {
+        context.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }.isSuccess
+
+    /** Only the chosen installed app receives the query. Never fall through to global search. */
+    private fun search(context: Context, pkg: String, text: String): Boolean {
+        val query = text.trim()
+        if (query.isEmpty() || query.length > 200 || Graph.apps.find(pkg) == null) return false
+        val intents = listOf(
+            Intent(Intent.ACTION_SEARCH).putExtra(SearchManager.QUERY, query),
+            Intent("com.google.android.gms.actions.SEARCH_ACTION").putExtra(SearchManager.QUERY, query),
+        ) + if (pkg == "com.google.android.youtube.tv") listOf(
+            Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query=${Uri.encode(query)}"))
+        ) else emptyList()
+        for (intent in intents) {
+            intent.setPackage(pkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (intent.resolveActivity(context.packageManager) == null) continue
+            if (runCatching { context.startActivity(intent) }.isSuccess) return true
+        }
+        return false
     }
 
     /**

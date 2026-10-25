@@ -53,7 +53,7 @@ fun HomePresets(
     onRun: (Scene) -> Unit,
 ) {
     LazyRow(
-        modifier = Modifier.fillMaxWidth().focusRestorer(),
+        modifier = Modifier.fillMaxWidth().homeRowFade().focusRestorer(),
         contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 2.dp, bottom = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,

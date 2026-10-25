@@ -111,10 +111,19 @@ class FakeLauncher:
             t["screen"] = "app"
         elif kind in ("wake", "sleep", "power"):
             t["awake"] = kind == "wake" or (kind == "power" and not t["awake"])
-        elif kind == "launch":
-            if cmd.get("pkg") not in APPS:
+        elif kind == "settings":
+            t["foreground"] = {"pkg": "com.android.tv.settings", "label": "Settings"}
+        elif kind == "search":
+            if cmd.get("pkg") not in APPS or not cmd.get("text", "").strip():
                 return False
             t["foreground"] = {"pkg": cmd["pkg"], "label": APPS[cmd["pkg"]]}
+        elif kind == "launch":
+            if cmd.get("pkg") == "com.android.tv.settings":
+                t["foreground"] = {"pkg": cmd["pkg"], "label": "Settings"}
+            elif cmd.get("pkg") not in APPS:
+                return False
+            else:
+                t["foreground"] = {"pkg": cmd["pkg"], "label": APPS[cmd["pkg"]]}
             t["screen"] = "app"
         elif kind == "open":
             url, pkg = cmd.get("url") or "", cmd.get("pkg")

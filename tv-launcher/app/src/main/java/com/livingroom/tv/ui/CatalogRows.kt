@@ -113,7 +113,7 @@ fun ShelfRow(
     Column {
         Text(shelf.title, fontSize = 13.sp, color = Color.White.copy(alpha = .8f), modifier = Modifier.padding(start = 48.dp, top = 4.dp))
         LazyRow(
-            modifier = Modifier.fillMaxWidth().focusRestorer(),
+            modifier = Modifier.fillMaxWidth().homeRowFade().focusRestorer(),
             contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(13.dp),
         ) {

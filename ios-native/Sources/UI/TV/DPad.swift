@@ -24,8 +24,9 @@ struct DPad: View {
         let okR = r * okFraction
         ZStack {
             Circle()
-                .fill(.clear)
-                .glassEffect(.regular, in: .circle)
+                .fill(LinearGradient(colors: [Color(hex: "#fafaf7"), Color(hex: "#e9e9e5")], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .overlay(Circle().strokeBorder(Color.black.opacity(0.12)))
+                .shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 3)
             // The pressed quarter lights up.
             ForEach(directions, id: \.key) { d in
                 Quarter(angle: d.angle, inner: (okR + 6) / r)
@@ -38,7 +39,7 @@ struct DPad: View {
                     .offset(x: cos(d.angle.radians) * (r - 30), y: sin(d.angle.radians) * (r - 30))
             }
             Circle()
-                .fill(pressed == "ok" ? Color.accentColor.opacity(0.85) : Color.fillHi)
+                .fill(pressed == "ok" ? Color.accentColor.opacity(0.85) : Color(hex: "#f6f6f2"))
                 .overlay(Circle().strokeBorder(Color.line))
                 .frame(width: okR * 2, height: okR * 2)
                 .overlay(Text("OK").font(.system(size: 19, weight: .bold, design: .rounded))

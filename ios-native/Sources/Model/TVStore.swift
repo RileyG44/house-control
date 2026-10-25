@@ -454,6 +454,13 @@ final class TVStore {
         // "play" with an app is a search result to play: the hub checks its link.
         if let c = Self.launcherKeys[action], body["app"] == nil { return c }
         switch action {
+        case "settings":
+            return .object(["type": .string("launch"), "pkg": .string("com.android.tv.settings")])
+        case "app-search":
+            guard let appID = body["app"]?.string, let pkg = TVCatalog.info(id: appID)?.package,
+                  let text = body["text"]?.string, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  text.count <= 200 else { return nil }
+            return .object(["type": .string("search"), "pkg": .string(pkg), "text": .string(text)])
         case "volume":
             // A fixed volume has no level to set here: tv-remote sets it, through the hub.
             guard !link.volumeFixed, let level = body["level"]?.int, level >= 0, level <= (link.device.volumeMax ?? 100) else { return nil }

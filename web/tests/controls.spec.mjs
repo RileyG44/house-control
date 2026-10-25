@@ -251,3 +251,20 @@ test('a preset can start a Spotify playlist on a chosen speaker, kept through re
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(async () => 'spotify' in ((await data(request)).plan.scenes.find((s) => s.id === 'movie') || {})).toBe(false);
 });
+
+
+test('TV app search targets its app and Settings stays accessible', async ({ page, request }) => {
+  await page.locator('.tile.tv .tile-name').click();
+  await expect(page.getByRole('region', { name: 'TV remote controls' })).toBeVisible();
+  await page.getByRole('button', { name: 'Open Chromecast Settings' }).click();
+  await expect.poll(async () => (await data(request)).sent.some((s) => s.action === 'settings')).toBe(true);
+  await page.getByRole('button', { name: 'Open YouTube', exact: true }).click();
+  await expect(page.getByLabel('App to search')).toHaveValue('youtube');
+  await page.getByRole('searchbox', { name: 'Search selected app on TV' }).fill('space & science');
+  await page.getByRole('searchbox', { name: 'Search selected app on TV' }).press('Enter');
+  await expect.poll(async () => (await data(request)).sent.filter((s) => s.action === 'app-search')).toContainEqual({ route: 'tv', action: 'app-search', app: 'youtube', text: 'space & science' });
+  await page.getByLabel('App to search').selectOption('netflix');
+  await expect(page.getByRole('searchbox', { name: 'Search selected app on TV' })).toHaveAttribute('placeholder', 'Search Netflix on TV');
+  await page.getByRole('button', { name: 'Search selected app on TV', exact: true }).click();
+  await expect.poll(async () => (await data(request)).sent.filter((s) => s.action === 'app-search')).toContainEqual({ route: 'tv', action: 'app-search', app: 'netflix', text: 'space & science' });
+});

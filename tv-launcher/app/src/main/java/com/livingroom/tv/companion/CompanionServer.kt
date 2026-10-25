@@ -70,6 +70,7 @@ class CompanionServer(
     }
 
     private fun api(session: IHTTPSession): Response = when (session.uri) {
+        "/api/debugging" -> json(Graph.debugging.status())
         "/api/state" -> {
             val since = session.parameters["since"]?.firstOrNull()?.toLongOrNull() ?: -1L
             hub.awaitChange(since, 25_000)
@@ -104,7 +105,7 @@ class CompanionServer(
             }
             if (body.has("location")) {
                 prefs.location = body.optJSONObject("location")
-                Graph.weather.refreshSoon(Graph.scope)
+                Graph.weather.refreshSoon()
             }
             hub.bump()
             if (hubOk) json(JSONObject().put("ok", true))

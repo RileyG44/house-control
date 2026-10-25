@@ -66,7 +66,7 @@ fun WeatherOverlay(onClose: () -> Unit) {
                     Text("Your forecast", fontSize = 13.sp, color = Color.White.copy(alpha = .55f))
                 }
                 WeatherButton(if (refreshing) "Refreshing…" else "Refresh", enabled = !refreshing) {
-                    Graph.weather.refreshSoon(Graph.scope)
+                    Graph.weather.refreshSoon()
                 }
                 Spacer(Modifier.width(14.dp))
                 WeatherButton("Back", Modifier.focusRequester(back), onClick = onClose)

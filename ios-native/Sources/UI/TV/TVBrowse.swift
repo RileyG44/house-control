@@ -10,7 +10,7 @@ struct TVBrowse: View {
     /// Plays a title on the TV: in the app of `offer` when one was picked in its sheet, else its own.
     var onPlay: (BrowseTile, TitleDetails.Offer?) -> Void
     @Environment(HomeStore.self) private var store
-    @State private var chip = Self.forYou
+    @Binding var chip: String
     @State private var rowKey: [String: String] = [:]
     /// More pages of a row, by "app:row", and the rows that have no more.
     @State private var extra: [String: [BrowseTile]] = [:]
@@ -27,8 +27,12 @@ struct TVBrowse: View {
 
     var body: some View {
         let catalog = store.tv.browse
+        let searchApp = TVCatalog.info(id: chip)
+            ?? store.tv.device(id)?.app.flatMap { TVCatalog.info(id: $0.id) }
+            ?? TVCatalog.apps[0]
         VStack(alignment: .leading, spacing: 12) {
             chips(catalog)
+            TVAppSearch(id: id, app: searchApp.package != nil ? searchApp : TVCatalog.apps[0]).id(searchApp.id)
             if let catalog {
                 content(catalog)
             } else if case .failed(let why) = phase {
@@ -63,8 +67,8 @@ struct TVBrowse: View {
                 ForEach(catalog?.apps ?? []) { app in
                     chipButton(app.id, selected: chip == app.id) {
                         HStack(spacing: 6) {
-                            AppLogo(app: TVCatalog.info(id: app.id) ?? TVCatalog.other, size: 20)
-                                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                            AppLogo(app: TVCatalog.info(id: app.id) ?? TVCatalog.other, size: 20, monochrome: true)
+                                .clipShape(Circle())
                             Text(app.name)
                         }
                     }
@@ -101,27 +105,30 @@ struct TVBrowse: View {
     private func content(_ catalog: BrowseCatalog) -> some View {
         if let app = catalog.apps.first(where: { $0.id == chip }) {
             let key = rowKey[app.id] ?? app.rows.first?.key ?? ""
-            let row = app.rows.first { $0.key == key } ?? app.rows[0]
-            if app.rows.count > 1 {
-                Picker("Row", selection: Binding(get: { row.key }, set: { rowKey[app.id] = $0 })) {
-                    ForEach(app.rows) { r in Text(r.label).tag(r.key) }
-                }
-                .pickerStyle(.segmented)
-            }
-            let k = "\(app.id):\(row.key)"
-            grid(row.items + (extra[k] ?? []))
-            if !ended.contains(k), row.items.count >= 20 || row.key == "new" {
-                Button { Task { await more(app: app.id, row: row.key, base: row.items) } } label: {
-                    HStack(spacing: 8) {
-                        if loadingMore { ProgressView() }
-                        Text(loadingMore ? "Loading…" : "More \(row.label.lowercased()) on \(app.name)")
+            if let row = app.rows.first(where: { $0.key == key }) ?? app.rows.first {
+                if app.rows.count > 1 {
+                    Picker("Row", selection: Binding(get: { row.key }, set: { rowKey[app.id] = $0 })) {
+                        ForEach(app.rows) { r in Text(r.label).tag(r.key) }
                     }
-                    .frame(maxWidth: .infinity)
+                    .pickerStyle(.segmented)
                 }
-                .buttonStyle(.glass)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(Color.ink)
-                .disabled(loadingMore)
+                let k = "\(app.id):\(row.key)"
+                grid(row.items + (extra[k] ?? []))
+                if !ended.contains(k), row.items.count >= 20 || row.key == "new" {
+                    Button { Task { await more(app: app.id, row: row.key, base: row.items) } } label: {
+                        HStack(spacing: 8) {
+                            if loadingMore { ProgressView() }
+                            Text(loadingMore ? "Loading…" : "More \(row.label.lowercased()) on \(app.name)")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.glass)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Color.ink)
+                    .disabled(loadingMore)
+                }
+            } else {
+                Text("No recommendations right now. Search \(app.name) above.").font(.subheadline).foregroundStyle(Color.muted)
             }
         } else if catalog.forYou.isEmpty {
             Text(catalog.apps.isEmpty ? "Nothing to show from the TV’s apps right now." : "Pick an app to see what’s on it.")
