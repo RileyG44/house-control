@@ -184,9 +184,19 @@ Use each title's usual English name and first release year. No explanations, no 
 
 # ---------- Codex ----------
 
+def find_codex(codex: str = "codex") -> str | None:
+    """The Codex to run: on the PATH, else where its installer puts it (~/.local/bin on the Dell,
+    an nvm Node's bin on the Mac, the newest Node first). The house agent (agent.py) uses it too."""
+    found = shutil.which(codex) or shutil.which(codex, path=str(Path.home() / ".local/bin"))
+    if found or os.sep in codex:
+        return found
+    nvm = sorted(Path.home().glob(f".nvm/versions/node/*/bin/{codex}"), reverse=True)
+    return next((str(p) for p in nvm if os.access(p, os.X_OK)), None)
+
+
 def ask_codex(text: str, codex: str = "codex") -> str:
     """Codex's last message for `text`, run read-only in an empty folder, keeping no session."""
-    exe = shutil.which(codex) or shutil.which(codex, path=str(Path.home() / ".local/bin"))
+    exe = find_codex(codex)
     if not exe:
         raise PicksError("Codex isn't installed for this user: install it, then run `codex login` once")
     with tempfile.TemporaryDirectory() as tmp:

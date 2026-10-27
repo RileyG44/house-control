@@ -16,6 +16,10 @@ struct HomeScreen: View {
                 StageView(size: CGSize(width: geo.size.width, height: geo.size.height + geo.safeAreaInsets.top + geo.safeAreaInsets.bottom),
                           safeTop: geo.safeAreaInsets.top)
                     .ignoresSafeArea()
+                AskButton()
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.top, 6)
+                    .padding(.trailing, 18)
                 ToastView()
                     .padding(.top, 6)
             }
@@ -42,6 +46,31 @@ extension CardMetrics {
         screenHeight = h
         safeTop = insets.top
         safeBottom = insets.bottom
+    }
+}
+
+/// The house agent's mic, in the top corner over the 3D home: it opens VoiceSheet, listening. The
+/// sheet goes over the card (the card presents it), so the home stays as it was underneath.
+struct AskButton: View {
+    @Environment(CardModel.self) private var card
+    @Environment(HubClient.self) private var hub
+
+    private var connected: Bool { if case .connected = hub.link { return true }; return false }
+
+    var body: some View {
+        Button {
+            Haptics.light()
+            card.asking = true
+        } label: {
+            Image(systemName: "mic.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .frame(width: 30, height: 30)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .disabled(!connected)
+        .opacity(connected ? 1 : 0.5)
+        .accessibilityLabel("Ask the house")
     }
 }
 

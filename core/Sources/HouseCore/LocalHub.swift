@@ -68,11 +68,11 @@ public struct LocalHubClient: Sendable {
     }
 
     /// Whether the panel may reach `path` on the hub through the app (`hubRequest`): only
-    /// the TV, Spotify and weather routes. The rest
+    /// the TV, Spotify, weather and house agent routes. The rest
     /// of the hub has its own native calls.
     public static func allows(path: String) -> Bool {
         let path = path.hasPrefix("/") ? String(path.dropFirst()) : path
-        if path == "api/weather" || path == "api/spotify" { return true }
+        if path == "api/weather" || path == "api/spotify" || path == "api/agent" { return true }
         if path == "api/spotify/playlists" { return true }
         if path.hasPrefix("api/spotify/playlists?") {
             guard !path.contains("#"), !path.contains("\\"),
@@ -99,8 +99,9 @@ public struct LocalHubClient: Sendable {
         }
         var request = URLRequest(url: url)
         request.httpMethod = method.uppercased() == "POST" ? "POST" : "GET"
-        // An app launch waits for a sleeping TV, and the catalog search reaches JustWatch.
-        request.timeoutInterval = 25
+        // An app launch waits for a sleeping TV, and the catalog search reaches JustWatch. The
+        // house agent (hub/agent.py) answers when it is done, within 120 s.
+        request.timeoutInterval = relative == "api/agent" ? 135 : 25
         if request.httpMethod == "POST" {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             let json: [String: Any] = body.map { JSONSerialization.isValidJSONObject($0) ? $0 : [:] } ?? [:]

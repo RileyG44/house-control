@@ -29,6 +29,8 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         ITSAppUsesNonExemptEncryption: false
         NSLocalNetworkUsageDescription: House talks to the House Control hub, and straight to your TV, over this Wi-Fi network to switch your lights, air conditioner and TV.
+        NSMicrophoneUsageDescription: House listens when you tap the mic, so you can tell the house what to do.
+        NSSpeechRecognitionUsageDescription: House turns what you say into a request for the house, on this iPhone when it can.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         CFBundleURLTypes:

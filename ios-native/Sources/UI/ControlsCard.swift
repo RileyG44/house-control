@@ -21,6 +21,7 @@ struct ControlsCard: View {
                     }
                 }
         }
+        .sheet(isPresented: $card.asking) { VoiceSheet() }
         .background(alignment: .top) {
             SheetProbe { card.sheetMoved(top: $0) }
                 .frame(height: 1)

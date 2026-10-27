@@ -390,6 +390,7 @@ html.glass .deck { background: color-mix(in srgb, var(--deck) 95%, transparent);
 .home-name { font-size: 23px; font-weight: 300; letter-spacing: -0.015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .home-sub { margin-top: 2px; font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .home-sub b { color: var(--text); font-weight: 600; }
+.home-sub > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .live { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 8px #4ade80; flex: none; }
 .live.idle { background: var(--idle); box-shadow: none; }
 
@@ -891,6 +892,51 @@ html.glass .deck { background: color-mix(in srgb, var(--deck) 95%, transparent);
 @keyframes ai-glow { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
 
 [hidden] { display: none !important; }
+
+/* The house agent: the voice button, and the card under the header (ui/voice.js). */
+.round.agent-button.on, .round.agent-mic.on {
+  color: var(--accent-on); background: var(--accent); border-color: transparent;
+  box-shadow: 0 0 0 4px var(--accent-soft);
+  animation: agent-listen 1.4s ease-in-out infinite;
+}
+@keyframes agent-listen { 0%, 100% { box-shadow: 0 0 0 3px var(--accent-soft); } 50% { box-shadow: 0 0 0 7px var(--accent-soft); } }
+.agent-card {
+  margin: 12px 0 2px; padding: 10px; border-radius: 20px;
+  background: var(--glass); border: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 8px;
+  user-select: text; -webkit-user-select: text;
+  animation: agent-in 260ms var(--ease);
+}
+@keyframes agent-in { from { opacity: 0; transform: translateY(-6px); } }
+.agent-row { display: flex; align-items: center; gap: 6px; }
+.agent-row .round { width: 34px; height: 34px; }
+.agent-input {
+  flex: 1; min-width: 0; height: 38px; padding: 0 14px; border-radius: 999px;
+  font: inherit; font-size: 15px; color: var(--text);
+  background: var(--well); border: 1px solid var(--well-line); outline: none;
+}
+.agent-input::placeholder { color: var(--faint); }
+.agent-input:focus { border-color: var(--accent-line); }
+.agent-card.listening .agent-input { border-color: var(--accent-line); }
+.agent-send:disabled { opacity: 0.45; }
+.agent-status { display: flex; align-items: center; gap: 6px; padding: 0 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.agent-status:empty { display: none; }
+.agent-status.listening { color: var(--accent-ink); }
+.agent-status.error { color: var(--danger-ink); }
+.agent-status.busy .icon, .agent-steps li.running .icon { animation: agent-spin 0.9s linear infinite; }
+@keyframes agent-spin { to { transform: rotate(360deg); } }
+.agent-steps { list-style: none; margin: 0; padding: 0 6px; display: flex; flex-direction: column; gap: 4px; }
+.agent-steps:empty { display: none; }
+.agent-steps li { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); }
+.agent-steps li .icon { flex: none; color: var(--accent-ink); }
+.agent-steps li.running .icon { color: var(--faint); }
+.agent-steps li.failed { color: var(--danger-ink); }
+.agent-steps li.failed .icon { color: var(--danger-ink); }
+.agent-reply { margin: 0; padding: 2px 6px 4px; font-size: 15px; line-height: 1.4; color: var(--text); }
+.agent-reply:empty { display: none; }
+.agent-reply.error { color: var(--danger-ink); }
+html.ios .agent-row .round { width: 38px; height: 38px; }
+html.ios .agent-input { height: 42px; font-size: 16px; } /* 16 px: Safari doesn't zoom into it */
 
 /* ---------- sheets ---------- */
 

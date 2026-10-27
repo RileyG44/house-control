@@ -158,6 +158,8 @@ if (isHub) {
       incoming.tvState?.(update.tv); // the TV (hub/tv.py), for tv/client.js
     } else if (update.weather) {
       incoming.weather?.(update.weather); // the weather at the house (hub/weather.py), for sky/weather.js
+    } else if (update.agent) {
+      incoming.agent?.(update.agent); // a request to the house agent (hub/agent.py), for ui/voice.js
     } else incoming.applyRemote?.(update);
   };
 }

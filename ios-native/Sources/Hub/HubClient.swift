@@ -43,6 +43,8 @@ final class HubClient {
     @ObservationIgnored var onTV: ((JSON) -> Void)?
     /// The weather at the plan's site changed (hub/weather.py): the reading, or `{"kind": null}`.
     @ObservationIgnored var onWeather: ((JSON) -> Void)?
+    /// A request to the house agent moved on (hub/agent.py): its steps, state and reply, for every screen.
+    @ObservationIgnored var onAgent: ((JSON) -> Void)?
     @ObservationIgnored var onPlanChanged: (() -> Void)?
     /// A fresh connection: the plan should be read again.
     @ObservationIgnored var onConnected: ((URL) -> Void)?
@@ -58,6 +60,15 @@ final class HubClient {
     private let session: URLSession = {
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 12
+        c.requestCachePolicy = .reloadIgnoringLocalCacheData
+        c.waitsForConnectivity = false
+        return URLSession(configuration: c)
+    }()
+
+    /// For a request the hub answers only when it is done (the house agent: up to 120 s).
+    private let slowSession: URLSession = {
+        let c = URLSessionConfiguration.default
+        c.timeoutIntervalForRequest = 140
         c.requestCachePolicy = .reloadIgnoringLocalCacheData
         c.waitsForConnectivity = false
         return URLSession(configuration: c)
@@ -251,6 +262,8 @@ final class HubClient {
                     onTV?(tv)
                 } else if let weather = msg["weather"] {
                     onWeather?(weather)
+                } else if let agent = msg["agent"] {
+                    onAgent?(agent)
                 } else {
                     onDevices?(msg)
                 }
@@ -280,20 +293,22 @@ final class HubClient {
         return json
     }
 
-    func post(_ path: String, _ body: JSON) async throws -> JSON {
+    /// `slow`: the hub answers when it is done, which can take minutes rather than seconds (the house agent).
+    func post(_ path: String, _ body: JSON, slow: Bool = false) async throws -> JSON {
         var req = URLRequest(url: try url(path))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = body.data()
-        let (data, _) = try await send(req)
+        if slow { req.timeoutInterval = 140 }
+        let (data, _) = try await send(req, on: slow ? slowSession : session)
         guard let json = JSON.parse(data) else { throw HubError(message: "The hub answered something unreadable") }
         if let e = json["error"]?.string, !e.isEmpty { throw HubError(message: e) }
         return json
     }
 
-    private func send(_ req: URLRequest) async throws -> (Data, URLResponse) {
+    private func send(_ req: URLRequest, on session: URLSession? = nil) async throws -> (Data, URLResponse) {
         do {
-            return try await session.data(for: req)
+            return try await (session ?? self.session).data(for: req)
         } catch is CancellationError {
             throw CancellationError()
         } catch {

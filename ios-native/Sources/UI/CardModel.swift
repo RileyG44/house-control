@@ -77,6 +77,8 @@ final class CardModel {
     @ObservationIgnored private var settle: Task<Void, Never>?
     /// Rooms being put in order (the list becomes one row per room).
     var arrangingRooms = false
+    /// The house agent's card is up (VoiceSheet), over this one.
+    var asking = false
 
     var route: Route? { path.last }
     var tvOpen: String? { if case .tv(let id)? = path.last { return id }; return nil }
@@ -123,7 +125,7 @@ final class CardModel {
     // MARK: - deep links and launch arguments (screenshots, Shortcuts): only what is shown
 
     /// housenative://open?device=tv:<id> | light:<id> | ac:<id> · housenative://card?detent=expanded
-    /// · housenative://theme?choice=light · housenative://home
+    /// · housenative://theme?choice=light · housenative://home · housenative://ask (the house agent, listening)
     func open(url: URL, store: HomeStore, theme: ThemeStore) {
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         let q = { (k: String) in items.first { $0.name == k }?.value }
@@ -132,6 +134,7 @@ final class CardModel {
         case "card": detent = q("detent") == "expanded" ? .expanded : .rest
         case "theme": if let c = q("choice").flatMap(ThemeStore.Choice.init(rawValue:)) { theme.choice = c }
         case "home": path = []
+        case "ask": asking = true
         default: break
         }
     }

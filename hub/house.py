@@ -32,6 +32,7 @@ import aiohttp
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+import agent as agents  # noqa: E402
 import catalog as catalogs  # noqa: E402
 import history  # noqa: E402
 from history import WatchLog  # noqa: E402
@@ -123,6 +124,8 @@ class Hub:
         self._push_task: asyncio.Task | None = None
         # The weather at the plan's `site` (weather.py), for the panels' sky.
         self.weather = Weather(lambda: self.plan, self._publish)
+        # Requests in words, run by Codex with the house tools (agent.py, docs/voice-agent.md).
+        self.agent = agents.Agent(self)
 
     # ---------- files ----------
 
@@ -617,6 +620,13 @@ def _local_backend(host: str) -> bool:
     return name in {"127.0.0.1", "localhost", "::1"}
 
 
+def _local_only(request) -> bool:
+    """A program on this computer (the MCP server Codex starts), not a panel: loopback, and not
+    passed on by Tailscale Serve, which also connects from loopback but says whom it forwards."""
+    forwarded = any(request.headers.get(h) for h in ("X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Host"))
+    return _loopback(request.remote) and not forwarded
+
+
 def panel_origin_ok(request) -> bool:
     """The panel this hub served may send commands. Another site on the LAN may not.
 
@@ -826,6 +836,37 @@ def make_app(hub: Hub) -> web.Application:
     async def weather(_):
         return web.json_response(hub.weather.current(), headers={"Cache-Control": "no-store"})
 
+    # ---------- the house agent (agent.py) ----------
+
+    async def agent_ask(request):
+        try:
+            body = await request.json()
+        except ValueError:
+            return web.json_response({"error": "Send JSON"}, status=400)
+        if not isinstance(body, dict):
+            return web.json_response({"error": 'Send {"text": …}'}, status=400)
+        client = body.get("client") if isinstance(body.get("client"), str) else None
+        result, status = await hub.agent.ask(body.get("text"), client=client and client[:80], from_peer=body.get("fromPeer") is True)
+        return web.json_response(result, status=status)
+
+    async def agent_tools(request):
+        # For agent_mcp.py on this computer only: the tools act on the home without a panel.
+        if not _local_only(request):
+            return web.json_response({"error": "Only on the hub computer itself"}, status=403)
+        return web.json_response({"tools": agents.TOOLS})
+
+    async def agent_tool(request):
+        if not _local_only(request):
+            return web.json_response({"error": "Only on the hub computer itself"}, status=403)
+        try:
+            args = await request.json() if request.can_read_body else {}
+        except ValueError:
+            return web.json_response({"error": "Send the arguments as JSON"}, status=400)
+        name = request.match_info["name"]
+        result = await hub.agent.tools.call(name, args)
+        hub.agent.heard(name, args, result)
+        return web.json_response(result)
+
     async def plan(_):
         return web.json_response(hub.plan, headers={"Cache-Control": "no-store", "X-Plan-Rev": str(hub.plan_rev)})
 
@@ -914,6 +955,9 @@ def make_app(hub: Hub) -> web.Application:
     app.router.add_post("/api/tv/{id}", tv_action)
     app.router.add_get("/api/plan", plan)
     app.router.add_get("/api/weather", weather)
+    app.router.add_post("/api/agent", agent_ask)
+    app.router.add_get("/api/agent/tools", agent_tools)
+    app.router.add_post("/api/agent/tool/{name}", agent_tool)
     app.router.add_post("/api/rescan", rescan)
     app.router.add_post("/api/mrcool", mrcool_key)
     app.router.add_post("/api/aidot", aidot_login)

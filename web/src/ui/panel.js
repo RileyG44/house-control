@@ -20,6 +20,7 @@ import { spotify, createSpotifyRemote } from '../media/spotify.js';
 import { createReorder, flip } from './reorder.js';
 import { createDeck } from './deck.js';
 import { cycleTheme, themeChoice, resolved, onTheme } from './theme.js';
+import { createVoice, voiceAvailable } from './voice.js';
 
 const MODE_LABEL = { cool: 'Cool', heat: 'Heat', dry: 'Dry', fan: 'Fan', auto: 'Auto' };
 const FAN_LABEL = { auto: 'Auto', low: 'Low', medium: 'Medium', high: 'High', turbo: 'Turbo' };
@@ -100,6 +101,8 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
   // Shown while an AI assistant has a link to this home (AI Access on the Mac).
   const aiBadge = h('button.ai-badge', { hidden: true, title: 'An AI assistant has access — click to manage', 'aria-label': 'AI access',
     onclick: () => onMenu(aiBadge, 'agent') }, icon('sparkles', 13, 2.2), h('span', 'AI'));
+  // Say or type what you want, for the hub's agent (ui/voice.js): only where a hub runs it.
+  const voice = voiceAvailable ? createVoice() : null;
 
   const sceneTrack = h('div.scene-track');
   const scenes = h('div.scenes', sceneTrack);
@@ -107,13 +110,13 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
   const listTitle = h('span.title');
   const grid = h('div.grid');
   const said = h('div.sr-only', { 'aria-live': 'polite' }); // a tile moved with the keyboard
-  // The home's header is the top of the card: name and lights on the left, then the look,
-  // the editor and everything off.
+  // The home's header is the top of the card: name and lights on the left, then the voice
+  // button, the look, the editor and everything off. The voice card opens under it.
   const head = h('header.deck-head.deck-grab',
     h('div.home', h('div.home-name', config.name), homeSub),
-    aiBadge, themeBtn, gear, pencil, power);
+    aiBadge, voice?.button, themeBtn, gear, pencil, power);
   const panel = h('section.panel',
-    head, scenes, rooms,
+    head, voice?.card, scenes, rooms,
     h('div.list-head', listTitle,
       h('button.pill.bulk', { onclick: () => bulk(true) }, 'All on'),
       h('button.pill.bulk', { onclick: () => bulk(false) }, 'All off'),
@@ -1481,6 +1484,9 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
   const onKey = (ev) => {
     // While the home is being edited, Esc belongs to the editor.
     if (card.classList.contains('editing')) return;
+    // Typing to the house is not the TV's remote.
+    if (voice?.open && voice.card.contains(ev.target) && ev.key !== 'Escape') return;
+    if (ev.key === 'Escape' && voice?.close()) return;
     if (ui.sheet?.kind === 'tv' && sheetView?.key(ev)) return;
     if (ev.key !== 'Escape') return;
     if (!closeSheet()) onMenu(null, 'escape');
@@ -1535,6 +1541,7 @@ export function createPanel(root, config, store, { onFocus, onMenu, onEdit, onEd
     /** Stops listening; the card is removed by whoever replaces it. */
     dispose() {
       window.removeEventListener('keydown', onKey);
+      voice?.dispose();
       unsubscribe();
       unsubscribeTv();
       unsubscribeSpotify();

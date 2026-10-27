@@ -101,6 +101,26 @@ async def spotify_action(request):
     return web.json_response({"ok": True})
 
 
+async def agent(request):
+    # The house agent (hub/agent.py), pretend: one step over the events, then the reply.
+    body = await request.json()
+    sent.append({"route": "agent", **body})
+    run = {"id": f"run-{len(sent)}", "client": body.get("client"), "text": body.get("text", ""),
+           "state": "thinking", "steps": [], "reply": ""}
+    await publish({"agent": run})
+    await asyncio.sleep(0.25)
+    step = {"tool": "set_lights", "text": "Kitchen lights → 30%", "ok": None}
+    await publish({"agent": {**run, "state": "acting", "steps": [step]}})
+    await asyncio.sleep(0.25)
+    for light in ("kitchen.edison", "kitchen.counter"):
+        state["lights"][light].update(on=True, brightness=0.3)
+    await publish({"lights": state["lights"]})
+    done = [{**step, "ok": True}, {"tool": "tv", "text": "TV · Netflix", "ok": True}]
+    reply = "The kitchen is at 30 percent and Netflix is on."
+    await publish({"agent": {**run, "state": "done", "steps": done, "reply": reply}})
+    return web.json_response({"ok": True, "id": run["id"], "reply": reply, "steps": done})
+
+
 async def reset(_):
     plan.clear()
     plan.update(copy.deepcopy(initial))
@@ -140,7 +160,7 @@ app = web.Application()
 app.add_routes([web.get("/", index), web.get("/api/events", events), web.post("/api/call", call),
                 web.get("/api/plan", get_plan), web.get("/api/tv", get_tv), web.post("/api/tv/{id}", tv_action),
                 web.get("/api/spotify", get_spotify), web.post("/api/spotify", spotify_action),
-                web.get("/api/spotify/playlists", get_playlists),
+                web.get("/api/spotify/playlists", get_playlists), web.post("/api/agent", agent),
                 web.post("/test/reset", reset), web.get("/test/state", debug)])
 app.router.add_static("/", ROOT / "web/dist")
 if __name__ == "__main__":

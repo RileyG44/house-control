@@ -183,6 +183,28 @@ sudo cp ~/house-control/hub/systemd/house-smart-evening.* /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now house-smart-evening.timer
 ```
 
+### The house agent (say what you want)
+
+The panel's mic button (and the iPhone app's) sends what you say or type to `POST /api/agent
+{"text", "client"}`; `agent.py` runs it through the same Codex as the nightly picks (`codex exec`,
+read-only, in an empty folder), with the house's own tools: look at the home, lights, the AC,
+scenes, the TV (keys, apps, finding and playing a title), Spotify on the Echo, and the picks. Its
+steps reach every open panel as `agent` events on `/api/events`, and the answer is one or two
+spoken sentences. One request runs at a time (three more may wait), each at most 120 s. A hub
+without Codex (the Mac backup) asks the other hub. `HOUSE_AGENT_MODEL` picks the model,
+`HOUSE_AGENT_EFFORT` its reasoning effort (`low`); `taste.md` tells it about Riley. See
+[docs/voice-agent.md](../docs/voice-agent.md).
+
+Codex reaches the tools through `agent_mcp.py`, a small stdio MCP server (standard library only)
+that calls `GET /api/agent/tools` and `POST /api/agent/tool/<name>` on this hub; those answer only
+programs on the hub computer itself. Any other MCP client there can use it too:
+
+```sh
+claude mcp add house -- ~/house-control/hub/.venv/bin/python ~/house-control/hub/agent_mcp.py
+```
+
+(`HOUSE_HUB_URL` in its environment if the hub isn't on `http://127.0.0.1:8766`).
+
 ### A second hub that keeps the same plan
 
 Two hubs can stand in for each other: Riley's runs on the home server (dell-server) and, as a
@@ -226,6 +248,7 @@ iPhone / Mac browser ── HTTP ──▶ hub (house.py, port 8766) ── UDP 
 - `launcher.py` — the client for the TV launcher's API, and pairing with it.
 - `nowplaying.py` — what the TV is playing, over Cast (or adb), and seeking.
 - `plan.py` — the starting floor plan: Riley's Studio linked by name, or boxes made from `devices.json`.
+- `agent.py` — the house agent: the tools, and running a request through Codex; `agent_mcp.py` — those tools over MCP.
 
 The panel is the same web UI the Mac and iPhone apps use (`../web`). Served by the hub it
 sends each change to `POST /api/call` and receives the devices' state from
@@ -258,3 +281,5 @@ with a `/tmp/hub/devices.json` that gives those lights `"ip": "127.0.0.2"` and s
 | `HOUSE_TV_URL` | `http://<LAN IP>:8765` | tv-remote, the TV's service on the Mac |
 | `HOUSE_TV_CAST` | on | `off`: don't read the TV over Cast |
 | `HOUSE_TV_ADB` | `adb` on the `PATH` | The adb to read the TV's media sessions with, or `off` |
+| `HOUSE_AGENT_MODEL` | Codex's own | The model the house agent asks (`codex exec -m`) |
+| `HOUSE_AGENT_EFFORT` | `low` | Its reasoning effort |

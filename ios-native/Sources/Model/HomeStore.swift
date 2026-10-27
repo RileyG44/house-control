@@ -62,6 +62,8 @@ final class HomeStore {
     let hub: HubClient
     let tv: TVStore
     let spotify: SpotifyStore
+    /// The house agent: what was asked aloud or typed, its steps and its reply (VoiceAgent.swift).
+    let voice: VoiceAgent
     private(set) var plan: Plan
     /// Bumped when the model itself changes (not only the order of tiles or rooms).
     private(set) var modelRev = 0
@@ -99,6 +101,7 @@ final class HomeStore {
         self.hub = hub
         self.tv = TVStore(hub: hub)
         self.spotify = SpotifyStore(hub: hub)
+        self.voice = VoiceAgent(hub: hub)
         let cached = (try? Data(contentsOf: Self.cacheURL)).flatMap { try? Plan(data: $0) }
         plan = cached ?? Plan.bundled()
         adoptPlan(plan, first: true)
@@ -107,6 +110,7 @@ final class HomeStore {
         hub.onPathChanged = { [weak self] in self?.tv.networkChanged() }
         hub.onPlanChanged = { [weak self] in self?.refreshPlan() }
         hub.onWeather = { [weak self] in self?.takeWeather($0) }
+        hub.onAgent = { [weak self] in self?.voice.take($0) }
         hub.onConnected = { [weak self] _ in
             self?.refreshPlan()
             self?.tv.refresh()

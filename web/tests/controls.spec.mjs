@@ -268,3 +268,42 @@ test('TV app search targets its app and Settings stays accessible', async ({ pag
   await page.getByRole('button', { name: 'Search selected app on TV', exact: true }).click();
   await expect.poll(async () => (await data(request)).sent.filter((s) => s.action === 'app-search')).toContainEqual({ route: 'tv', action: 'app-search', app: 'netflix', text: 'space & science' });
 });
+
+test('the voice button: a typed request shows its steps and the reply', async ({ page, request }) => {
+  await page.getByRole('button', { name: 'Ask the house', exact: true }).click();
+  const card = page.getByRole('dialog', { name: 'Ask the house' });
+  await expect(card).toBeVisible();
+  const field = card.getByRole('textbox', { name: 'What should the house do?' });
+  await field.fill('dim the kitchen to 30 and put on Netflix');
+  await field.press('Enter');
+  await expect(card.locator('.agent-steps li')).toHaveText(['Kitchen lights → 30%', 'TV · Netflix']);
+  await expect(card.locator('.agent-reply')).toHaveText('The kitchen is at 30 percent and Netflix is on.');
+  const asked = (await data(request)).sent.filter((s) => s.route === 'agent');
+  expect(asked).toHaveLength(1);
+  expect(asked[0].text).toBe('dim the kitchen to 30 and put on Netflix');
+  expect(asked[0].client).toBeTruthy();
+  await page.keyboard.press('Escape');
+  await expect(card).toBeHidden();
+});
+
+test('the voice button: a spoken request is sent on the final words and the reply is read out', async ({ page, request }) => {
+  await page.addInitScript(() => {
+    // A pretend recogniser: the words as they come, then the final result.
+    window.spoken = [];
+    window.SpeechRecognition = class {
+      start() {
+        const said = ['warm the', 'warm the bedroom to 70'];
+        said.forEach((words, i) => setTimeout(() => this.onresult?.({ results: [Object.assign([{ transcript: words }], { isFinal: i === said.length - 1 })] }), 150 * (i + 1)));
+      }
+      stop() { setTimeout(() => this.onend?.(), 10); }
+      abort() { this.stop(); }
+    };
+    window.speechSynthesis.speak = (line) => window.spoken.push(line.text);
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Ask the house', exact: true }).click();
+  const card = page.getByRole('dialog', { name: 'Ask the house' });
+  await expect(card.locator('.agent-reply')).toHaveText('The kitchen is at 30 percent and Netflix is on.');
+  expect((await data(request)).sent.filter((s) => s.route === 'agent').map((s) => s.text)).toEqual(['warm the bedroom to 70']);
+  await expect.poll(() => page.evaluate(() => window.spoken)).toEqual(['The kitchen is at 30 percent and Netflix is on.']);
+});

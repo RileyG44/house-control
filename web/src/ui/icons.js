@@ -10,6 +10,7 @@ import {
   PenLine, RotateCw, Search, Ruler, Compass, CookingPot, Bath, Monitor, Utensils, Footprints, Shirt, Grid2x2,
   ArrowLeftRight, TriangleAlert, CloudOff, Upload, Wifi, WandSparkles, Info, SquareDashed, Magnet, Hand, Move, Scissors,
   ChevronUp, Volume2, VolumeX, Keyboard, Play, Pause, SunMoon, GripVertical, Speaker, SkipBack, SkipForward,
+  Mic, ArrowUp,
 } from 'lucide';
 
 const ICONS = {
@@ -31,7 +32,7 @@ const ICONS = {
   passage: ArrowLeftRight, warning: TriangleAlert, offline: CloudOff, upload: Upload, wifi: Wifi, wand: WandSparkles,
   info: Info, draw: SquareDashed, magnet: Magnet, hand: Hand, move: Move, refresh: RefreshCw, cut: Scissors,
   up: ChevronUp, volume: Volume2, mute: VolumeX, keyboard: Keyboard, play: Play, pause: Pause, themeAuto: SunMoon, grip: GripVertical,
-  speaker: Speaker, previousTrack: SkipBack, nextTrack: SkipForward,
+  speaker: Speaker, previousTrack: SkipBack, nextTrack: SkipForward, mic: Mic, send: ArrowUp,
 };
 
 export function icon(name, size = 18, stroke = 1.8) {
